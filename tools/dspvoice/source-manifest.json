@@ -1,0 +1,27 @@
+{
+  "core0_sha256": "4a8618bb189d5ea05374431d62f39331604221ea5f17219d1d6267d25495b814",
+  "core1_sha256": "b792d02b12c5526cc538a805244a6456439d65efe6c90c397f3ee3867e5a9b44",
+  "files": {
+    "tests/test_dspvoice_source.py": "2e1131057c4c3a7920fc762eb95aa1c0ea3fd55675053df9ab724630a302bc68",
+    "tools/dspvoice/LICENSE": "7e026001d44d5b4dc6794e3868a8bcbb0c86432186fbd18423b01fc79f11fd03",
+    "tools/dspvoice/README.md": "be1bc8dbae9812c1af9aca9b6e5f5bcef511f1fc27105904ecf2806f6d3a92a5",
+    "tools/dspvoice/adapter.py": "8ba8c7c639838493c1137474937b3e6ad8b6b35cc6efeca51b01cb1d708a9b5a",
+    "tools/dspvoice/assemble.py": "ad1b68e7f4bdba9fafd0e477640f3092d4f2421116cb61c767706b08bd5ece8b",
+    "tools/dspvoice/build.py": "65b0337f7a731df2ffa12d145b4b41fd3ca181a9e8a04b799bece8893ef25829",
+    "tools/dspvoice/decoder.asm": "425e45d998b9910bb84fb1cff4ca1210c283de1c33ad7f9434e240053d740701",
+    "tools/dspvoice/guard.asm": "ec8d96ce51fda010175cd199a13afb8d3fb4ba2eb2ed31340b90e88dff1254eb",
+    "tools/dspvoice/parameters.py": "abbf046d3173c0ab5ec849871c4ea358faad0acb1713e6be8105ac99c93217f8",
+    "tools/dspvoice/symbols.json": "e8d60307fa3ea7a4cdaf9fe0e7cd2314ee4c233be95c06dc5153bdb537837658",
+    "tools/dspvoice/tables.py": "31b203ff49aa6ed5ee5912a081bbdfd1351b8bc4c699b4b3caa38ec599b51a78",
+    "tools/dspvoice/toolchain/CMakeLists.txt": "4dd5b9a81db6eb263137081bbd84366e666287a5391e897c4baa670066bd889d",
+    "tools/dspvoice/toolchain/NOTICES.md": "a333859e148fd7edd869df146a51f6aefecd5bf35475afa12546e41a931990be",
+    "tools/dspvoice/toolchain/README.md": "5a4a8a4cbaaa558312cae7da12b90960639a440f9ec9fb526b7ca9fe35b8f9fe",
+    "tools/dspvoice/toolchain/UPSTREAM.md": "b017e0b4d7ca2275b6c1b930b057cfdb8a6cb918ca01ca6d5780c0b8a832d77a",
+    "tools/dspvoice/toolchain/dspasm.cpp": "c42e0ffef4be37261f520c41f1d07030cdb739763809a34c5b2c5b0b5369ece5",
+    "tools/dspvoice/voice.asm": "0910c08fa1679542ee537a927d690cf06710327234e13182c7dab5acdf68e7f9"
+  },
+  "firmware_label": 7261,
+  "firmware_syx_sha256": "920b2893e8427fc0ea468a414ad7bfc82705aa499828be4375196d6dca2b011b",
+  "release": "0.1.1",
+  "schema": "arrhythmia-dsp-source/1"
+}

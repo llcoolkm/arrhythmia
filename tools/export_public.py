@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import syx  # noqa: E402
 
 # Published paths, every one by name (release plan §2.1; D7): a new file anywhere stays private until it is listed here
-# (public-maps review, master, 2026-10-19; Codex b72bbbf2: tools/, patches/src/, release/ and web/ too, not only docs/
+# (public-maps review, 2026-10-19: tools/, patches/src/, release/ and web/ too, not only docs/
 # and tests/). patches/*.json stay out: their "expect" fields carry stock bytes. modules/paint.c is the built-in module
 # compiled into both 0.1 images, published so that their ARM bytes can be rebuilt and audited; patches/dspmeter.lst is
 # the DSP meter's own program listing, which tools/dspmeter.py builds arrhythmia-devkit's DSP layer from.
@@ -74,7 +74,7 @@ PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py",
                 "tests/test_module_readback.py")
 PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
                 "tools/crpatch.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
-                "tools/dspmeter/dspasm.cpp", "tools/export_public.py", "tools/flash.py", "tools/inputlog.py",
+                "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
                 "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
 PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
@@ -82,9 +82,19 @@ PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/de
               "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/plockfix.c", "patches/src/scales.c",
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
               "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c")
+# DSP voice source of arrhythmia-firmware 0.1.1 (build 7261): our assembly, generators, adapter, builder, the line
+# assembler frontend and its licence notices, and the test; exactly the files that tools/dspvoice/source-manifest.json
+# names, plus the manifest itself.
+PUBLIC_DSPVOICE = ("tools/dspvoice/source-manifest.json", "tools/dspvoice/LICENSE", "tools/dspvoice/README.md",
+                   "tools/dspvoice/adapter.py", "tools/dspvoice/assemble.py", "tools/dspvoice/build.py",
+                   "tools/dspvoice/decoder.asm", "tools/dspvoice/guard.asm", "tools/dspvoice/voice.asm",
+                   "tools/dspvoice/parameters.py", "tools/dspvoice/tables.py", "tools/dspvoice/symbols.json",
+                   "tools/dspvoice/toolchain/CMakeLists.txt", "tools/dspvoice/toolchain/NOTICES.md",
+                   "tools/dspvoice/toolchain/README.md", "tools/dspvoice/toolchain/UPSTREAM.md",
+                   "tools/dspvoice/toolchain/dspasm.cpp", "tests/test_dspvoice_source.py")
 PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "web/index.html")
 ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
-         + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS)
+         + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE)
 # Allow-listed files published under another name (source path -> published path). The public README is
 # docs/user/README.md, published at the export root; this repo's own root README.md is private (DENY_PATHS).
 PUBLISH_AS = {"docs/user/README.md": "README.md"}
@@ -116,7 +126,8 @@ PRIVATE_DOCS = ("docs/a1-notetap.md", "docs/a1-trace-t60-2s.txt", "docs/a1-trace
                 "docs/recovery.md", "docs/rhythm-vs-tracks.md", "docs/scales.md", "docs/sd-modules.md",
                 "docs/synth-page.md", "docs/track-modes-t1.md", "docs/track-modes.md",
                 "docs/tracks-generative-feasibility.md", "docs/tracks-on-rhythm.md", "docs/tracks-resources.md",
-                "docs/v01-integration.md", "docs/voice-stream.md")
+                "docs/v01-integration.md", "docs/voice-stream.md",
+                "docs/dsp-source-bundle-handoff.md")
 PRIVATE_TESTS = ("tests/test_a1_notetap.py", "tests/test_a2_page.py", "tests/test_a2_regressions.py",
                  "tests/test_cmd08_meter.py", "tests/test_cmd7d.py", "tests/test_devkit.py", "tests/test_devkit_clock.py",
                  "tests/test_devkit_dsp.py", "tests/test_devkit_input.py", "tests/test_devkit_load.py",

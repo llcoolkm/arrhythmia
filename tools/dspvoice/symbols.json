@@ -1,0 +1,121 @@
+{
+  "components": {
+    "decoder": {
+      "labels": {
+        "all_end": 3929,
+        "all_idle": 3923,
+        "alloff": 3886,
+        "bank15": 3830,
+        "bank3": 3836,
+        "bank7": 3833,
+        "bank_done": 3838,
+        "cancel_pending": 4014,
+        "fallback": 3944,
+        "handoff": 3945,
+        "handoff_end": 3974,
+        "handoff_next": 3972,
+        "install": 3982,
+        "kill": 3721,
+        "kill_selected": 3867,
+        "onset": 3696,
+        "onset_idle": 3865,
+        "onset_selected": 3766,
+        "patch_all": 4024,
+        "restore_accept": 3935,
+        "restore_fallback": 3940,
+        "select": 3740,
+        "unshifted": 3804
+      },
+      "origin": 3668,
+      "u24be_sha256": "823659955c551446c65ebfa30ab0d448c3f180d171ca5f8dd00a72d4da3ae6af",
+      "words": 398
+    },
+    "guard": {
+      "labels": {
+        "boot": 3610,
+        "choke_end": 3655,
+        "note_off": 3623,
+        "note_on": 3616,
+        "pending": 3630,
+        "reserved": 3658,
+        "reserved_off": 3637
+      },
+      "origin": 3610,
+      "u24be_sha256": "d4bc6338c1efaca3ba3cf0d2f11e577e37f89870873a65c364c9f1edb60c99e7",
+      "words": 58
+    },
+    "voice": {
+      "labels": {
+        "attack": 3457,
+        "attack_continue": 3472,
+        "clear_end": 3439,
+        "decay": 3477,
+        "decay_continue": 3489,
+        "done": 3573,
+        "envelope_done": 3493,
+        "finished": 3550,
+        "idle": 3570,
+        "poly_last": 3572,
+        "restore": 3575,
+        "table_end": 3550,
+        "tail": 3609,
+        "voice_done": 3571,
+        "wrapper": 3378
+      },
+      "origin": 3378,
+      "u24be_sha256": "2328d0870df87ecb84fbd87ccd42b33a652517f04951472b4d00c35d83fcd5fb",
+      "words": 232
+    }
+  },
+  "fault": {
+    "instructions": [
+      "ori #$03,mr",
+      "jmp $ff9"
+    ],
+    "origin": 4088,
+    "vector": 74
+  },
+  "hooks": {
+    "command": {
+      "address": 1254,
+      "instruction": "jmp $e54"
+    },
+    "render": {
+      "address": 286,
+      "instruction": "jsr $d32"
+    },
+    "sample_boot": {
+      "address": 730,
+      "instruction": "jmp $e1a"
+    },
+    "sample_note_off": {
+      "address": 1289,
+      "instruction": "jmp $e27"
+    },
+    "sample_note_on": {
+      "address": 1268,
+      "instruction": "jmp $e20"
+    },
+    "sample_pending": {
+      "address": 765,
+      "instruction": "jmp $e2e"
+    }
+  },
+  "register_save": {
+    "additional_words": 2,
+    "extra": [
+      "r4",
+      "r5",
+      "r6",
+      "n4",
+      "m4"
+    ]
+  },
+  "state": {
+    "enable": 11888,
+    "pending_base": 12240,
+    "pending_words": 24,
+    "voice_base": 11840,
+    "voice_words": 44
+  }
+}

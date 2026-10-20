@@ -27,10 +27,10 @@ firmware file on your own computer. No Novation code or firmware is included in 
 ## Rebuilding the images
 
 `release/v0.1.1.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
-installer and embeds it. `release/v0.1.0.json` is the 0.1.0 release. The steps below rebuild the ARM parts of 0.1.1 from
-this tree.
+installer and embeds it. `release/v0.1.0.json` is the 0.1.0 release. The steps below rebuild both 0.1.1 images from this
+tree: arrhythmia-devkit 7228 and the full arrhythmia-firmware 7261 image, including its DSP voice code.
 Everything below needs the official firmware 5706 `.syx` file (see [user/install.md](user/install.md#before-you-install)),
-`clang` and the LLVM tools; nothing is downloaded. Run every command from the top folder of the Arrhythmia files.
+`clang` and the LLVM tools; steps 1 to 4 download nothing. Run every command from the top folder of the Arrhythmia files.
 
 1. Create the folders `firmware/` and `build/`, and copy the official file to `firmware/circuit-rhythm-5706.syx`
    (the patch sets name this path, so the file must be there under exactly this name). Then decode it:
@@ -44,6 +44,10 @@ Everything below needs the official firmware 5706 `.syx` file (see [user/install
 4. arrhythmia-firmware: `python3 -I tools/patch.py patches/arrhythmia-firmware-arm-ad.json
    build/arrhythmia-firmware-arm-ad-7251` builds its ARM part (label 7251, with attack and decay);
    `build/arrhythmia-firmware-arm-ad-7251.syx` must have the SHA-256
-   `471008cc21a7ace738cabc8a2ff94a651559fa8da52dcfec07ceb97fee7886d9`. The DSP voice code that `tools/voicestack.py`
-   adds on top is developed separately and its source is not published yet, so image 7261 cannot be rebuilt from this
-   tree alone; check it with the release file instead (`tools/crpatch.py apply`).
+   `471008cc21a7ace738cabc8a2ff94a651559fa8da52dcfec07ceb97fee7886d9`.
+5. Full arrhythmia-firmware image 7261: build the DSP line assembler, then add the DSP voice code from its source
+   (`tools/dspvoice/`) to the ARM part of step 4, as [../tools/dspvoice/README.md](../tools/dspvoice/README.md)
+   describes. This step needs Git, CMake and a C++17 compiler, and downloads the pinned public assembler source
+   (DSP56300, GPLv3). `build/arrhythmia-7261-source/arrhythmia-firmware-7261.syx` must have the SHA-256 of the
+   released build, `920b2893e8427fc0ea468a414ad7bfc82705aa499828be4375196d6dca2b011b`. This rebuild is tested on
+   Linux (Ubuntu x86-64) only.

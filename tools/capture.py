@@ -1,4 +1,4 @@
-"""Reference-audio capture for Codex's DSP emulator: scripted MIDI stimulus on the unit + WAV + JSON sidecar.
+"""Reference-audio capture for the DSP emulator: scripted MIDI stimulus on the unit + WAV + JSON sidecar.
 
     uv run python -I tools/capture.py plan   --source triangle-positive --track-channel 1     # dry run, opens nothing
     uv run python -I tools/capture.py live   --source triangle-positive --track-channel 1 --alsa-device hw:H5,0 \\
@@ -49,12 +49,12 @@ SOURCES = {"triangle-positive": "triangle-positive.wav", "triangle-negative": "t
 # ALSA sample format -> (sample_type, bits). S24_LE (24 in 32, low aligned) is absent on purpose: it would need
 # repacking, and a mislabelled WAV is worse than a refusal.
 ALSA_FORMATS = {"S16_LE": ("pcm", 16), "S24_3LE": ("pcm", 24), "S32_LE": ("pcm", 32), "FLOAT_LE": ("float", 32)}
-# Codex's protocol values (answers 2, 3, 5). Deviations are allowed but recorded.
+# Protocol values (answers 2, 3, 5). Deviations are allowed but recorded.
 PROTOCOL = {"track": 1, "velocity": 127, "hits": 3, "lead": 2.0, "spacing": 2.0, "duration": 12.0,
             "min_idle_before": 2.0, "note_off_after": 0.5, "preset": "reference", "channels": 2, "rate": 48000,
             "ref_kind": "none"}
 PILOT = {"hits": 1, "lead": 1.0, "duration": 3.0}
-# recorder-chain calibration take (Codex ruling 2026-10-17): five hits of the mono centred fixture, 1 s apart
+# recorder-chain calibration take (ruling 2026-10-17): five hits of the mono centred fixture, 1 s apart
 CALIBRATE = {"hits": capture_align.CAL_MIN_HITS, "lead": 1.0, "spacing": 1.0, "duration": 7.0}
 CAL_SCHEMA = capture_align.CALIBRATION_SCHEMA
 UNUSED = capture_align.UNUSED_LABEL
@@ -96,14 +96,14 @@ def check_voice_only(data):
 
 
 def reference_preset(track_ch, grid_fx_ch):
-    """The preset Codex approved (answer 1). Numbers and ranges from PRG v5.2 pp.3-5.
+    """The approved preset (answer 1). Numbers and ranges from PRG v5.2 pp.3-5.
 
     Signed controls at the centre of their 0..127 encoding, derived from the guide's ranges: Pitch 4..124 = -60..+60
     (64 = 0), Slope 0..127 = -64..63 (64 = 0), Pan -64..63 (64 = 0). Master filter CC79=64 / CC71=30 = guide defaults.
     Compressor and soft clip off.
     Grid FX OnOff = 0 only when grid_fx_ch is given: the guide gives no channel for these CCs, so by default none are
     sent and the operator turns Grid FX off on the unit and records it in --fx-state-note.
-    FX bypass (NRPN 1:21) is NOT sent: Codex forbids 1, and the meaning of 0 is not checked in code.
+    FX bypass (NRPN 1:21) is NOT sent: 1 is not allowed, and the meaning of 0 is not checked in code.
     These are known filter/level controls, not proof of a bit-transparent path.
     """
     t = track_ch
@@ -190,7 +190,7 @@ def protocol_deviations(a):
     if a.idle_before < PROTOCOL["min_idle_before"]:
         dev.append(f"idle_before={a.idle_before} < {PROTOCOL['min_idle_before']} s")
     if a.sample_choice is not None:
-        dev.append("SampleChoice sent (Codex: not for the first run)")
+        dev.append("SampleChoice sent (not for the first run)")
     if a.pilot:
         dev.append("pilot take (gain check only)")
     if a.ref_kind != "none" and a.ref_channel is not None and used <= PROTOCOL["channels"]:
@@ -480,7 +480,7 @@ def sidecar(a, path_kind, events, settings, ref):
                     "gain_note": a.gain_note, "channel_map": a.channel_map, "recorder_settings_note": a.recorder_note},
         "source": source_info(a),
         "settings": {"preset": a.preset, "track_channel": a.track_channel, "grid_fx_channel": a.grid_fx_channel,
-                     "fx_bypass": "not sent (Codex); actual state in unit.fx_state_note", "sent": settings,
+                     "fx_bypass": "not sent; actual state in unit.fx_state_note", "sent": settings,
                      "sequencer": "stopped (operator)", "operator_notes": a.notes},
         "keyboard_note": keyboard_note(a),
         "stimulus": {"track": a.track, "midi_channel": DRUM_CHANNEL, "note": TRACK_NOTES[a.track - 1],
@@ -721,7 +721,7 @@ def run_calibration(a, on_chunk=None):
            "reasons": [], "chain": chain_info(a), "swap_evidence": swap,
            "target": {"peak_dbfs": a.target_peak, "tolerance_db": a.target_tolerance,
                       "role": "information for setting the gains; not a gate"},
-           "ruling": "Codex 2026-10-17: freeze one recorder-channel ratio from five pilot hits per session, preserve "
+           "ruling": "2026-10-17: freeze one recorder-channel ratio from five pilot hits per session, preserve "
                      "raw WAVs, log ratio/spread, recalibrate after any gain/cabling change, one shared take gain",
            "result": None, "take": take}
     exc = record_live(a, wav, take, events, settings, ref, on_chunk)
@@ -878,7 +878,7 @@ def parser():
                    help="seconds; negative = send no note-off")
     c.add_argument("--preset", choices=["none", "reference"], default=PROTOCOL["preset"])
     c.add_argument("--sample-choice", type=int, default=None,
-                   help="send SampleChoice CC 8 = value 0..127 (Codex: not for the first run)")
+                   help="send SampleChoice CC 8 = value 0..127 (not for the first run)")
     c.add_argument("--settle", type=float, default=1.0)
     c.add_argument("--pack", default=None, help="sample pack / project chosen by master")
     c.add_argument("--slot-ui", default=None, help="slot as the unit's UI shows it")

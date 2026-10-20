@@ -275,7 +275,7 @@ def test_exclude():
 
 
 def test_future_files():
-    """A new file in any published directory stays private until ALLOW names it (Codex b72bbbf2)."""
+    """A new file in any published directory stays private until ALLOW names it."""
     new = {"tools/stock_map.py": b"x = 1\n", "patches/src/stock_map.c": b"int y;\n",
            "release/private.json": b"{}\n", "web/private.html": b"<p>x</p>\n", "docs/new-note.md": b"# x\n",
            "docs/user/new.md": b"# x\n", "tests/test_new.py": b"assert True\n", "tests/fixtures/new.json": b"{}\n",

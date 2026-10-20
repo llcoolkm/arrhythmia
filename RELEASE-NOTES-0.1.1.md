@@ -132,6 +132,9 @@ The functions that 0.1.1 does not change keep the test record of the
 * Timing is checked in emulation only. A full pattern with long decays can cause audio errors; listen for them.
 * The source of the sound processor (DSP) code of the synth is not published yet, so the full arrhythmia-firmware
   image cannot be rebuilt from source yet. The ARM side and arrhythmia-devkit can.
+  Addendum 2026-10-21: the DSP source is now published in `tools/dspvoice/`. The full arrhythmia-firmware image (build
+  7261) can now be rebuilt from source on Linux (tested on Ubuntu x86-64 only). See
+  [tools/dspvoice/README.md](tools/dspvoice/README.md).
 * The limitations of 0.1.0 that 0.1.1 does not change still apply (expanded view at the default octave, MIDI clock
   during scale changes, SysEx 7D, the soak result, power-cycle before flashing). See the
   [0.1.0 release notes](RELEASE-NOTES-0.1.0.md#known-limitations).

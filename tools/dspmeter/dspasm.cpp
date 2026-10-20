@@ -1,4 +1,6 @@
+// SPDX-License-Identifier: MIT
 // Line assembler/disassembler over the pinned dsp56300 library (build tool only, never shipped).
+// Links the GPLv3 dsp56300 library when built; see NOTICE.md in this directory.
 // asm mode, stdin "ADDR<TAB>TEXT" -> "ADDR<TAB>w0 [w1]<TAB>len<TAB>disassembly", or "ERR<TAB>code<TAB>text".
 // dis mode, stdin "ADDR<TAB>w0 [w1]" -> "ADDR<TAB>len<TAB>disassembly".
 #include <iostream>

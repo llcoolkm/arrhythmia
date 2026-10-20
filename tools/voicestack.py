@@ -1,10 +1,10 @@
-"""Stack Codex's firmware-profile DSP bootstrap streams (no meter) onto an Arrhythmia ARM base.
+"""Stack the firmware-profile DSP bootstrap streams (no meter) onto an Arrhythmia ARM base.
 
     uv run python -I tools/voicestack.py --base patches/arrhythmia-firmware-arm.json \
         --streams build/voice-stream-709160f --label 7201 --version 000791 --out build/arrhythmia-firmware-7201
 
-Inputs (local, ignored build/, never in git): the stream directory produced by the DSP voice tools in Codex's repo,
-branch dsp/subtractive-m2: core1-voice.bin, core0-stock-relocated.bin and manifest.json. Placement follows the manifest
+Inputs (local, ignored build/, never in git): the stream directory produced by the DSP voice build
+(tools/dspvoice, see its README): core1-voice.bin, core0-stock-relocated.bin and manifest.json. Placement follows the manifest
 only, after checking it:
 * the stream hashes equal the manifest's; the base image is the pinned stock 5706 (manifest stock_sha256);
 * core 1 goes in place at the select-1 pointer's target 0x080101F0 (pointer 0x08031660 unchanged); it may run into
@@ -103,7 +103,7 @@ def build(base_spec, streams, label, out, version):
     voice = [{"addr": f"0x{a:08X}", "expect": e.hex(), "new": n.hex(), "note": note} for a, e, n, note in patches]
     lab = {"addr": "0x080101CA", "expect": "4a16", "new": struct.pack("<H", label).hex(),
            "note": f"build-info block: build number 5706 -> {label} (install marker)"}
-    desc = (f"{spec['description']} DSP: Codex's firmware-profile streams ({info['profile']}, wire ABI "
+    desc = (f"{spec['description']} DSP: firmware-profile streams ({info['profile']}, wire ABI "
             f"{'frozen' if info['wire_abi_frozen'] else 'not frozen'}): "
             "core 1 voice decoder (synth ENABLE X:2E70 = 0 at boot), core 0 stock relocated; no meter.")
     out_spec = dict(spec, description=desc, patches=base + voice + [lab], version_nibbles=version, dsp_voice=info)

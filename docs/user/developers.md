@@ -210,7 +210,9 @@ uint32_t host_midi(uint32_t msg);
 `stars`, `paint`, `chase` (lights and pads), `clock_demo` (sequencer clock), `abi3_demo` (ABI 3 calls) and `chord`
 (chords spread over sample tracks 5 to 7). `modules/paint.c` is published: it is the built-in module compiled into
 both images, so the ARM part of both images and the whole arrhythmia-devkit image can be rebuilt from the published
-sources. The whole arrhythmia-firmware image cannot until the source of its DSP voice code is published.
+sources. The source of the DSP voice code of arrhythmia-firmware is in `tools/dspvoice/`, so the full
+arrhythmia-firmware image can be rebuilt from source too, on Linux (tested on Ubuntu x86-64 only). See
+[tools/dspvoice/README.md](../../tools/dspvoice/README.md).
 
 `modules/stars.c` is published too. It is a light show with no sound: sparse stars that swell up and fade out slowly.
 Build it with
