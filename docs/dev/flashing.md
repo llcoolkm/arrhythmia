@@ -95,8 +95,9 @@ The build number is `n2 << 14 | n1 << 7 | n0` (HW):
 | Unit | Bootloader bytes | Application bytes | Builds |
 |---|---|---|---|
 | stock 5706 | `00 03 00 25 3F` | `01 01 00 2C 4A` | bootloader 4799, application 5706 |
+| arrhythmia-firmware 0.1.1 | same | ends `00 38 5D` | 7261 |
 | arrhythmia-firmware 0.1.0 | same | ends `00 38 3D` | 7229 |
-| arrhythmia-devkit 0.1.0 | same | ends `00 38 3C` | 7228 |
+| arrhythmia-devkit 0.1.0 and 0.1.1 | same | ends `00 38 3C` | 7228 |
 
 Use `70` to tell builds apart; it is the only query that shows the Arrhythmia label. The installer page and the release
 tools require bootloader 4799 and application 5706 or a 0.1 label before they flash.
@@ -116,6 +117,6 @@ How we know: our design.
 
 Arrhythmia is published as patches against the user's own stock file, never as an image. `tools/crpatch.py` describes
 the format (crpatch/1) in its docstring: every span over stock bytes is checked by a SHA-256 of the stock span, our
-bytes are carried as hex, and the whole input and output are pinned by SHA-256. `release/v0.1.0.json` is the
-0.1.0 release; `web/index.html` embeds it and
+bytes are carried as hex, and the whole input and output are pinned by SHA-256. `release/v0.1.1.json` is the
+0.1.1 release (`release/v0.1.0.json` the 0.1.0 release); `web/index.html` embeds 0.1.1 and
 applies it in the browser with the same rules.

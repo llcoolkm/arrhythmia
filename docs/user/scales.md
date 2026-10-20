@@ -1,9 +1,9 @@
 # Arrhythmia: scales on tracks 1 to 7
 
-Applies to Arrhythmia 0.1.0 (arrhythmia-firmware build 7229, arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.1.0.md). Items marked **TBD** are not confirmed yet.
+Applies to Arrhythmia 0.1.1 (arrhythmia-firmware build 7261, arrhythmia-devkit build 7228). Test status is in the
+[release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet.
 
-Scales are in both images: **arrhythmia-firmware** (build 7229, set on the synth page) and **arrhythmia-devkit** (build
+Scales are in both images: **arrhythmia-firmware** (build 7261, set on the synth page) and **arrhythmia-devkit** (build
 7228, set over SysEx only).
 
 ## What it is
@@ -156,14 +156,16 @@ Press **Down** twice: every scale in every key shows four full rows, and so does
 
 ## Evidence
 
-* **On hardware (build 7229, 2026-10-20, one unit):** C major in the simple and expanded views (every pad lights
-  itself), A minor pentatonic (the two dark pads per row), a note held across a scale change, scales off (the stock
-  keyboard comes back), save and power cycle, and track 8 and unscaled tracks unaffected: all passed.
+* **On hardware (build 7229, the arrhythmia-firmware image of 0.1.0, 2026-10-20, one unit):** C major in the simple
+  and expanded views (every pad lights itself), A minor pentatonic (the two dark pads per row), a note held across a
+  scale change, scales off (the stock keyboard comes back), save and power cycle, and track 8 and unscaled tracks
+  unaffected: all passed. Build 7261 (0.1.1) uses the same scales code for tracks 1 to 7. The scales tests in this
+  list ran on the builds named, not on 7261.
 * **On hardware (development build 7222, with a different keyboard layout):** a D harmonic minor setting persisted through save and power
   cycle, and the MIDI clock timing above was measured on the unit.
-* **In emulation (builds 7228 and 7229):** the full layout for all ten scales in all twelve keys and every octave,
-  both views, Up and Down, the key-pad colours, every pressed pad lighting itself (and notes played by the sequencer),
-  and slice layouts staying unchanged.
+* **In emulation (builds 7228 and 7229, the images of 0.1.0):** the full layout for all ten scales in all twelve keys
+  and every octave, both views, Up and Down, the key-pad colours, every pressed pad lighting itself (and notes played
+  by the sequencer), and slice layouts staying unchanged.
 * **Not tested on hardware:** arrhythmia-devkit 7228, the key-pad colours as such, slice layouts on a scaled track, and loading a project with
   scales on stock firmware.
 

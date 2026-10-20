@@ -4,7 +4,7 @@
  *     tm_edit (TM_EDIT) in trackmodes.c; route()/hook_frame() SYNTHPAGE blocks in devkit_abi3.c;
  *     32 B of new RAM below the p-lock block (heap limit 0x2004F3E0);
  *   - release item D3: SysEx cmd 08 reads only the DSP meter's X windows (CMD08_METER in devkit_abi3.c).
- * devkit-plock here is 6015 (claude/plock-fix 0cc5fc8, PLOCK: struct plx, hook_macro, hook_fx, pl_host).
+ * devkit-plock here is 6015 (the p-lock fix, PLOCK: struct plx, hook_macro, hook_fx, pl_host).
  * RAM: struct pg (32 B) below struct plx (64 B) below struct tm; heap limit 0x2004F400 -> 0x2004F3E0.
  * Without these defines devkit_abi3.c and trackmodes.c build 6012 / 6013 / 6015 byte for byte. */
 #define TRACKMODES 1

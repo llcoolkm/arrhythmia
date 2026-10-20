@@ -26,15 +26,16 @@ manifests of our images (DESIGN); core 1's X contents observed on hardware.
 | X cleared at boot | yes | **no**: core 1 X holds power-up garbage, so clear what you use | HW |
 
 Core 1 program memory is the scarce resource. On stock 5706, which has no meter, the tail P:0xD32..0xFFF (718 words)
-is not loaded (STATIC, EMU). Each Arrhythmia image puts its own core 1 code there (0.1.0 images: devkit 7228, firmware
-7229):
+is not loaded (STATIC, EMU). Each Arrhythmia image puts its own core 1 code there (0.1.1 images: devkit 7228, firmware
+7261; firmware 7229 is the 0.1.0 image, kept here as history):
 
 | Image | Our code in the core 1 tail | Words used | Words left |
 |---|---|---|---|
 | arrhythmia-devkit 7228 | the load meter, P:0xD32..0xE78 | 327 | 391 |
-| arrhythmia-firmware 7229 | the track 8 synth, P:0xD32..0xFF9 (710 words of voice code, 2 of fail-stop) | 712 | 6 |
+| arrhythmia-firmware 7261 | the track 8 synth with attack and decay: voice code P:0xD32..0xFE1 (688 words) and fail-stop P:0xFF8..0xFF9 (2 words); the two ranges are not contiguous | 690 | 28 |
+| arrhythmia-firmware 7229 (0.1.0, history) | the track 8 synth, P:0xD32..0xFF9 (710 words of voice code, 2 of fail-stop) | 712 | 6 |
 
-The two never share an image: 7228 has the meter and no synth, 7229 the synth and no meter.
+The two never share an image: 7228 has the meter and no synth, the firmware images the synth and no meter.
 
 Code and data allocations (DESIGN):
 
@@ -42,13 +43,20 @@ Code and data allocations (DESIGN):
 |---|---|---|---|
 | arrhythmia-devkit 7228 | 0 | P:0x1FED..0x213D (337 words); X:0x5C00..0x5E3F | meter code; meter ring, summary and work words (below) |
 | arrhythmia-devkit 7228 | 1 | X:0x2C00..0x2E3F | meter ring, summary and work words (below) |
+| arrhythmia-firmware 7261 | 1 | X:0x2B00..0x2BFF (256 words) | attack and decay coefficient tables |
+| arrhythmia-firmware 7261 | 1 | X:0x2CA0..0x2CA1 (2 words) | attack and decay globals, loaded with the default values (not zero) |
+| arrhythmia-firmware 7261 | 1 | X:0x2E40..0x2E6B (44), X:0x2E70 (ENABLE), X:0x2FD0..0x2FE7 (24) | voice state, ENABLE word and command records, as in 7229 |
+| arrhythmia-firmware 7261 | 1 | Y:0x1500..0x18FF (1,024 words) | four saw tables |
+| arrhythmia-firmware 7261 | 1 | one interrupt vector word | SHI receive-overrun fail-stop entry (not part of the synth) |
 | arrhythmia-firmware 7229 | 1 | X:0x2E40..0x2E6B (44 words) | synth voice state |
 | arrhythmia-firmware 7229 | 1 | X:0x2E70 | synth ENABLE word (loaded as 0; the ARM sets it once the synth may run) |
 | arrhythmia-firmware 7229 | 1 | X:0x2FD0..0x2FE7 (24 words) | synth command records |
 | arrhythmia-firmware 7229 | 1 | Y:0x1500..0x18FF (1,024 words) | four saw tables |
 | arrhythmia-firmware 7229 | 1 | one interrupt vector word | SHI receive-overrun fail-stop entry (not part of the synth) |
 
-The 69 synth X words are written to zero by the synth's load records, because core 1 does not clear X at boot.
+The 69 synth state, ENABLE and command words are written to zero by the synth's load records, because core 1 does not
+clear X at boot. In 7261 the synth uses 327 X words in total: those 69, the 256 coefficient-table words and the 2
+globals, which load with their default values.
 
 * External-memory bandwidth on the Rhythm is not known. Keep new voices' state and tables in internal RAM.
 * Core 0 waits for core 1 inside every block (the meter measures that wait, HW). Work added to core 1 increases core
@@ -80,6 +88,13 @@ release image. Percent of the 163,840-cycle block.
 Rough sizes for new voices (our estimates): a subtractive voice (one band-limited oscillator, a 2- or 4-pole filter,
 envelope, amplifier) costs about 1,000 to 1,600 instructions per block; eight of them 5 to 8 % of a block. A
 three-voice SID-style engine is 2 to 4 % at 48 kHz.
+
+### What was tested on 7261
+
+arrhythmia-firmware 7261 carries no meter. It is identical to development build 7255 except for the build number.
+Development builds 7253 to 7255 were tested on one unit for attack and decay (HW); the list is in
+[../../RELEASE-NOTES-0.1.1.md](../../RELEASE-NOTES-0.1.1.md). DSP timing of the attack and decay code is checked in
+emulation only; no hardware worst-case figure exists. **Deliberate DSP fault containment is not tested.**
 
 ### What was tested on 7229
 

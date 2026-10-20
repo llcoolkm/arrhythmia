@@ -70,7 +70,9 @@ struct plk {
     uint8_t slot[8][12];                      /* bit 7: the engine holds a lock value; bits 0..6: base */
     uint32_t gen;                             /* tm()->gen last seen */
     uint8_t busy;                             /* our own restore send is in the dispatcher */
-    uint8_t pad[3];
+    uint8_t ad_clr;                           /* AD build: track 8's Clear + macro 3 is in the stock page (hook_macro) */
+    uint8_t ad_step;                          /* AD build: track 8's latched step + 1 (0 = none), bit 7 = no note */
+    uint8_t ad_pat;                           /* AD build: the latch's pattern + 1 (0 = none) */
 };
 _Static_assert(sizeof(struct tm) + sizeof(struct plk) <= TM_SIZE, "p-lock state must fit the 6013 block's spare");
 #define PLK ((struct plk *)(TM_AT + sizeof(struct tm)))
@@ -103,6 +105,9 @@ static struct plk *plk(void)
         if (t->site != 0)
             for (uint32_t k = 0; k < sizeof p->slot; k++)
                 (&p->slot[0][0])[k] = 0;
+#if defined(AD_LIVE) && AD_LIVE
+        p->ad_step = p->ad_pat = 0;           /* noteless-step latch: a new project or session */
+#endif
         p->gen = t->gen;
     }
     return p;
@@ -231,9 +236,31 @@ static void pl_capture(struct plk *p, uint32_t E, uint32_t t, uint32_t k, uint32
         PLX->lsb[t][k - 1] = (uint8_t)pl_now(E, 16 * t + 13 + k, t);
 }
 
+#if defined(AD_LIVE) && AD_LIVE
+/* AD build: Clear + macro 3 on track 8 resets Length to 64/0 instead of the stock default 127/127. The macro page
+ * sends the reset through the dispatcher as a turn does (src 1, LSB id 16t + 15, then MSB 16t + 2); while hook_macro
+ * has marked the call as track 8's Clear + macro 3, exactly those two writes take 64 / 0 here, before the stock
+ * dispatcher, so the channel, value cell, display, MIDI out and the p-lock fix see the one value. A write in lock
+ * edit (Rec + held step: the preview of the lock the page records with src 2) is lock-class and stays stock, as do
+ * src 2 and the lane clear (anticlockwise). */
+#define AD_CLR_T        7u              /* track 8 */
+static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
+{
+    uint32_t E;
+    if (src != 1 || v != 127u || (id != 16u * AD_CLR_T + 2u && id != 16u * AD_CLR_T + 15u) ||
+        (E = pl_engine(D)) == 0 || pl_editing(E, AD_CLR_T))
+        return v;
+    return id == 16u * AD_CLR_T + 2u ? 64u : 0u;
+}
+#endif
+
 uint32_t hook_disp(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
 {
     struct plk *p = plk();
+#if defined(AD_LIVE) && AD_LIVE
+    if (p && p->ad_clr)
+        v = ad_clr_value(D, id, v, src);
+#endif
     uint32_t lsb, E = 0, t = 0, k = 0, fine = 0;
     int sl = pl_slot2(id, &lsb);
     if (p && !p->busy && sl >= 0 && (E = pl_engine(D)) != 0) {
@@ -275,9 +302,16 @@ static uint32_t pl_page_engine(uint32_t th, uint32_t t)
     return E && !pl_editing(E, t) ? E : 0;
 }
 
+#if defined(AD_LIVE) && AD_LIVE
+#define PL_MACRO        pl_macro        /* hook_macro below marks track 8's Clear + macro 3 first */
+static uint32_t pl_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d);
+#else
+#define PL_MACRO        hook_macro
+#endif
+
 /* Macro page knob k of track t: run the original handler on the base (and, macro 1, its raw position), restore the
  * lock-side values if it wrote nothing. */
-uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
+uint32_t PL_MACRO(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
 {
     struct plk *p = plk();
     if (!p || p->busy || k > 7 || !in_sram(page, 0x68) || rw(page) != PL_MACRO_VT)
@@ -310,6 +344,25 @@ uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
     }
     return r;
 }
+
+#if defined(AD_LIVE) && AD_LIVE
+/* Track 8's macro page, knob 3 (k = 2, Length), with Clear held (the page's cell + 0x20, element 0 bit 0): every
+ * dispatcher write the page makes in this call is the Clear reset (Clear sends nothing else through the dispatcher),
+ * so hook_disp gives it Length 64/0 (ad_clr_value). */
+uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
+{
+    struct plk *p = plk();
+    uint32_t c = in_sram(page, 0x68) ? rw(page + 0x20) : 0;
+    uint32_t arm = p && k == 2 && c && rw(page) == PL_MACRO_VT && *(volatile uint16_t *)(page + 0x44) == 16u * AD_CLR_T &&
+                   in_sram(c, 0x14) && in_sram(rw(c + 0xC), 4) && in_sram(rw(c + 0x10), 4) && (*pl_el(c, 0) & 1);
+    if (arm)
+        p->ad_clr = 1;
+    uint32_t r = pl_macro(page, k, delta, d);
+    if (arm)
+        p->ad_clr = 0;
+    return r;
+}
+#endif
 
 /* FX page knob k = track k, lane 10 or 11: the same on its display value. */
 uint32_t hook_fx(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
@@ -359,10 +412,105 @@ static void pl_send(struct plk *p, uint32_t sink, uint32_t id, uint32_t v)
     p->busy = 0;
 }
 
+#if defined(AD_LIVE) && AD_LIVE
+/* AD build: track 8's attack / decay lock lanes (ids 0x71 Start, 0x72 Length) do not play on a step without a note.
+ * Stock plays a step's locks whether or not it holds a note; removing a note keeps its locks, and with global A/D a
+ * lock on a noteless step reshapes the notes still sounding. Such a step now behaves as one without A/D locks (as
+ * after Clear + step): for that call the stock lock player reads the step's A/D lane bytes as 0xFF through a view
+ * (ad_lane; the store is not touched; a lock carried from an earlier noted step still plays) and the restore pass
+ * below treats them as unlocked, so a held lock gets its base back and nothing new becomes the base.
+ * "Has a note", latched at the step's pulse 0 (or the first pulse of it the player handles): its microstep mask
+ * (byte 2, any of the six microsteps; probability is not consulted, as stock plays a probability-skipped step's
+ * locks) or a sequencer note of the track still within its gate (a tie from an earlier step: the player's pending
+ * note-off list head, + 0x8A, set at the step's pulse 0 only by an earlier note). Playback only: knobs, CC,
+ * host_param, lock edit and its preview, lock recording and save do not pass here. */
+#define AD_T8_ID0       0x70u
+static uint32_t ad_quiet_lanes(struct plk *p, uint32_t player, uint32_t pattern, uint32_t step, uint32_t pulse,
+                               uint32_t lanes, uint32_t ids)
+{
+    if (*(volatile uint16_t *)ids != AD_T8_ID0 || pattern > 7)
+        return 0;
+    uint32_t row = rw(player + 0x50), sb = row + pattern * 0xA28u + step * 8u;
+    if (!in_sram(sb, 8))
+        return 0;
+    if (pulse == 0 || (p->ad_step & 0x3F) != step + 1 || p->ad_pat != pattern + 1) {
+        /* the step's pulse 0, or the first pulse of this (pattern, step) the player handles */
+        uint32_t note = *(volatile uint8_t *)(sb + 2) & 0x3F, tie = *(volatile uint8_t *)(player + 0x8A) != 0xFF;
+        p->ad_step = (uint8_t)((step + 1) | (note || tie ? 0 : 0x80));
+        p->ad_pat = (uint8_t)(pattern + 1);
+    }
+    if (!(p->ad_step & 0x80))
+        return 0;
+    uint32_t m = 0;
+    for (uint32_t k = 0; k < lanes; k++) {
+        uint32_t id = *(volatile uint16_t *)(ids + 2 * k);
+        if (id == AD_T8_ID0 + 1 || id == AD_T8_ID0 + 2)
+            m |= 1u << k;
+    }
+    return m;
+}
+#endif
+
+#if defined(AD_LIVE) && AD_LIVE
+/* The player's vtable while a quiet step plays: a copy of the stock one (with the two words before it) whose lane
+ * accessor is ad_lane; the call's state follows it. */
+struct ad_view {
+    uint32_t vt[8];                           /* [0..1] the words before the stock vtable, [2..7] its six entries */
+    uint32_t orig, quiet, step, pattern, seen;
+    uint8_t ff[8];
+};
+
+static uint32_t __attribute__((used, noinline)) ad_lane(uint32_t player, uint32_t pattern, uint32_t lane)
+{
+    struct ad_view *v = (struct ad_view *)(rw(player) - 8);
+    uint32_t b = 1u << (lane & 31);
+    if (lane < 12 && (v->quiet & b) && pattern == v->pattern && !(v->seen & b)) {
+        v->seen |= b;                         /* the player reads the step's bytes at + step * 6 + 0..5 only */
+        return (uint32_t)v->ff - v->step * 6u;
+    }
+    return ((pl_lane_fn)rw(v->orig + 0x14))(player, pattern, lane);
+}
+
+static uint32_t ad_lane_addr(void)
+{
+    uint32_t a;
+    __asm__("adr %0, 1f\n\tb 2f\n\t.p2align 2\n1:\n\tb.w ad_lane\n2:" : "=r"(a));
+    return a | 1u;
+}
+#endif
+
 void hook_lockplay(uint32_t player, uint32_t pattern, uint32_t step, uint32_t pulse)
 {
+#if defined(AD_LIVE) && AD_LIVE
+    struct plk *p = plk();
+    uint32_t quiet = 0;
+    if (p && in_sram(player, 0x150) && rw(player) == PL_PLAYER_VT && step <= 31) {
+        uint32_t ids0 = rw(player + 0x40), n0 = *(volatile uint8_t *)(player + 0x3C);
+        if (n0 <= 12 && ((ids0 >= FLASH_START && ids0 <= FLASH_END - 24) || in_sram(ids0, 24)))
+            quiet = ad_quiet_lanes(p, player, pattern, step, pulse, n0, ids0);
+    }
+    /* For this call the stock player reads this step's A/D lanes through a view: its lane accessor (vtable slot 5)
+     * returns, for the first read of a quiet lane in this pattern, a pointer whose step bytes are six 0xFF on our
+     * stack. The project store is never written. A lock carried from an earlier, noted step (rates 0..2:
+     * player + 0x48) still plays as on stock, and no carry is taken from this step. */
+    struct ad_view v;
+    uint32_t vt0 = rw(player);
+    if (quiet) {
+        for (uint32_t i = 0; i < 8; i++)
+            v.vt[i] = rw(vt0 - 8 + 4 * i);
+        v.vt[7] = ad_lane_addr();
+        v.orig = vt0, v.quiet = quiet, v.step = step, v.pattern = pattern, v.seen = 0;
+        for (uint32_t m = 0; m < 8; m++)
+            v.ff[m] = 0xFF;
+        *(volatile uint32_t *)player = (uint32_t)&v.vt[2];
+    }
+    ORIG_LOCKPLAY(player, pattern, step, pulse);
+    if (quiet)
+        *(volatile uint32_t *)player = vt0;
+#else
     ORIG_LOCKPLAY(player, pattern, step, pulse);
     struct plk *p = plk();
+#endif
     if (!p || !in_sram(player, 0x48) || rw(player) != PL_PLAYER_VT || step > 31)
         return;
     uint32_t last = rw(player + 0x4C);        /* u16 per lane: what the player handled this pulse */
@@ -398,6 +546,10 @@ void hook_lockplay(uint32_t player, uint32_t pattern, uint32_t step, uint32_t pu
         uint32_t locked = 0;
         for (uint32_t m = 0; m < 6; m++)
             locked |= *(volatile uint8_t *)(a + step * 6 + m) != 0xFF;
+#if defined(AD_LIVE) && AD_LIVE
+        if ((quiet >> k) & 1)
+            locked = 0;                       /* a noteless step's A/D locks count as none */
+#endif
         if (locked)
             continue;                         /* a locked step: unchanged, microsteps included */
         uint32_t b = *s & 0x7F;

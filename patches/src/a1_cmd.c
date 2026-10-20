@@ -12,6 +12,9 @@
  *   ALL OFF word0 = 0xA03000, word1 = 0: zeroes the four generations, cancels pending, damps.
  *   PDATA / PCOMMIT (opcodes 4, 5, A1_PATCH=1 variant only; v0.1 has no patch ops, the r4 decoder passes them on
  *           unchanged): word0 = 0xA04000 | index << 6 | epoch, word1 = value; 0xA05000 | count << 6 | epoch, 0.
+ *   PATCH_AD (opcode 6, AD_LIVE=1 builds only; attack and decay in one packet, two fields):
+ *           word0 = 0xA06000 exactly, word1 = attack | decay << 7 (indices 0..127), word1 bits 14..23 ZERO (the DSP
+ *           refuses them). No level field: loudness is the stock track-8 mixer level. vc_ad() is the one serializer.
  * Sample note words (0x8/0x9 class) pass through untouched; vc_kind() tells the admission code what an entry is.
  *
  * Pitch (voice command ABI r3): inc48(note) =
@@ -22,15 +25,21 @@
  * values of ABI r3 (seven differ by one LSB from the truncating r2 rule). Checked against the ABI r3 goldens for all
  * 120 notes. */
 
+#ifndef AD_LIVE
+#define AD_LIVE         0               /* 1: PATCH_AD (live attack/decay); the profile switch, build_lightshow.py */
+#endif
 #define VC_CLASS        0xA00000u
 #define VC_HB_ONSET     0xA4u
 #define VC_OP_KILL      1u
 #define VC_OP_ALLOFF    3u
 #define VC_OP_PDATA     4u
 #define VC_OP_PCOMMIT   5u
+#define VC_OP_AD        6u
+#define VC_AD_W0        0xA06000u       /* PATCH_AD word 0, exact */
+#define VC_AD_MASK      0x3FFFu         /* word 1: attack bits 0..6, decay bits 7..13; 14..23 zero */
 #define VC_NOTE_MAX     119u
 
-enum { VK_STOCK_ON, VK_STOCK_OFF, VK_STOCK_OTHER, VK_ONSET, VK_KILL, VK_ALLOFF, VK_PATCH };
+enum { VK_STOCK_ON, VK_STOCK_OFF, VK_STOCK_OTHER, VK_ONSET, VK_KILL, VK_ALLOFF, VK_PATCH, VK_AD };
 
 /* TOP[k] = note 108 + k: (rounded mantissa, exponent) of the 48-bit increment; a switch so that it stays in .text. */
 static uint32_t vc_top(uint32_t k, uint32_t *e)
@@ -142,6 +151,13 @@ static void vc_pcommit(uint32_t count, uint32_t epoch, uint32_t *w0, uint32_t *w
     *w1 = 0;
 }
 
+/* PATCH_AD: the only serializer of the AD packet. ad = attack | decay << 7 (the packed form the voice table keeps). */
+static void vc_ad(uint32_t ad, uint32_t *w0, uint32_t *w1)
+{
+    *w0 = VC_AD_W0;
+    *w1 = ad & VC_AD_MASK;
+}
+
 static uint32_t vc_kind(uint32_t w0)
 {
     uint32_t c = w0 & 0xF00000u, hb = w0 >> 16;
@@ -154,6 +170,10 @@ static uint32_t vc_kind(uint32_t w0)
     if (hb >= VC_HB_ONSET && hb < VC_HB_ONSET + 4u)
         return VK_ONSET;
     uint32_t op = (w0 >> 12) & 15u;
+#if AD_LIVE
+    if (w0 == VC_AD_W0)
+        return VK_AD;
+#endif
     return op == VC_OP_KILL ? VK_KILL : op == VC_OP_ALLOFF ? VK_ALLOFF : VK_PATCH;
 }
 

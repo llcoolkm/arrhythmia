@@ -1,7 +1,7 @@
 # Arrhythmia modules for developers
 
-Applies to Arrhythmia 0.1.0 (arrhythmia-firmware build 7229, arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.1.0.md). Items marked **TBD** are not confirmed yet. Modules are a developer feature: most users never
+Applies to Arrhythmia 0.1.1 (arrhythmia-firmware build 7261, arrhythmia-devkit build 7228). Test status is in the
+[release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet. Modules are a developer feature: most users never
 need them.
 
 A module is a small program in C that runs on the unit. It can take over the pads, buttons and lights, play notes,
@@ -26,22 +26,25 @@ Modules are why Arrhythmia has an interface at all: they let your own code work 
 
 Both images have the module loader, the SD card picker, the development SysEx commands and ABI 3 (below).
 
-| | arrhythmia-firmware (build 7229) | arrhythmia-devkit (build 7228) |
+| | arrhythmia-firmware (build 7261) | arrhythmia-devkit (build 7228) |
 |---|---|---|
 | Modules, picker, ABI 3 | yes | yes |
 | DSP load meter (SysEx 08) | no: every request gets the refusal reply (status 0) | yes |
-| Track 8 chord synth and its page | yes | no: track 8 is a stock sample track |
+| Track 8 chord synth (with attack and decay) and its page | yes | no: track 8 is a stock sample track |
 | Scales on tracks 1 to 7 | yes, set on the synth page or with SysEx 0E | yes, set with SysEx 0E only |
 | P-lock fix, DSP fault report (SysEx 0D) | yes | yes |
 
 Install either with the same installer (see [install.md](install.md)). The two have different build numbers, so
-switching always installs. Both are released as 0.1.0 and pinned by their SHA-256 (install guide table). arrhythmia-firmware
-7229 was tested on one unit for scales; the rest of its code was tested on one unit in a development build that differs only in
-the scales code and the build number (listening, musical stress, save and power cycles, a 1 hour soak with the audio
-result inconclusive; see [RELEASE-NOTES-0.1.0.md](../../RELEASE-NOTES-0.1.0.md)). Deliberate DSP fault containment is
-not tested. arrhythmia-devkit 7228 was not tested on hardware; a development build that differs from it only in the scales code
-and the build number had a short hardware test (install, version reply, no DSP fault, SysEx 7D restriction, DSP load
-meter read), with no listening or stress test.
+switching always installs. Both are released as 0.1.1 and pinned by their SHA-256 (install guide table).
+arrhythmia-devkit 7228 is unchanged from 0.1.0. arrhythmia-firmware 7261 is byte-identical to development build 7255
+except for the build number; development builds 7253 to 7255 were tested on one unit for attack and decay (see
+[RELEASE-NOTES-0.1.1.md](../../RELEASE-NOTES-0.1.1.md)). Its code for scales, modules and tracks 1 to 7 is the code of
+0.1.0 (build 7229): build 7229 was tested on one unit for scales, and the rest of that code in a development build
+that differs only in the scales code and the build number (listening, musical stress, save and power cycles, a 1 hour
+soak with the audio result inconclusive; see [RELEASE-NOTES-0.1.0.md](../../RELEASE-NOTES-0.1.0.md)). Deliberate DSP
+fault containment is not tested. arrhythmia-devkit 7228 was not tested on hardware; a development build that differs
+from it only in the scales code and the build number had a short hardware test (install, version reply, no DSP fault,
+SysEx 7D restriction, DSP load meter read), with no listening or stress test.
 
 The DSP load meter gives per-core cycle counts of the DSP, read with SysEx 08. Read it only while the unit is idle
 (transport stopped, nothing loading). `tools/dspload.py` reads and prints it. arrhythmia-devkit answers only for the

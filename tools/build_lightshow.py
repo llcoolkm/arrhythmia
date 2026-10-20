@@ -35,6 +35,13 @@ SITES = {"hook_frame": 0x0802596E,
          # p-lock fix
          "hook_lockplay": 0x080552AC,
          "hook_save_ser": 0x08037F54,
+         # AD: the save's post call (after the stock slice-mode reset of Start/Length); track 8's
+         # keyboard constructor; the Note view's pad colour (two calls); the macro page constructor's light init
+         "hook_save_post": 0x08037FD6, "hook_kb_new": 0x0804C53A,
+         "hook_nv_col0": 0x0805D9CE, "hook_nv_col1": 0x0805DC50, "hook_mp_init": 0x080580F8,
+         "hook_step_note": 0x0805E41A,
+         # AD (track 8 ignores slice mode): the octave-arrow gate's and the expanded Note view's reads of setting C
+         "hook_oct_c": 0x080588C0, "hook_xv_c": 0x0803F00A,
          # A1 note tap
          "hook_ring_slot": 0x08040746, "hook_ring_retrig": 0x080407BA, "hook_ring_on": 0x080407E6,
          "hook_ring_force": 0x08040834, "hook_ring_rel": 0x0804086C,
@@ -74,6 +81,8 @@ STOCK_BW = {0x080295CA: 0x08040108, 0x080295D8: 0x0804012A, 0x080295E4: 0x080401
 STOCK_BL = {0x0802596E: 0x0802960C, 0x08026E42: 0x0802CF90, 0x080256DE: 0x08026134, 0x0802AD36: 0x0802AD40,
             0x0802586C: 0x0802677A, 0x08033384: 0x080333AA, 0x08037EB2: 0x08037366, 0x080386A8: 0x08037366,
             0x08038750: 0x08037366, 0x080552AC: 0x08055324, 0x08037F54: 0x08037A10,
+            0x08037FD6: 0x080472E2, 0x0804C53A: 0x08055DEC, 0x0805D9CE: 0x0805DABE, 0x0805DC50: 0x0805DABE,
+            0x080580F8: 0x0805862C, 0x0805E41A: 0x0805E5A0, 0x080588C0: 0x0803FC58, 0x0803F00A: 0x0803FC58,
             0x08040746: 0x080406A8, 0x080407BA: 0x080406A8, 0x080407E6: 0x080406A8, 0x08040834: 0x080406A8,
             0x0804086C: 0x080406A8, 0x080334E6: 0x080467D2, 0x0803A7EA: 0x080467D2, 0x08025874: 0x080297DE,
             0x08025774: 0x08026F38,
@@ -91,6 +100,9 @@ VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x
             "hook_nm_on": (0x08067B24, 0x0803ABD9), "hook_nm_off": (0x08067B28, 0x0803ACBB),
             "hook_eng_on": (0x080685E0, 0x08031A19), "hook_eng_off": (0x080685E4, 0x08031A23),
             "hook_midi_alloff": (0x080665EC, 0x0803F799),
+            # AD: track 8 ignores slice mode (slice converter's and macro pages' observer entries)
+            "hook_nm_obs": (0x08067B3C, 0x0803AD3D), "hook_mp_obs": (0x08067E60, 0x080584DB),
+            "hook_sv_press": (0x08068294, 0x0805C1AD),
             # O1 quarantine: operation boundaries
             "hook_fs_length": (0x08066E5C, 0x0806438D),
             "hook_fs_alloc": (0x08066E64, 0x080643F5), "hook_fs_reset": (0x08066E68, 0x08064417),
@@ -117,6 +129,8 @@ OR_A1_HOOKS = ["hook_ring_slot", "hook_ring_retrig", "hook_ring_on", "hook_ring_
                "hook_fo_choke", "hook_fo_edit", "hook_a1_tick", "hook_a1_boot", "hook_ron", "hook_roff", "hook_nm_on",
                "hook_nm_off", "hook_eng_on", "hook_eng_off", "hook_midi_alloff", "hook_dsp_ready",
                "hook_dsp_load0", "hook_dsp_load1"]
+OR_AD_HOOKS = ["hook_nm_obs", "hook_mp_obs", "hook_save_post", "hook_kb_new", "hook_nv_col0", "hook_nv_col1",
+               "hook_mp_init", "hook_sv_press", "hook_step_note", "hook_oct_c", "hook_xv_c"]
 OR_PROFILES = {
     # SCALES=1 in every 0.1 profile; each image and ARM base has its own label (build-info block).
     # DUMP_ALLOW (SysEx 7D reads ITCM 0x100-0x3FFF only) is on in every profile except the SCALES=0 checks (dump_open)
@@ -135,6 +149,10 @@ OR_PROFILES = {
     "arrhythmia-firmware-arm-patch": dict(synth=1, cmd08=0, scales=1, label=7242, version=[0, 0, 0, 7, 9, 0],
                                           a1_patch=1),
     "arrhythmia-devkit-synth-arm": dict(synth=1, cmd08=1, scales=1, label=7243, version=[0, 0, 0, 7, 9, 0]),
+    # 0.1.1: the firmware profile + live attack/decay (PATCH_AD); ARM-only base 7251 of arrhythmia-firmware 7261
+    # (the same ARM as development builds 7253 to 7255)
+    "arrhythmia-firmware-arm-ad": dict(synth=1, cmd08=0, scales=1, ad=1, label=7251, version=[0, 0, 0, 7, 9, 0],
+                                       image=("arrhythmia-firmware", 7261)),
     # SCALES=0 check builds (emulator only, never images): the two release profiles with the switch off; they keep the
     # previous cmd 7D (dump_open) so they still rebuild 7210 / 7211 byte for byte
     "arrhythmia-devkit-arm-noscales": dict(synth=0, cmd08=1, label=7210, dump_open=1, version=[0, 0, 0, 7, 9, 0],
@@ -152,7 +170,7 @@ OR_PROFILES = {
 
 
 def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="none", scales=0, ad_blocks=None,
-              dump_open=0):
+              dump_open=0, ad=0):
     parts = ["Arrhythmia 0.1 " + ("firmware" if not cmd08 else "devkit") + f" profile (SYNTH={synth}, CMD08={cmd08}"
              + (", A1_PATCH=1, emulator only" if a1_patch else "") + "): 6015 (track modes T1, p-lock fix) + O1 "
              "bounded DSP waits with the sticky fault quarantine (SysEx 0D, Rec blinks) + module SDK"]
@@ -164,18 +182,25 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
         parts.append("scales for tracks 1..7 (Note-view keyboard tables, sub-record at T1 block + 0x288, SysEx 0E"
                      + (", page controls, project-wide scale for the chord engine" if synth else "") +
                      "; struct sc 32 B below the lowest block)")
+    if ad:
+        parts.append("live attack/decay (PATCH_AD 0xA06000, attack | decay << 7) from track 8's macros 2/3 "
+                     "(params 7/8, identity; new projects and Clear + macro 3 on track 8: Length 64), paced 5 ms, "
+                     "per-voice lifetime deadlines; track 8 ignores slice mode (macros 2/3, their lock lanes and lights, the save, the "
+                     "Note-view keyboard, octave arrows and expanded view)")
     if not dump_open:
         parts.append("cmd 7D reads only ITCM 0x00000100-0x00003FFF (module RAM and code); every other address, "
                      "internal flash included, gets the refusal (13 bytes, no data)")
     floor = (0x2004F0E0 if synth else 0x2004F400) - (0x20 if scales else 0)
-    return {"src": "arrhythmia.c", "hooks": OR_HOOKS + (OR_A1_HOOKS if synth else []) + (OR_SCALES_HOOKS if scales else []),
+    return {"src": "arrhythmia.c", "hooks": OR_HOOKS + (OR_A1_HOOKS if synth else []) + (OR_SCALES_HOOKS if scales else [])
+                      + (OR_AD_HOOKS if ad else []),
             "defines": [f"SYNTH={synth}", f"CMD08={cmd08}"] + (["A1_PATCH=1"] if a1_patch else [])
                        + (["SCALES=1"] if scales else []) + ([f"AD_BLOCKS={ad_blocks}u"] if ad_blocks else [])
-                       + (["DUMP_ALLOW=0"] if dump_open else []),
+                       + (["DUMP_ALLOW=0"] if dump_open else []) + (["AD_LIVE=1"] if ad else []),
             "profile": dict({"synth": synth, "cmd08": "meter windows" if cmd08 else "refused", "a1_patch": a1_patch,
                              "image": f"{image[0]} {image[1]}" if image else "none (emulation only)",
                              "dsp_layer": dsp}, **({"scales": 1} if scales else {}),
-                            **({} if dump_open else {"cmd7d": "ITCM 0x00000100-0x00003FFF only"})),
+                            **({} if dump_open else {"cmd7d": "ITCM 0x00000100-0x00003FFF only"}),
+                            **({"ad": "PATCH_AD"} if ad else {})),
             "version": version, "abi": 3, "heap_floor": f"0x{floor:08X}",
             "host_table": {"note": "host_note", "note_port": "host_note_port", "param": "host_param",
                            "ui": "host_ui", "midi": "host_midi"},

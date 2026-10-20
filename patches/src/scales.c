@@ -319,9 +319,15 @@ __attribute__((noinline)) static void sc_main(struct state *s)
 
 /* Keyboard layout change: original first; if it rebuilt the chromatic layout of a track whose bit is set, the scaled
  * table goes back at once, for that one keyboard (slice exit), with the current settings. */
+#if defined(AD_LIVE) && AD_LIVE
+static void ad_noslice_kb(uint32_t kb, uint32_t ctor);  /* notetap.c: track 8's keyboard stays chromatic */
+#endif
 uint32_t hook_kb_obs(uint32_t kb, uint32_t obs, uint32_t flags, uint32_t d)
 {
     uint32_t r = KB_OBSERVER(kb, obs, flags, d);
+#if defined(AD_LIVE) && AD_LIVE
+    ad_noslice_kb(kb, 0);                     /* acts only on a positive match with track 8's value cell */
+#endif
     volatile struct sc *c = sc();
     if (!c)
         return r;

@@ -4,7 +4,8 @@
 
 Arrhythmia is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds new functions.
 
-Current release: **0.1.0**. The [release notes](RELEASE-NOTES-0.1.0.md) give the changes and the test status.
+Current release: **0.1.1**. The [release notes](RELEASE-NOTES-0.1.1.md) give the changes and the test status. The
+[0.1.0 release notes](RELEASE-NOTES-0.1.0.md) give the earlier record.
 
 ## Principles
 
@@ -49,6 +50,8 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 * **Chord synthesizer on track 8.** Each pad and each sequencer step plays 1 to 4 notes, with 4 voices
   ([synth](docs/user/synth.md)).
+* **Attack and decay for the synthesizer (new in 0.1.1).** On track 8, macro 2 sets the attack and macro 3 sets the
+  decay. Parameter locks operate on both ([attack and decay](docs/user/synth.md#attack-and-decay)).
 * **MIDI polyphony on track 8.** MIDI notes on the channel of track 8 play on the synthesizer.
 * **Scales on tracks 1 to 7.** The Note view can use one of ten scales ([scales](docs/user/scales.md)).
 * **Modules.** Small programs on the microSD card can control the pads, lights, notes and MIDI. This function is for
@@ -57,7 +60,8 @@ The synthesizer functions are in arrhythmia-firmware only.
 ## Limits
 
 * In arrhythmia-firmware, track 8 plays the synthesizer only. It does not play samples.
-* The synthesizer has one sound. Attack and decay controls are not available.
+* The synthesizer has one fixed saw sound with attack and decay. It has no sustain and no presets.
+* Attack and decay apply to all sounding notes of track 8. A parameter lock also changes notes that are sounding.
 * The synthesizer has a maximum of 4 voices.
 * Arrhythmia is not for the Circuit Tracks or for other firmware versions of the Circuit Rhythm.
 
@@ -65,8 +69,8 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 | Image | For | Contents |
 |---|---|---|
-| **arrhythmia-firmware** (build 7229) | users | synthesizer, scales, bug fixes, modules |
-| **arrhythmia-devkit** (build 7228) | developers | DSP load meter, module tools, scales, bug fixes. No synthesizer. |
+| **arrhythmia-firmware** (build 7261) | users | synthesizer with attack and decay, scales, bug fixes, modules |
+| **arrhythmia-devkit** (build 7228, unchanged from 0.1.0) | developers | DSP load meter, module tools, scales, bug fixes. No synthesizer. |
 
 If you are not sure, install **arrhythmia-firmware**.
 

@@ -79,11 +79,11 @@ PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capt
                 "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
 PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
-              "patches/src/arrhythmia.c", "patches/src/plockfix.c", "patches/src/scales.c",
+              "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/plockfix.c", "patches/src/scales.c",
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
               "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c")
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "web/index.html")
-ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "web/index.html")
+ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS)
 # Allow-listed files published under another name (source path -> published path). The public README is
 # docs/user/README.md, published at the export root; this repo's own root README.md is private (DENY_PATHS).

@@ -11,7 +11,8 @@ firmware file on your own computer. No Novation code or firmware is included in 
   checking, switching images, going back to stock and troubleshooting.
 * [user/synth.md](user/synth.md): the track 8 chord synth and its settings page.
 * [user/scales.md](user/scales.md): scales on tracks 1 to 7.
-* [../RELEASE-NOTES-0.1.0.md](../RELEASE-NOTES-0.1.0.md): the 0.1.0 release notes: the two builds, what was tested, known limitations.
+* [../RELEASE-NOTES-0.1.1.md](../RELEASE-NOTES-0.1.1.md): the 0.1.1 release notes: the two builds, what was tested, known limitations.
+* [../RELEASE-NOTES-0.1.0.md](../RELEASE-NOTES-0.1.0.md): the 0.1.0 release notes.
 
 ## For developers
 
@@ -25,8 +26,9 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## Rebuilding the images
 
-`release/v0.1.0.json` is the release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the installer and
-embeds it; the steps below rebuild 0.1.0 from this tree.
+`release/v0.1.1.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
+installer and embeds it. `release/v0.1.0.json` is the 0.1.0 release. The steps below rebuild the ARM parts of 0.1.1 from
+this tree.
 Everything below needs the official firmware 5706 `.syx` file (see [user/install.md](user/install.md#before-you-install)),
 `clang` and the LLVM tools; nothing is downloaded. Run every command from the top folder of the Arrhythmia files.
 
@@ -34,13 +36,14 @@ Everything below needs the official firmware 5706 `.syx` file (see [user/install
    (the patch sets name this path, so the file must be there under exactly this name). Then decode it:
    `python3 -I tools/syx.py unpack firmware/circuit-rhythm-5706.syx build/circuit-rhythm-5706.bin`.
 2. Build the ARM code (`patches/src/arrhythmia.c`, with the built-in module `modules/paint.c`):
-   `python3 -I tools/build_lightshow.py arrhythmia-devkit-arm` and `... arrhythmia-firmware-arm`.
+   `python3 -I tools/build_lightshow.py arrhythmia-devkit-arm` and `... arrhythmia-firmware-arm-ad`.
 3. arrhythmia-devkit: `python3 -I tools/dspmeter.py build --base patches/arrhythmia-devkit-arm.json --label 7228
    --version 000791 --out build/arrhythmia-devkit-7228` adds the DSP load meter (`patches/dspmeter.lst`). The result,
    `build/arrhythmia-devkit-7228.syx`, must equal the pinned SHA-256 of build 7228
    (`66e1872c45b742992bdead24ebcbaffb9634d13b0a2db36caf5f2d1e6dd8354d`).
-4. arrhythmia-firmware: `python3 -I tools/patch.py patches/arrhythmia-firmware-arm.json build/arrhythmia-firmware-arm`
-   builds its ARM part (label 7242); `build/arrhythmia-firmware-arm.syx` must have the SHA-256
-   `5eae4cc1f8589a31e1119c95f1ee174d8d4f4edd9d9d1e58e102f7dd1a4a2048`. The DSP voice code that `tools/voicestack.py`
-   adds on top is developed separately and its source is not published yet, so image 7229 cannot be rebuilt from this
+4. arrhythmia-firmware: `python3 -I tools/patch.py patches/arrhythmia-firmware-arm-ad.json
+   build/arrhythmia-firmware-arm-ad-7251` builds its ARM part (label 7251, with attack and decay);
+   `build/arrhythmia-firmware-arm-ad-7251.syx` must have the SHA-256
+   `471008cc21a7ace738cabc8a2ff94a651559fa8da52dcfec07ceb97fee7886d9`. The DSP voice code that `tools/voicestack.py`
+   adds on top is developed separately and its source is not published yet, so image 7261 cannot be rebuilt from this
    tree alone; check it with the release file instead (`tools/crpatch.py apply`).

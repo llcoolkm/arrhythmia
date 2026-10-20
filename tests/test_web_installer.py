@@ -4,8 +4,9 @@
 
 Synthetic cases need no firmware. With firmware/circuit-rhythm-5706.syx and build/devkit-tm-6013.json present, the
 6013 release is rebuilt and must equal release/devkit-tm-6013.json, reproduce the pinned output hash, match
-tools/patch.py byte for byte, and match the JavaScript patcher (run in node). The 0.1.0 release (release/v0.1.0.json,
-firmware 7229 + devkit 7228, the release the page embeds) is checked the same way; its rebuild needs
+tools/patch.py byte for byte, and match the JavaScript patcher (run in node). The 0.1.1 release (release/v0.1.1.json,
+firmware 7261 + devkit 7228, the release the page embeds) and the 0.1.0 record (release/v0.1.0.json, firmware 7229 +
+devkit 7228) are checked the same way; their rebuilds need build/arrhythmia-firmware-7261.json,
 build/arrhythmia-firmware-7229.json and build/arrhythmia-devkit-7228.json.
 """
 import hashlib
@@ -33,6 +34,9 @@ SPEC_7229 = ROOT / "build/arrhythmia-firmware-7229.json"
 SPEC_7228 = ROOT / "build/arrhythmia-devkit-7228.json"
 PIN_7229 = "13d983b24c30bbdb3df0b4c2203d1016a8ab85bede4528751dad7d45b9145571"
 PIN_7228 = "66e1872c45b742992bdead24ebcbaffb9634d13b0a2db36caf5f2d1e6dd8354d"
+REL_V011 = ROOT / "release/v0.1.1.json"
+SPEC_7261 = ROOT / "build/arrhythmia-firmware-7261.json"
+PIN_7261 = "920b2893e8427fc0ea468a414ad7bfc82705aa499828be4375196d6dca2b011b"
 PIN_6013 = "23aef940c2cad2e55c0c8f00b5359b7952e2f9421cedd1d879cefed61c1e8d42"
 PIN_6012 = "b19549ff200d4c173971b9b24c7d460a4475f637e5e1e848fede5cc3f5c56662"
 NODE = shutil.which("node")
@@ -299,32 +303,29 @@ class Release6013(unittest.TestCase):
         print(r.stdout.strip().splitlines()[-1], file=sys.stderr)
 
 
-@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
-class ReleaseV010(unittest.TestCase):
-    """release/v0.1.0.json: firmware 7229 and devkit 7228, the release the page embeds. Firmware 7229
-    tested on one unit (deliberate DSP fault containment not tested); devkit 7228 not tested on hardware; each build's
-    description says so. Input: stock 5706, pinned by SHA-256."""
+class _Release:
+    """A committed release: both builds reproduce their pins, no stock bytes, rebuild reproducible, JS equals Python.
+    Subclasses set REL, NAME, LABELS, PINS, SPECS and EMBEDDED (only the current release is embedded in the page)."""
+    EMBEDDED = False
 
     def setUp(self):
         self.stock = STOCK.read_bytes()
-        self.rel = json.loads(REL_V010.read_text())
+        self.rel = json.loads(self.REL.read_text())
 
     def test_committed_release_reproduces_both_pins(self):
         check_shape(self, self.rel)
-        self.assertEqual(self.rel["name"], "Arrhythmia 0.1.0")
+        self.assertEqual(self.rel["name"], self.NAME)
         self.assertEqual(self.rel["input"]["build"], 5706)
         self.assertEqual(self.rel["input"]["syx_sha256"], hashlib.sha256(self.stock).hexdigest())
-        self.assertEqual([(b["name"], b["output"]["label"]) for b in self.rel["builds"]],
-                         [("firmware", 7229), ("devkit", 7228)])
+        self.assertEqual([(b["name"], b["output"]["label"]) for b in self.rel["builds"]], self.LABELS)
         self.assertEqual(crpatch.select(self.rel)["name"], "firmware")
-        pins = {"firmware": PIN_7229, "devkit": PIN_7228}
         for b in self.rel["builds"]:
-            self.assertTrue(b["description"].startswith("Arrhythmia 0.1.0."))
+            self.assertTrue(b["description"].startswith(self.NAME + "."))
             self.assertIn({"firmware": "fault containment not tested", "devkit": "not tested on hardware"}[b["name"]],
                           b["description"])
             out, _ = crpatch.apply(self.rel, self.stock, b["name"])
-            self.assertEqual(hashlib.sha256(out).hexdigest(), pins[b["name"]])
-            self.assertEqual(b["output"]["syx_sha256"], pins[b["name"]])
+            self.assertEqual(hashlib.sha256(out).hexdigest(), self.PINS[b["name"]])
+            self.assertEqual(b["output"]["syx_sha256"], self.PINS[b["name"]])
             built = ROOT / f"build/arrhythmia-{b['name']}-{b['output']['label']}.syx"
             if built.exists():
                 self.assertEqual(out, built.read_bytes())
@@ -333,34 +334,66 @@ class ReleaseV010(unittest.TestCase):
         image = syx.parse(self.stock)["image"]
         self.assertEqual(published_runs(self.rel, image), [])
         self.assertEqual(crpatch.scan(self.rel, image), [])
-        text = REL_V010.read_text()
+        text = self.REL.read_text()
         self.assertNotIn('"expect"', text)
         self.assertNotIn('"new"', text)
 
-    @unittest.skipUnless(SPEC_7229.exists() and SPEC_7228.exists(), "build specs not present")
     def test_rebuild_is_reproducible(self):
+        if not all(p.exists() for p in self.SPECS):
+            self.skipTest("build specs not present")
         fw, dk = crpatch.select(self.rel, "firmware"), crpatch.select(self.rel, "devkit")
-        rel = crpatch.build(json.loads(SPEC_7229.read_text()), self.stock, "firmware", fw["description"])
-        crpatch.add_build(rel, crpatch.build_one(json.loads(SPEC_7228.read_text()), self.stock, "devkit",
+        rel = crpatch.build(json.loads(self.SPECS[0].read_text()), self.stock, "firmware", fw["description"])
+        crpatch.add_build(rel, crpatch.build_one(json.loads(self.SPECS[1].read_text()), self.stock, "devkit",
                                                  dk["description"]), self.stock)
-        rel["name"] = "Arrhythmia 0.1.0"
-        self.assertEqual(crpatch.dump(rel), REL_V010.read_text())
+        rel["name"] = self.NAME
+        self.assertEqual(crpatch.dump(rel), self.REL.read_text())
 
     def test_page_embeds_this_release(self):
         html = (ROOT / "web/index.html").read_text()
         i = html.index(crpatch.BEGIN) + len(crpatch.BEGIN)
-        self.assertEqual(json.loads(html[i:html.index("</script>", i)]), self.rel)
+        embedded = json.loads(html[i:html.index("</script>", i)])
+        if self.EMBEDDED:
+            self.assertEqual(embedded, self.rel)
+        else:
+            self.assertNotEqual(embedded, self.rel)
 
-    @unittest.skipUnless(NODE, "node not installed")
     def test_js_equals_python(self):
+        if not NODE:
+            self.skipTest("node not installed")
         with tempfile.TemporaryDirectory() as d:
             r = subprocess.run([NODE, str(ROOT / "tests/test_web_installer.mjs"), "--stock", str(STOCK),
-                                "--release", str(REL_V010), "--outdir", d], capture_output=True, text=True)
+                                "--release", str(self.REL), "--outdir", d], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("ok   install over a different build label", r.stdout)
             for b in self.rel["builds"]:
                 self.assertEqual(Path(d, f"{b['name']}.syx").read_bytes(),
                                  crpatch.apply(self.rel, self.stock, b["name"])[0])
+
+
+@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+class ReleaseV011(_Release, unittest.TestCase):
+    """release/v0.1.1.json, the release the page embeds: firmware 7261 (attack and decay; = development build 7255
+    except the build number) and devkit 7228, unchanged from 0.1.0 (same patches, same pin)."""
+    REL, NAME, EMBEDDED = REL_V011, "Arrhythmia 0.1.1", True
+    LABELS = [("firmware", 7261), ("devkit", 7228)]
+    PINS = {"firmware": PIN_7261, "devkit": PIN_7228}
+    SPECS = (SPEC_7261, SPEC_7228)
+
+    def test_devkit_unchanged_from_010(self):
+        old = crpatch.select(json.loads(REL_V010.read_text()), "devkit")
+        new = crpatch.select(self.rel, "devkit")
+        self.assertEqual(new["patches"], old["patches"])
+        self.assertEqual(new["output"], old["output"])
+
+
+@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+class ReleaseV010(_Release, unittest.TestCase):
+    """release/v0.1.0.json, kept as the 0.1.0 record: firmware 7229 tested on one unit (deliberate DSP fault containment
+    not tested); devkit 7228 not tested on hardware; each build's description says so. Input: stock 5706."""
+    REL, NAME = REL_V010, "Arrhythmia 0.1.0"
+    LABELS = [("firmware", 7229), ("devkit", 7228)]
+    PINS = {"firmware": PIN_7229, "devkit": PIN_7228}
+    SPECS = (SPEC_7229, SPEC_7228)
 
 
 @unittest.skipUnless(NODE, "node not installed")

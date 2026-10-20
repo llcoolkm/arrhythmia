@@ -182,9 +182,16 @@ static void tm_apply(uint32_t P, uint32_t site)
     RESUME_ALL();
 }
 
+#if defined(AD_LIVE) && AD_LIVE
+static void ad_preapply(uint32_t P);          /* notetap.c: new-project default Length, before the refresh */
+#define TM_PRE(a)       ad_preapply(a)
+#else
+#define TM_PRE(a)       ((void)0)
+#endif
 #define TM_HOOK(name, site)                                                     \
     uint32_t name(uint32_t a, uint32_t b, uint32_t c, uint32_t d)               \
     {                                                                           \
+        TM_PRE(a);                                                              \
         uint32_t r = ORIG_APPLY(a, b, c, d);      /* original call first, unchanged */                                    \
         tm_apply(a, site);                                                      \
         return r;                                                               \
