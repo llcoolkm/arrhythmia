@@ -1,7 +1,7 @@
 """Stack the firmware-profile DSP bootstrap streams (no meter) onto an Arrhythmia ARM base.
 
     uv run python -I tools/voicestack.py --base patches/arrhythmia-firmware-arm.json \
-        --streams build/voice-stream-709160f --label 7201 --version 000791 --out build/arrhythmia-firmware-7201
+        --streams build/voice-stream --label 7201 --version 000791 --out build/arrhythmia-firmware-7201
 
 Inputs (local, ignored build/, never in git): the stream directory produced by the DSP voice build
 (tools/dspvoice, see its README): core1-voice.bin, core0-stock-relocated.bin and manifest.json. Placement follows the manifest

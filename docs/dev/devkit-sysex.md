@@ -32,6 +32,7 @@ Conventions:
 | `0C` | `0C 00` status, `0C 01 t m` set | `<sub> <status> <why> <gen 3x7> <writes 3x7> <site> <m0..m7>` (26 bytes) | stored track modes in the project extension block | DESIGN |
 | `0D` | `0D` | `<fault> <last site> <timeouts 3x7> <site mask 2x7> <refused 3x7> <late 3x7> <pack failed>` (22 bytes) | DSP fault report | HW |
 | `0E` | `0E 00` status, `0E 01 scale root bits` set | `<sub> <status> <why> <sc> <scale> <root> <bits> <applied>` (16 bytes) | scales for tracks 1 to 7 | HW |
+| `0F` | `0F` followed by a required nonce; format not published | counters; format not published | diagnostic report, read-only (arrhythmia-firmware 0.2). A request without a valid nonce gets no reply | HW |
 | `7D` | `7D a4 a3 a2 a1 a0` | `<addr 5x7> <64 nibbles>`, or `<addr 5x7>` alone when refused | read 32 bytes of module ITCM | HW |
 | `7E` | `7E` | `<limit 5x7> <cursor 5x7>` | heap limit and cursor | DESIGN |
 | `7F` | `7F` | `<mode> <ok> <cursor 5x7> <frames 4x7> <module>` (20 bytes) | status | HW |
@@ -77,6 +78,18 @@ and code), and only while ITCM is enabled. Every other address, internal flash a
 **`7F` status.** mode 0 normal, 1 glitter, 2 static lights, 3 module, 4 picker. `ok` = 1 | owned << 1 (owned = the
 module has the controls). `cursor` is the heap cursor, `frames` counts LED frames. `module` 0 none, 1 valid, 2 bad,
 3 ITCM unavailable.
+
+## Diagnostic report (0.2)
+
+arrhythmia-firmware 0.2 also answers a diagnostic request over USB MIDI, command `0F`. The reply holds counters
+that Arrhythmia keeps about its own synth. We use it to check the health of a unit after an install or a test.
+
+* It is read-only for music: it changes no sound, no setting and no project. Only the diagnostic counters and the
+  bookkeeping of the reads themselves advance.
+* Use it only while the unit is idle: sequencer stopped, nothing loading.
+* Every request must carry a nonce. A bare `0F` gets no reply.
+* It needs a reading tool that is not published yet. We may publish it later, with its request and reply format.
+* Without that tool you do not need it: the unit works the same whether or not anything asks for the report.
 
 ## Unknown command numbers
 

@@ -5,7 +5,7 @@
  * The 28 non-pad buttons stay dimly lit (white, DIM), set in init and kept every frame, so the unit never looks dead.
  * Sound (needs devkit-play, label 6008): a pad press plays track = pad column (0..7) at note 60 (unshifted sample),
  * velocity from the press halved as the stock UI does; its release sends the note off (one-shot samples play out).
- * Notes go through the host table's note() (patches/src/devkit_play.c); without the table paint stays silent.
+ * Notes go through the host table's note(); without the table paint stays silent.
  * RAM at MOD_RAM: struct ram below. */
 #include <stdint.h>
 

@@ -1,154 +1,138 @@
-# Arrhythmia: the track 8 chord synth
+# Arrhythmia: the track 8 FM synth
 
-Applies to Arrhythmia 0.1.1 (arrhythmia-firmware build 7261, arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet.
+Applies to Arrhythmia 0.2, arrhythmia-firmware build 7323. Test status and full known issues: see the
+[release notes](../../RELEASE-NOTES-0.2.0.md). **TBD** items are not confirmed.
 
-The synth is in **arrhythmia-firmware** (build 7261) only. In arrhythmia-devkit (build 7228) track 8 is a stock
-sample track and there is no synth page.
+* Track 8 is a 4-operator FM synth. It replaces the saw synth of 0.1.x. Tracks 1 to 7 are sample tracks.
+* arrhythmia-devkit has no synth. Track 8 is a stock sample track there.
+* The synth has 4 voices. Notes in their release use voices.
+* Note sources: pads (track 8 selected), sequencer, MIDI on track 8's channel (default 8), modules.
+* Track 8 keeps its stock mixer level, pan, sends and FX.
 
-## What it is
+## Choosing a sound: the Sample view
 
-In Arrhythmia, track 8 is a synth instead of a sample track. It has **4 voices in total**, and that count includes notes
-that are still fading out. Tracks 1 to 7 stay sample tracks.
+1. Select track 8.
+2. Open the Sample view.
+3. Tap a pad in row 3 or 4. The tap selects the sound and plays it.
 
-Track 8 keeps its stock mixer level, pan, sends and FX. It plays from:
+![Track 8's Sample view: the 16 families on the first page (serial) and the second page (dual stack)](img/synth-sample-view.png)
 
-* the pads, while track 8 is selected;
-* the sequencer, from steps recorded on track 8;
-* MIDI in on track 8's channel (channel 8 by default);
-* modules (for developers).
+* The view opens on the page of the selected sound.
+* A new sound applies from the next note. Feedback, modulator envelope and FM depth do not change.
+* With low FM depth, the families sound almost the same. Increase macro 6.
+* Per-step sound: hold a sound pad and tap a step, or the reverse. A recorded sound pad press also stores the sound.
+* CC 8 values 32 to 127 select Unity, serial.
 
-## Notes per press
+## Macros on track 8
 
-The main setting. Each pad press or sequencer step plays this many notes:
+![The eight macros on track 8 with their MIDI CC numbers](img/synth-macros.png)
 
-| Notes per press | Pads and sequencer | MIDI in |
-|---|---|---|
-| 1 | one note at a time; the newest note wins | polyphonic: up to 4 notes at once |
-| 2 to 4 | a chord; each new press replaces the previous chord | a chord; each new note replaces the previous chord, as from the pads |
+| Macro | Range (design values, not measured on the unit) |
+|---|---|
+| 2 attack | approx. 10 ms to 8 s |
+| 3 decay | T60 50 ms to 8 s |
+| 4 sustain level | linear, 0 = silent, 127 = full |
+| 5 release | T60 approx. 29 ms to 8 s, smooth start |
 
-## Chords
+* T60 is the time to decrease by 60 dB. It is not the time to silence.
+* In 0.1.x, attack and decay changed sounding notes. In 0.2 they apply at note start.
+* A step without a lock uses the knob value.
+* Shift + macro 2 or 3 (CC 86, CC 87) has no effect.
+* Clear + macro 3 sets decay 64. In lock edit (Rec held with a step), it records 127, as on stock.
+* Clear + macro 6 sets FM depth 96.
+* Filter: quiet signals keep approximately the same low-frequency level at all resonance values.
+* Filter: the top of the cutoff range is smooth. Strong resonant peaks are shaped to limit their level. This can
+  change their tone.
 
-With notes per press 2 to 4, the pressed note is the root and the chord settings pick the other notes:
+## Output level
 
-* **Chord type:** In key (the chord that fits the project's scale on that root), or a fixed type: Major, Minor,
-  Sus2, Sus4, 7th, Minor 7th.
-* **Voicing:** root position, first inversion, second inversion, spread.
-* **Octave:** -2 to +2.
-* **Scale and key:** shared by the whole project and by the scales on tracks 1 to 7 (ten scales, see
-  [scales.md](scales.md)). In key builds its chords from that scale.
+* The synth output is decreased by a fixed **7 dB**, before track 8's mixer level, pan, sends and FX.
+* No setting changes this value. Only this page gives the value.
+* Set the balance with track 8's mixer level. A higher level increases the risk of crackle on loud chords.
+
+Loudness test (one test only): a development build with output 2 dB lower than this release; the loaded project's
+sound; median of seven samples played on the unit; loudness over 9.5 s. Results: single note approx. 3 dB quieter,
+four-note chord approx. 3 dB louder, four-note chord with hot settings approx. 15 dB louder. Other conditions give
+other results.
 
 ## The synth page: Shift + Track 8
 
-![The synth page, without and with Shift held](img/synth-page.png)
+![The synth page, without and with Shift held, and its macros 1 to 4](img/synth-page.png)
 
-Example state; bright pads are the current setting.
-
-Hold Shift and press Track 8 to open the synth page. Press it again to close.
-
-| Pad row | Pads (from the left) |
+| Synth page macro | New project |
 |---|---|
-| 1 | 1 to 4: notes per press 1 to 4 (white); 5 to 8 dark |
-| 2 | 1 to 6: chord type Major, Minor, Sus2, Sus4, 7th, Minor 7th (orange, dimmer while In key is on); 7: In key (green); 8: natural minor or major (violet) |
-| 3 | 1 to 4: voicing root, first inversion, second inversion, spread (cyan); 8: MIDI poly on or off (red) |
-| 4 | 1 to 5: octave -2 to +2 (blue; the middle pad is 0) |
-| Shift held | rows 1 and 2: the ten scales (violet); rows 3 and 4: a keyboard for the key (C to B, lit yellow) |
-| Track 1 to Track 7 | scales on or off for that track (bright green = on) |
+| 1 feedback | 0 |
+| 2 modulator attack (same range as attack) | 0 |
+| 3 modulator decay | 64 |
+| 4 modulator floor (modulation level after its decay) | 127 |
 
-The page refuses an edit while the unit is busy (for example saving): it blinks red and nothing changes. Try again.
-The page does not open while a module is running.
+* Macros 1 to 4 apply at the next note start. They do not change sounding notes.
+* Feedback is audible only with FM depth (macro 6) above 0.
+* The project saves the values.
+* **Save does not operate while the synth page is open.** Close the page, then press Save.
+* When the unit is busy, the page blinks red and ignores the edit. Try again.
+* The page does not open while a module runs. Up and Down have no function on the page.
 
-The synth has **one saw sound** with an attack and a decay (see [Attack and decay](#attack-and-decay)). A note
-fades even while you hold the key: there is no sustain. The 4 voices include notes that are still fading, so in
-dense playing a new note can take the voice of a fading one and cut its tail short. There are no presets. The synth
-page does not show attack, decay or level: set attack and decay with macros 2 and 3 in the normal track view, and the
-loudness with the track 8 mixer level.
+## Notes, chords and voices
 
-## Attack and decay
+| Notes per press | Pads | Sequencer | MIDI in |
+|---|---|---|---|
+| 1, poly on | held pads sound together, up to 4 | newest note wins | up to 4 notes |
+| 1, poly off | newest note wins | newest note wins | newest note wins |
+| 2 to 4 | chord; a new press replaces it | same as pads | chord; a new note replaces it |
 
-New in 0.1.1. On track 8:
+* Chords: the pressed note is the root. In key uses the project scale and key, shared with tracks 1 to 7
+  ([scales.md](scales.md)).
+* Voice order when all 4 are busy: free voice, voice released longest ago, voice held longest.
+* Each press of the same note has its own voice. A note off releases the newest matching note from that source.
+* A recorded chord stores its root note. Playback uses the current chord settings.
+* **TBD:** the result of recording overlapping MIDI notes or held pad chords.
+* Track 8 ignores slice mode, as in 0.1.1.
+* Stop (press Play), CC 123 and mute: sounding notes go to their release. CC 120 has no effect, as on stock.
+* Project load, pack load, choke and sample edit: sounding notes stop immediately. Choke groups operate on track 8.
 
-| Control | Sets | Values |
-|---|---|---|
-| Macro 2, or MIDI CC 22 on track 8's channel | attack | 0 to 127 |
-| Macro 3, or MIDI CC 23 on track 8's channel | decay | 0 to 127 |
+## Loading samples while the unit runs
 
-* **Range (design values, not measured on the unit):** attack about 2 ms to 2 s; decay T60 (the time to fall by
-  60 dB) 50 ms to 8 s. T60 is not the time until the note is silent.
-* **Default:** new projects start with attack 0 and decay 64. Decay 64 has a T60 of 2 seconds. These values match
-  the fixed sound of 0.1.0.
-* **No sustain.** A note rises through its attack, then decays. Holding a pad does not hold the level.
-* **Fine parts:** Shift + macro 2 or 3 (CC 86 and CC 87) has no effect on the synth.
-* **Clear + macro 3** on track 8 sets the decay to 64. Clear + macro 2 sets the attack to 0. In lock edit (Rec held
-  with a step), Clear + macro 3 records the value 127 as the lock of that step, as on stock. Tracks 1 to 7 keep the
-  stock behaviour.
-* **Saving:** attack and decay are saved with the project. A project from stock firmware or from 0.1.0 whose track 8
-  decay (macro 3, Length on the stock panel) is at the stock value 127 opens with decay 64. Other values stay. Save
-  the project to keep the change. After a save in 0.1.1, every value that you set stays, 127 included.
+The synth starts again automatically after a sample load.
 
-### Parameter locks
+| Event | Recovery |
+|---|---|
+| Pack change; sample transfer or load, including SysEx read-back | yes |
+| Sample edit that transfers sample data | yes, same path |
+| Other sample edits (preview, trim, start, end, tune, other parameters) | no; can stop sounding track 8 notes |
+| Project change in the same pack | no; can stop sounding track 8 notes |
+| Loading at startup | no |
 
-Attack and decay accept parameter locks (Rec, hold a step, turn macro 2 or 3), as the other macros do. A step without
-a lock uses the knob (base) value.
+* During the load, sounding track 8 notes stop and new track 8 notes do not sound.
+* After the load, the synth uses the settings loaded at that time. After a pack change, these can be different.
+* If the restart does not complete, track 8 stays silent. Save the project. Then turn the unit off and on.
 
-* **Global effect.** Attack and decay are global for the synth. A locked value changes all track 8 voices that are
-  sounding, not only the note of the locked step. Example: a long decay locked on step 1 becomes shorter when step 2
-  plays with the knob value.
-* **A step without a note** uses the knob value again. Attack and decay locks stored on a step without a note are
-  ignored. A lock carried from the preceding step that has a note still plays. Arrhythmia never erases a lock: put a
-  note on the step again and its locks play again.
-* **Probability.** A step that holds a note counts as a step with a note, also when its probability skips the note.
-  Its attack and decay locks apply.
-* **Attack after the attack phase.** A change to attack does not restart the attack of a note that is already in its
-  decay.
+## Saving and older projects
 
-### Stop, mute and cuts
+The project saves the synth settings, the selected sound, the per-step sounds and the macros.
 
-* When playback stops (press **Play**; the unit has no Stop button), on MIDI CC 123 (all notes off) and when track 8
-  is muted, sounding synth notes play out their decay, like samples.
-* A note that the sound processor had already accepted at the moment of the stop still starts, then decays. This edge
-  is accepted.
-* CC 120 (all sound off) is ignored, as on stock: it does not cut the synth notes.
-* Loading a project or a pack, a choke and a sample edit cut the synth notes at once.
+| Project | Opens with |
+|---|---|
+| New | Unity, serial; FM depth 96; other defaults as in the images |
+| Stock or imported | its stored track 8 sample slot as sound; its macro values |
+| Arrhythmia 0.1.0 or 0.1.1 | its stored sample slot as sound; its macro values; its synth page settings |
 
-### Slice mode
+* Slot 0 to 31 (counted from 0) selects that pad on page 1 or 2. Slot 32 or higher plays Unity, serial.
+* Stock macros 1 and 4 to 8 now set synth values. Examine them. Macro 6 at 0 gives no FM depth.
+* Stored sample flips on track 8 now select a sound per step (slot rules as above). Old patterns can sound different.
+  Arrhythmia does not remove the flips.
+* In a project never opened in Arrhythmia, track 8 length (macro 3) 127 opens as decay 64. Save to keep it.
+* If Rec blinks white, the DSP does not answer. Save, then turn the unit off and on
+  ([install.md](install.md#rec-blinks-white)).
 
-Track 8 ignores slice mode. Macros 2 and 3, their locks and their lights, the Note-view keyboard, the octave arrows
-and the expanded view work as without slice mode. Lock recording on track 8 in slice mode is tested only while the
-transport is stopped.
+## Known issues
 
-## MIDI
+Details: [release notes, known issues](../../RELEASE-NOTES-0.2.0.md#known-issues).
 
-* Channel: track 8's MIDI channel, channel 8 by default.
-* With notes per press 1, MIDI notes play polyphonically, up to 4 at once.
-* When all 4 voices are busy, a new note takes a voice: first a free one, then the one released longest ago, then the
-  one held longest.
-* Playing the same note twice, or the same note from MIDI and a pad together: each press is its own note with its
-  own voice. A note off releases the newest matching note from the same source.
-
-## Recording
-
-The sequencer stores one note per step on each track. When you record a chord on track 8, the step keeps the root
-note you played. On playback the chord is built again from the current settings, so changing the chord type also
-changes recorded chords.
-
-**TBD:** what is kept when you record overlapping MIDI notes.
-
-## Saving
-
-The synth settings are saved with each project.
-
-* A project from stock firmware opens with the default synth settings and notes per press 1.
-* An Arrhythmia project on stock firmware loads normally. Track 8 then plays its recorded notes on its sample, one at a time.
-  If you save it on stock and open it again in Arrhythmia, the synth settings are still there. **TBD:** confirmed on
-  hardware.
-
-## Tips
-
-* Four voices at full level are loud. Lower track 8's level if the mix clips. **TBD:** level advice.
-* Very heavy projects with all FX and 4 synth voices may make the audio glitch. Stop and Save should keep working
-  (tested in emulation; **TBD:** on hardware).
-* If Rec blinks white, the sound processor stopped answering: save, then turn the unit off and on (see
-  [install.md](install.md#rec-blinks-white)).
-* A project in slice mode: track 8 ignores slice mode and plays the real notes (see [Slice mode](#slice-mode)).
-* Choke groups that include track 8 choke the synth like any other track.
+* Processing time is not measured on the unit. Glitches may occur without a fault report or Rec indication.
+* A restart after a sample load can fail. Then track 8 stays silent until a power cycle.
+* Some settings at high level or with high resonance can still crackle.
+* On our unit, a sample crackled also with the official firmware 5706.
+* High notes lose the character of the family.
+* Releasing a note before its attack finishes can produce a small tick.
+* The end of a fading note has a small rounding artefact at a very low level.

@@ -432,6 +432,103 @@ def test_cli():
         assert r.returncode == 0 and (Path(tmp) / "o2" / "tools" / "crpatch.py").exists(), r.stdout + r.stderr
 
 
+# Provenance rules (D7). Every stock name, hash and branch name is built at run time, so this file passes them itself.
+FUN = "FUN" + "_0805c060"
+H7, H7B = "63fe" + "2e0", "8265" + "dba"
+H40 = "1a" * 20
+BRANCH = "subtractive" + "-m2"
+
+
+def prov(text, path="patches/src/x.c", allow=ep.ALLOW, passed=()):
+    return sorted({r for r, _ in ep.provenance_findings(path, text.encode(), allow, ep.EXCLUDE, passed)})
+
+
+def prov_details(text, rule, path="patches/src/x.c"):
+    return sorted(d for r, d in ep.provenance_findings(path, text.encode()) if r == rule)
+
+
+def test_provenance_rules():
+    # decompiler names (Ghidra and IDA auto-names of a stock address)
+    for t in ("/* the view (" + FUN + " object) */", "thunk_" + "FUN" + "_08031268(0)", "DAT_" + "20003688",
+              "LAB_" + "0803b7ec:", "sub_" + "0803B7EC", "loc_" + "8031268", "PTR_" + "FUN" + "_08031268",
+              "PTR_" + "DAT" + "_20003688", "(" + "PTR_" + "PTR_" + "FUN" + "_0805c060)"):
+        assert prov(t) == ["decompiler-name"], (t, prov(t))
+    for t in ("0x0805C060u", "FUN_ny", "FUNCTION_0805c060", "MY_FUN_0805c060", "fn_0805c060", "sub_total 12",
+              "PTR_FUN_ny", "XPTR_" + "FUN" + "_0805c060"):
+        assert "decompiler-name" not in prov(t), t
+    # citations of decompilation and the reverse-engineering tool
+    for t in ("runs in the Main task [decomp, x]", "the decompiled loop", "Decompilation shows", "Ghid" + "ra script",
+              "ghid" + "ra_scripts/x.java"):
+        assert "decompilation" in prov(t), t
+    for t in ("decompress the stream", "decomposition", "a decompressor"):
+        assert "decompilation" not in prov(t), t
+    # private paths: a private doc or test by path, an unpublished docs/ path, a private doc by bare name
+    assert prov_details("see docs/a1-notetap.md section 2", "private-path") == ["docs/a1-notetap.md"]
+    assert prov_details("(tests/test_core0_feed.py)", "private-path") == ["tests/test_core0_feed.py"]
+    assert prov_details("design docs/never-listed.md.", "private-path") == ["docs/never-listed.md"]
+    assert prov_details("[decomp, note-path.md]", "private-path") == ["note-path.md"]
+    bench = "tools/core0_" + "bench_profile.py"                       # an EXCLUDE entry outside docs/ and tests/
+    assert prov_details("# " + bench + " --only adds the gate", "private-path") == [bench]
+    assert prov_details("# the private bench build adds the gate; tools/build_lightshow.py", "private-path") == []
+    assert "docs/core0-public-0.2-candidate.md" in prov_details("docs/core0-public-0.2-candidate.md", "private-path")
+    for t in ("docs/user/README.md", "docs/led-map.json", "docs/dev/ and docs/user/", "docs/dev/design/scales.md",
+              "plock-fix.md", "scales.md", "README.md", "mydocs/x.md", "tests/test_export_public.py"):
+        assert "private-path" not in prov(t), t
+    # commit hashes: 40-hex object names; short hashes by their context word, before or after, and their chains
+    assert prov_details("pinned at " + H40, "commit-hash") == [H40]
+    for t, want in (("(Codex review " + H7 + ", finding 2)", [H7]), ("commit " + H7, [H7]), (H7 + " commit", [H7]),
+                    ("Codex's table, " + H7 + " / " + H7B + ")", sorted([H7, H7B])),
+                    ("(" + H7 + ": pads poly with POLY on, Codex approved)", [H7]),
+                    ("branch x/y " + H7, [H7]), ("@" + H7, [H7])):
+        assert prov_details(t, "commit-hash") == want, (t, prov_details(t, "commit-hash"))
+    for t in ("SHA-256 " + "ab12" * 16, "Codex 7304 and 7306", "Codex: 0x1234abcu", "Codex defaced",
+              '{"hex": "44f057ff44f056fe"}', "ARM region " + "a0d0" + "1b8e...", "review " + "x" * 70 + " " + H7,
+              "label " + "1218" + "424f"):
+        assert "commit-hash" not in prov(t), t
+    # reviewed exceptions and the tool's own exemption
+    assert prov("upstream " + H40, passed=(H40,)) == []
+    assert prov("ghid" + "ra_scripts/ docs/a1-notetap.md", path="tools/export_public.py") == []
+    assert prov(FUN, path="tools/export_public.py") == ["decompiler-name"]       # exempt from two rules only
+
+
+def test_provenance_export():
+    refused_by({"patches/src/v.c": ("/* the view (" + FUN + " object) */\n").encode()}, "decompiler-name",
+               "patches/src/v.c")
+    refused_by({"tools/c.py": b"# hook_sysex runs in the Main task [decomp]\n"}, "decompilation", "tools/c.py")
+    refused_by({"tools/r.py": b"# design: docs/a1-notetap.md\n"}, "private-path", "tools/r.py")
+    refused_by({"tools/h.py": ("# (Codex review " + H7 + ")\n").encode()}, "commit-hash", "tools/h.py")
+    deny = dict(DENY, strings=DENY["strings"] + [BRANCH])
+    refused_by({"export-deny.json": json.dumps(deny).encode(),
+                "tools/b.py": ("# dsp/" + BRANCH + " streams\n").encode()}, "string", "tools/b.py")
+    with tempfile.TemporaryDirectory() as tmp:          # reviewed exception, and clean text, pass
+        deny = dict(DENY, provenance_exceptions={"tools/pin.py": [H40]})
+        repo = make_repo(tmp, {"export-deny.json": json.dumps(deny).encode(),
+                               "tools/pin.py": ("PIN = '" + H40 + "'\n").encode(),
+                               "tools/ok.py": b"# DSP word read (core, a16): the word in bits 8..31; docs/user/\n"})
+        files = run(tmp, repo)[0]
+        assert "tools/pin.py" in files and "tools/ok.py" in files, files
+
+
+
+def test_dspvoice207_named_closure():
+    expected = {'tests/test_dspvoice207_source.py',
+                'tools/dspvoice207/NOTICE.md', 'tools/dspvoice207/README.md',
+                'tools/dspvoice207/build.py', 'tools/dspvoice207/instrument.asm',
+                'tools/dspvoice207/tables.py', 'tools/dspvoice207/source-manifest.json'}
+    assert set(ep.PUBLIC_DSPVOICE207) == expected
+    assert expected <= set(ep.ALLOW)
+    assert 'tools/dspvoice207/' not in ep.ALLOW
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = make_repo(tmp, {'tools/dspvoice207/build.py': b'pass\n',
+                               'tools/dspvoice207/unlisted.py': b'pass\n'})
+        files, _ = run(tmp, repo, allow=ep.ALLOW)
+        assert 'tools/dspvoice207/build.py' in files
+        assert 'tools/dspvoice207/unlisted.py' not in files
+    # A newly named source path gets the same provenance checks as every other public file.
+    refused_by({'tools/dspvoice207/build.py': b'# docs/a1-notetap.md\n'},
+               'private-path', 'tools/dspvoice207/build.py')
+
+
 def main():
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

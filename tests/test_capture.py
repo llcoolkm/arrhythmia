@@ -3,7 +3,7 @@
     uv run python -I tests/test_capture.py
 
 No device is touched: the live-path tests use a regular file or a fake class as the MIDI port and a Python script
-as the recorder. Codex's review reproductions (build/review-capture-metrics.py in the play-review tree) are
+as the recorder. The regression reproductions are
 test_codex_repro_*.
 """
 import asyncio
@@ -33,7 +33,7 @@ DET = 7
 
 
 def tri(n=4096, period=64, peak=0.25):
-    """Same shape as Codex's fixture: period-64 triangle starting at 0."""
+    """Same shape as the reference fixture: period-64 triangle starting at 0."""
     q = period // 4
     out = []
     for i in range(n):
@@ -91,7 +91,7 @@ def unity_calibration(d, nch):
     return capture.load_calibration(p)
 
 
-# Synthetic fixtures declare their constructed track explicitly (Codex ruling 2026-10-19): track 1 on MIDI channel 1,
+# Synthetic fixtures declare their constructed track explicitly (2026-10-19 policy): track 1 on MIDI channel 1,
 # triggered by channel 16 note 36, one preset message; the keyboard note is unknown, as capture.py records it.
 SYNTHETIC_TRACK = "synthetic test fixture: constructed track 1, nothing was played on a unit"
 SYNTHETIC_SENT = [{"name": "Level", "kind": "cc", "channel": 1, "number": 29, "value": 100, "sent": True}]
@@ -167,7 +167,7 @@ def bad_wav(path, frames_claimed, frames_present, rate=RATE, nch=2, bits=24, ext
 
 def test_wavio_rejects_truncated_and_bad(d):
     p = os.path.join(d, "trunc.wav")
-    bad_wav(p, 576000, 1)                                   # Codex: 12 s stereo-24 header, one frame present
+    bad_wav(p, 576000, 1)                                   # 12 s stereo-24 header, one frame present
     e = raises(wavio.WavError, wavio.read_info, p)
     assert "claims" in str(e), e
     bad_wav(p, 0, 0)
@@ -222,7 +222,7 @@ def test_alignment_and_metrics(d):
 
 
 def test_codex_repro_silence_floor(d):
-    """Codex: exact 2/4/6 s hits, digital-silent lead; the floor was measured over the whole file (-12.04 dBFS)."""
+    """Exact 2/4/6 s hits, digital-silent lead; the floor was measured over the whole file (-12.04 dBFS)."""
     p, s = take(d, "x", offsets(2, [0, 0, 0]), [1, 1, 1], noise=0)
     r = ca.analyse(p, s, window_s=.2)
     sf = r["silence_floor"]
@@ -291,14 +291,14 @@ def test_tail_figures(d):
 # ---------------------------------------------------------------- comparisons (fixes D, E)
 
 def test_codex_repro_cosine_only(d):
-    """Codex: cosine .995 passes the shape flag but NRMSE is .0999 after optimal gain."""
+    """Cosine .995 passes the shape flag but NRMSE is .0999 after optimal gain."""
     c = ca.compare([[1., 0.]], 0, [[.995, (1 - .995 ** 2) ** .5]], 0, 0, 2, 0)
     assert c["cosine_ge_0.99"] and abs(c["nrmse_after_gain"] - 0.0998749) < 1e-6, c
     assert not c["nrmse_le_0.05"] and not c["shape_and_level_ok"] and c["scope"].startswith("diagnostic")
 
 
 def test_codex_repro_rate_mismatch(d):
-    """Codex: against() accepted a 44.1 kHz analysis against a 48 kHz one."""
+    """against() accepted a 44.1 kHz analysis against a 48 kHz one."""
     p, s = take(d, "x", offsets(2, [0, 0, 0]), [1, 1, 1], noise=0)
     r = ca.analyse(p, s, window_s=.2)
     b = dict(r)
@@ -557,9 +557,9 @@ def test_codex_render_bounds(d):
     render_json(rj, emu, frames=good)
     assert ca.analyse(emu, rj)["capture"]["valid"]
     cases = (
-        ({"duration_s": -1}, "positive finite"),                                   # Codex
-        ({"events": [{"hit": k, "time_s": t} for k, t in enumerate((20.0, 22.0, 24.0))]}, "outside"),   # Codex
-        ({"channel_map": {"99": "imaginary"}}, "channel_map keys"),                 # Codex
+        ({"duration_s": -1}, "positive finite"),
+        ({"events": [{"hit": k, "time_s": t} for k, t in enumerate((20.0, 22.0, 24.0))]}, "outside"),
+        ({"channel_map": {"99": "imaginary"}}, "channel_map keys"),
         ({"duration_s": float("nan")}, "positive finite"),
         ({"duration_s": 10.0}, "!= file length"),
         ({"events": [{"hit": 0, "frame": 2.5 * RATE}, {"hit": 1, "frame": 4 * RATE}, {"hit": 2, "frame": 6 * RATE}]},
@@ -1260,7 +1260,7 @@ def test_review3_dc_not_floor(d):
     both_fail(ah, stereo_take(d, "B2", hit, float_render=True), "noise floor")
 
 
-# ---------------------------------------------------------------- per-hit fractional lag (Codex ruling)
+# ---------------------------------------------------------------- per-hit fractional lag (analysis policy)
 
 def bl_tri(t, period=64):
     """Band-limited triangle (odd harmonics below Nyquist) rising from 0 at t = 0, peak about 1: the fixture's shape,
@@ -1294,7 +1294,7 @@ def shifted(shape, peak, shifts, r_delay=0.0, n=4096, attack=14.4, tau_ms=8.0, r
 
 
 def test_per_hit_fractional_lag(d):
-    """Codex's ruling: per-hit fractional-sample lag within +-1 ms of the schedule position, one lag for all channels
+    """Per-hit fractional-sample lag within +-1 ms of the schedule position, one lag for all channels
     of a hit, one gain, joint cosine/NRMSE. Honest hardware timing (clock drift, MIDI/block jitter, sub-sample phase)
     passes with its lags reported; a lag at the bound, an inter-channel delay, inversion and garbage fail. Both
     argument orders."""
@@ -1376,7 +1376,7 @@ def measured(semitones):
 
 
 def test_track_gate_capture_vs_capture(d):
-    """Codex ruling 2026-10-19: capture vs capture needs matching explicit track declarations, not a measured keyboard
+    """2026-10-19 policy: capture vs capture needs matching explicit track declarations, not a measured keyboard
     note; a missing or mismatched track fails; two declared notes must agree; an absent note is reported unverified."""
     pa, sa = take(d, "TA", offsets(2.3, [0, 0, 0]), [1, 1, 1], kind="short")
     pb, sb = take(d, "TB", offsets(2.7, [0, 0, 0]), [0.5, 0.5, 0.5], seed=2, kind="short")
@@ -1435,7 +1435,7 @@ def test_track_gate_capture_vs_capture(d):
 
 
 def test_track_gate_render_vs_capture(d):
-    """Codex ruling 2026-10-19: render vs capture keeps the measured keyboard-note requirement and the track match;
+    """2026-10-19 policy: render vs capture keeps the measured keyboard-note requirement and the track match;
     a capture's 'unknown' (capture.py's default) supplies no measurement."""
     a = stereo_take(d, "TGa", [], add=shifted(bl_tri, HW, (0, 0, 0)))
     b = r4render(d, "TGb")
@@ -2107,7 +2107,7 @@ def test_play_and_import(d):
 
 
 def test_capture_records_track_and_keyboard_note(d):
-    """Codex ruling 2026-10-19: the sidecar records the declared track and its channel; the keyboard note is 'unknown'
+    """2026-10-19 policy: the sidecar records the declared track and its channel; the keyboard note is 'unknown'
     unless the operator gives a measured value with its evidence (never invented)."""
     midi = os.path.join(d, "midi-kb.bin")
     open(midi, "wb").close()

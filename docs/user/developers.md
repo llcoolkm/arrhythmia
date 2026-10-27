@@ -1,7 +1,8 @@
 # Arrhythmia modules for developers
 
-Applies to Arrhythmia 0.1.1 (arrhythmia-firmware build 7261, arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet. Modules are a developer feature: most users never
+Applies to Arrhythmia 0.2 (arrhythmia-firmware build 7323 and arrhythmia-devkit build 7228,
+unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.2.0.md). For the 0.1.1
+image 7261, see the [0.1.1 release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet. Modules are a developer feature: most users never
 need them.
 
 A module is a small program in C that runs on the unit. It can take over the pads, buttons and lights, play notes,
@@ -210,9 +211,11 @@ uint32_t host_midi(uint32_t msg);
 `stars`, `paint`, `chase` (lights and pads), `clock_demo` (sequencer clock), `abi3_demo` (ABI 3 calls) and `chord`
 (chords spread over sample tracks 5 to 7). `modules/paint.c` is published: it is the built-in module compiled into
 both images, so the ARM part of both images and the whole arrhythmia-devkit image can be rebuilt from the published
-sources. The source of the DSP voice code of arrhythmia-firmware is in `tools/dspvoice/`, so the full
-arrhythmia-firmware image can be rebuilt from source too, on Linux (tested on Ubuntu x86-64 only). See
-[tools/dspvoice/README.md](../../tools/dspvoice/README.md).
+sources. The source of the DSP code of the 0.2 arrhythmia-firmware image 7323 is in `tools/dspvoice207rel/`, so the
+full arrhythmia-firmware image can be rebuilt from source too, on Linux (tested on Ubuntu x86-64 only). See
+[the rebuild steps](../README.md#rebuilding-the-images) and
+[tools/dspvoice207rel/README.md](../../tools/dspvoice207rel/README.md). `tools/dspvoice/` holds the DSP voice source of
+the 0.1.1 image 7261.
 
 `modules/stars.c` is published too. It is a light show with no sound: sparse stars that swell up and fade out slowly.
 Build it with

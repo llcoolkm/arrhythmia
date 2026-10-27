@@ -157,7 +157,24 @@
 #ifdef NOTETAP                          /* note tap: struct a1 of patches/src/notetap.c, fixed, below struct pg */
 #define A1_SIZE         0x300u
 #define A1_AT           (PG_AT - A1_SIZE)       /* 0x2004F0E0..0x2004F3DF; the heap limit becomes A1_AT */
+#if CORE0_SYNTH                         /* core-0 queue feed (prototype): struct q0 of patches/src/core0feed.h, the A1
+                                           reservation grown by Q0_SIZE below struct a1 (struct a1 does not move) */
+#if FM_PATCH
+#if CORE0_RECOVER_TIMING
+#define Q0_SIZE         0xD0u                   /* + the optional recovery timing counters (heap limit 16 B lower) */
+#else
+#define Q0_SIZE         0xC0u                   /* + the FM latch mirrors (core0feed.h; heap limit 32 B lower) */
+#endif
+#elif CORE0_TONE
+#define Q0_SIZE         0xA0u                   /* + the tone state */
+#else
+#define Q0_SIZE         0x80u
+#endif
+#define Q0_AT           (A1_AT - Q0_SIZE)       /* 0x2004F080 (0x2004F060 with tone)..0x2004F0DF; heap limit Q0_AT */
+#define HEAP_FLOOR      Q0_AT
+#else
 #define HEAP_FLOOR      A1_AT
+#endif
 #else
 #define HEAP_FLOOR      PG_AT
 #endif
@@ -172,7 +189,9 @@
 #endif
 #if SCALES                              /* scales (patches/src/scales.c): struct sc, the lowest block */
 #define SC_SIZE         0x20u
-#if defined(NOTETAP)
+#if defined(NOTETAP) && CORE0_SYNTH
+#define SC_AT           (Q0_AT - SC_SIZE)
+#elif defined(NOTETAP)
 #define SC_AT           (A1_AT - SC_SIZE)       /* 0x2004F0C0..0x2004F0DF */
 #elif defined(SYNTHPAGE)
 #define SC_AT           (PG_AT - SC_SIZE)
@@ -404,6 +423,12 @@ static void sc_boot(void);
 static void sc_main(struct state *s);
 static void sc_copy(const volatile uint8_t *b);
 static void sc_sysex(struct state *s, const uint8_t *m, uint32_t len);
+#endif
+#if CORE0_BENCH
+static void q0_telem(const uint8_t *m, uint32_t len);   /* SysEx 0F, bench core-0 telemetry (patches/src/core0feed.c) */
+#endif
+#if BENCH_METER_READ
+static void q0_meter(const uint8_t *m, uint32_t len);   /* SysEx 08, the restricted meter readout (core0feed.c) */
 #endif
 #ifdef O1WAIT
 static void o1_sysex(const uint8_t *m, uint32_t len);
@@ -766,6 +791,7 @@ static int dump(const uint8_t *m, uint32_t len)
     return 1;
 }
 
+#if !BENCH_METER_READ                   /* BENCH_METER_READ: no general cmd 08 read in the build (q0_meter instead) */
 static void dsp_read(const uint8_t *m, uint32_t len)
 {
     volatile uint8_t r[14 + 6 * DSP_MAX_WORDS + 1];
@@ -815,6 +841,7 @@ static void dsp_read(const uint8_t *m, uint32_t len)
     uint32_t out[2] = {(uint32_t)r, 14 + 6 * n};
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }
+#endif
 
 /* A module that can take input is running. Caller holds the scheduler suspension. */
 static uint32_t takes_input(const struct state *s)
@@ -1165,8 +1192,12 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
             ORIG_SYSEX(a, msg, c);
         return;
     }
-    if (cmd == 0x08) {
+    if (cmd == 0x08) {                      /* the only cmd 08 branch of the dispatch */
+#if BENCH_METER_READ
+        q0_meter(m, len);
+#else
         dsp_read(m, len);
+#endif
         return;
     }
     if (cmd == 0x7E && len == 8) {
@@ -1218,6 +1249,12 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
 #ifdef O1WAIT
     if (cmd == 0x0D) {
         o1_sysex(m, len);
+        return;
+    }
+#endif
+#if CORE0_BENCH
+    if (cmd == 0x0F) {
+        q0_telem(m, len);
         return;
     }
 #endif

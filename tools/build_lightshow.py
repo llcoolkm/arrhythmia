@@ -69,7 +69,11 @@ SITES = {"hook_frame": 0x0802596E,
          # A1 activation handshake
          "hook_dsp_ready": 0x080278E2,
          # DSP stream upload, modes 0 and 1
-         "hook_dsp_load0": 0x080278CC, "hook_dsp_load1": 0x080278A8}
+         "hook_dsp_load0": 0x080278CC, "hook_dsp_load1": 0x080278A8,
+         # FM_BANKVIEW: the stock store reset inside the project operations that create a project (fresh creation):
+         # an empty slot selected, a loaded file that is not a project, clear, a pack switch without a file (notetap.c)
+         "hook_rst_absent": 0x08037C8A, "hook_rst_tail": 0x08037E74, "hook_rst_clear": 0x0803868A,
+         "hook_rst_pack": 0x08038742}
 # input event sites: Thumb-2 B.W tail calls, retargeted to our hooks
 BW_SITES = {"hook_fo_eng": 0x08031A34,
             "hook_pad": 0x080295CA, "hook_button": 0x080295D8, "hook_pot": 0x080295E4,
@@ -91,7 +95,8 @@ STOCK_BL = {0x0802596E: 0x0802960C, 0x08026E42: 0x0802CF90, 0x080256DE: 0x080261
             0x080315DC: 0x08023416, 0x08053E26: 0x08040E28, 0x08053E74: 0x08053E8C, 0x080460BA: 0x08053E8C,
             0x08043C40: 0x080536D2, 0x08043C98: 0x08053690, 0x0802964E: 0x08029684, 0x080536C0: 0x08031430,
             0x0804679E: 0x08040874, 0x080278E2: 0x08031700,
-            0x080278CC: 0x08031110, 0x080278A8: 0x08031110}
+            0x080278CC: 0x08031110, 0x080278A8: 0x08031110,
+            0x08037C8A: 0x08032DB2, 0x08037E74: 0x08032DB2, 0x0803868A: 0x08032DB2, 0x08038742: 0x08032DB2}
 # vtable words retargeted to a hook (stock word = Thumb address)
 VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x08058161),
             "hook_fx": (0x0806834C, 0x0805F2F9),
@@ -103,6 +108,8 @@ VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x
             # AD: track 8 ignores slice mode (slice converter's and macro pages' observer entries)
             "hook_nm_obs": (0x08067B3C, 0x0803AD3D), "hook_mp_obs": (0x08067E60, 0x080584DB),
             "hook_sv_press": (0x08068294, 0x0805C1AD),
+            # FM_BANKVIEW (7304): the Sample view's release and observer entry (track 8's family pages)
+            "hook_sv_rel": (0x08068298, 0x0805C2BF), "hook_sv_obs": (0x080682C0, 0x0805C405),
             # O1 quarantine: operation boundaries
             "hook_fs_length": (0x08066E5C, 0x0806438D),
             "hook_fs_alloc": (0x08066E64, 0x080643F5), "hook_fs_reset": (0x08066E68, 0x08064417),
@@ -131,6 +138,7 @@ OR_A1_HOOKS = ["hook_ring_slot", "hook_ring_retrig", "hook_ring_on", "hook_ring_
                "hook_dsp_load0", "hook_dsp_load1"]
 OR_AD_HOOKS = ["hook_nm_obs", "hook_mp_obs", "hook_save_post", "hook_kb_new", "hook_nv_col0", "hook_nv_col1",
                "hook_mp_init", "hook_sv_press", "hook_step_note", "hook_oct_c", "hook_xv_c"]
+OR_BANKVIEW_HOOKS = ["hook_sv_rel", "hook_sv_obs", "hook_rst_absent", "hook_rst_tail", "hook_rst_clear", "hook_rst_pack"]
 OR_PROFILES = {
     # SCALES=1 in every 0.1 profile; each image and ARM base has its own label (build-info block).
     # DUMP_ALLOW (SysEx 7D reads ITCM 0x100-0x3FFF only) is on in every profile except the SCALES=0 checks (dump_open)
@@ -142,7 +150,7 @@ OR_PROFILES = {
                                       "devkit profile's streams"),
     "arrhythmia-firmware-arm": dict(synth=1, cmd08=0, scales=1, label=7242, version=[0, 0, 0, 7, 9, 0],
                                     image=("arrhythmia-firmware", 7229),
-                                    dsp="Codex firmware-profile streams dsp/subtractive-m2 709160f layout with the "
+                                    dsp="Codex firmware-profile streams layout with the "
                                         "T60 2 s core 1 (decay K 0x7FB4B6, idle floor 0x400; tools/voicestack.py): "
                                         "core 1 voice decoder, ENABLE 0 at boot, core 0 stock "
                                         "relocated to 0x0807A020, no meter"),
@@ -153,6 +161,76 @@ OR_PROFILES = {
     # (the same ARM as development builds 7253 to 7255)
     "arrhythmia-firmware-arm-ad": dict(synth=1, cmd08=0, scales=1, ad=1, label=7251, version=[0, 0, 0, 7, 9, 0],
                                        image=("arrhythmia-firmware", 7261)),
+    # 0.2 PROTOTYPE (emulator only, never an image, never flashed): the AD profile with the track-8 synth fed to the DSP's
+    # provisional core-0 queue (CORE0_SYNTH=1, patches/src/core0feed.c); ARM-only label 7280
+    "arrhythmia-core0-proto": dict(synth=1, cmd08=0, scales=1, ad=1, core0=1, label=7280, version=[0, 0, 0, 7, 9, 0]),
+    # the same plus the live tone producer (CORE0_TONE=1: the proposed A08000 packet, header 000204); a
+    # separate profile so that the 000202 feed stays reviewable on its own; ARM-only label 7281
+    "arrhythmia-core0-tone": dict(synth=1, cmd08=0, scales=1, ad=1, core0=2, label=7281, version=[0, 0, 0, 7, 9, 0]),
+    # the tone profile admitting the key-scaled instrument header instead (VERSION 000205; the
+    # same A08000 packet, no ARM change but the accepted header); ARM-only label 7282
+    "arrhythmia-core0-keyscale": dict(synth=1, cmd08=0, scales=1, ad=1, core0=3, label=7282,
+                                      version=[0, 0, 0, 7, 9, 0]),
+    # PRIVATE bench ARM base (never public): the 7282 feed plus CORE0_BULK_EXCLUDE (any bulk interval closes the synth
+    # path until a DSP load); the private bench build adds the DEV_NOPLAY gate; intermediate label 7283, image
+    # label 7284
+    "arrhythmia-core0-bench-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=4, label=7283,
+                                       version=[0, 0, 0, 7, 9, 0]),
+    # 0.2, core 0 the only synth (master 2026-10-21; the core-1 retirement plan): the 7283 feed plus
+    # CORE0_ONLY (the core-1 legacy voice retired on the ARM: no ENABLE X:2E70 write, no core-1 frame from our code);
+    # emulator only, never flashed from here; the private bench build adds the DEV_NOPLAY gate; label 7286
+    "arrhythmia-core0-only-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7286,
+                                      version=[0, 0, 0, 7, 9, 0]),
+    # the same profile plus PAD_POLY=1 (pads poly with POLY on, reviewed) under a new label; every
+    # other profile keeps pads on the lane, so 7286 stays bound to the bytes of image 7287; the private bench build adds the gate;
+    # image label 7289
+    "arrhythmia-core0-padchord-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7288, pad_poly=1,
+                                          version=[0, 0, 0, 7, 9, 0]),
+    # the 7288 configuration plus FM_PATCH=1 (master 2026-10-21: per-note FM settings, algorithm / ratio bank /
+    # feedback / modulator AD-to-floor, latched ahead of the ONSET in the envelope group) and
+    # the flash trims C1-C3 (TRIM_RING, TRIM_HIDE, TRIM_LEDS), all only here; header VERSION 000206 (proposed,
+    # not frozen); ARM-only label 7302 (7290-7299 belong to the timing branch, 7300 / 7301 are synthetic flash-test
+    # builds); EMULATION ONLY, no DSP stream for 000206 exists, never an image
+    "arrhythmia-core0-fmpatch-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7302, pad_poly=1, fm_patch=1,
+                                         version=[0, 0, 0, 7, 9, 0]),
+    # the 7302 configuration plus FM_BANKVIEW=1 (master 2026-10-21, option A, release 0.2,
+    # with master's ruling): the FM ratio family and algorithm are track
+    # 8's sample slot (Sample view pages 0 serial4 and 1 dual_stack), codec 2 version 2, new projects slot 0 + FM depth
+    # 96, no FM view (macros 1..4 on the single synth page view); the single define implies PAD_POLY, FM_PATCH and trims
+    # C1-C3 (arrhythmia.c), so those stay on 7288 / 7302
+    # in the tables; ARM-only label 7304; EMULATION ONLY, never an image from here
+    # FM_207 (fm207=1): header VERSION 000207 and the 207 R127 release reference, on 7304 and 7306's ARM only
+    "arrhythmia-core0-bankview-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                          version=[0, 0, 0, 7, 9, 0]),
+    # Public 0.2 firmware ARM profile, paired with the VERSION 207 DSP source in tools/dspvoice207/.
+    # The ARM base label stays 7304; the full-image builder selects the release label.
+    # Reproduce the earlier VERSION 206 public image with its original Clear + macro 6 behavior.
+    "arrhythmia-firmware-arm-fm206": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                          legacy_fm206=1, version=[0, 0, 0, 7, 9, 0],
+                                          image=("arrhythmia-firmware", 7306)),
+    "arrhythmia-firmware-arm-fm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                       version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7308)),
+    # the timing bench's ARM: 7304 plus BENCH_METER_READ=1 (meter_read=1): cmd 08 is the restricted core-0 meter
+    # readout; BENCH ONLY, ARM-only label 7305, never a
+    # public or release build; EMULATION ONLY, never an image from here
+    "arrhythmia-core0-bankview-meter-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7305, bankview=1,
+                                                meter_read=1, version=[0, 0, 0, 7, 9, 0]),
+    # 0.2.1 candidate (not released): the two FM_207 profiles above plus CORE0_RECOVER=1 (recover=1; runtime
+    # content-transfer recovery, patches/src/core0feed.c). New profiles, so that
+    # 7304 and arrhythmia-firmware-arm-fm keep rebuilding the pinned 0.2 bytes; the same ARM-only base label 7304 and
+    # version nibbles; no image and no (label, version) entry (that is added only when an image is pinned);
+    # EMULATION ONLY, never an image from here. The public source builder joins the recovery ARM with the supported DSP stream.
+    "arrhythmia-core0-bankview-arm-recover": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                                  fm207=1, recover=1, version=[0, 0, 0, 7, 9, 0]),
+    "arrhythmia-firmware-arm-fm-recover": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                               fm207=1, recover=1, version=[0, 0, 0, 7, 9, 0],
+                                               image=("arrhythmia-firmware", 7316)),
+    # OPTIONAL (separate commit, may be dropped): the recover profile plus CORE0_RECOVER_TIMING=1 (timing=1): ACK
+    # latency and reinit duration counters, c_init_late (struct q0 block 0xD0, 0F reply 185 bytes); the rig
+    # only; excluded from the public candidate source build.
+    "arrhythmia-core0-bankview-arm-recover-timing": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304,
+                                                         bankview=1, fm207=1, recover=1, timing=1,
+                                                         version=[0, 0, 0, 7, 9, 0]),
     # SCALES=0 check builds (emulator only, never images): the two release profiles with the switch off; they keep the
     # previous cmd 7D (dump_open) so they still rebuild 7210 / 7211 byte for byte
     "arrhythmia-devkit-arm-noscales": dict(synth=0, cmd08=1, label=7210, dump_open=1, version=[0, 0, 0, 7, 9, 0],
@@ -163,14 +241,25 @@ OR_PROFILES = {
     "arrhythmia-firmware-arm-noscales": dict(synth=1, cmd08=0, label=7211, version=[0, 0, 0, 7, 9, 0], ad_blocks=1216,
                                              dump_open=1,
                                              image=("arrhythmia-firmware", 7201),
-                                             dsp="Codex firmware-profile streams dsp/subtractive-m2 709160f "
+                                             dsp="Codex firmware-profile streams "
                                                  "(tools/voicestack.py): core 1 voice decoder, "
                                                  "ENABLE 0 at boot, core 0 stock relocated to 0x0807A020, no meter"),
 }
 
 
 def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="none", scales=0, ad_blocks=None,
-              dump_open=0, ad=0):
+              dump_open=0, ad=0, core0=0, pad_poly=0, fm_patch=0, bankview=0, meter_read=0, fm207=0, legacy_fm206=0,
+              recover=0, timing=0):
+    q0 = {0: 0, 1: 0x80, 2: 0xA0, 3: 0xA0, 4: 0xA0, 5: 0xA0}[core0]   # struct q0 block (devkit_abi3.c Q0_SIZE)
+    fm = fm_patch or bankview                                          # FM_BANKVIEW implies FM_PATCH (arrhythmia.c)
+    assert not legacy_fm206 or (bankview and not fm207), name
+    assert not fm207 or bankview, name                                 # FM_207 builds on FM_BANKVIEW (arrhythmia.c)
+    assert not recover or fm207, name                                  # CORE0_RECOVER builds on FM_207 (arrhythmia.c)
+    assert not timing or recover, name                                 # CORE0_RECOVER_TIMING needs CORE0_RECOVER
+    if fm:
+        q0 = 0xC0                                                     # + the FM latch mirrors (core0feed.h)
+    if timing:
+        q0 = 0xD0                                                     # + the optional timing counters (core0feed.h)
     parts = ["Arrhythmia 0.1 " + ("firmware" if not cmd08 else "devkit") + f" profile (SYNTH={synth}, CMD08={cmd08}"
              + (", A1_PATCH=1, emulator only" if a1_patch else "") + "): 6015 (track modes T1, p-lock fix) + O1 "
              "bounded DSP waits with the sticky fault quarantine (SysEx 0D, Rec blinks) + module SDK"]
@@ -187,24 +276,99 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      "(params 7/8, identity; new projects and Clear + macro 3 on track 8: Length 64), paced 5 ms, "
                      "per-voice lifetime deadlines; track 8 ignores slice mode (macros 2/3, their lock lanes and lights, the save, the "
                      "Note-view keyboard, octave arrows and expanded view)")
+    if core0:
+        parts.append("PROTOTYPE, emulator only: track 8's lifecycle (ONSET with the A/D/S/R envelope group and the M1 Tune "
+                     "snapshot, KILL, generation-matched RELEASE, ALL OFF) goes to the provisional core-0 queue X:4D00..4D4F "
+                     f"after the ready header (VERSION {'000207' if fm207 else '000206' if fm else ({2: '000204', 3: '000205', 4: '000205', 5: '000205'}).get(core0, '000202')}) and an "
+                     "epoch handshake, "
+                     "batched under the bus semaphore; "
+                     + ("live tone (M6 FM depth, M7 cutoff, M8 resonance: Codex's proposed A08000 packet), "
+                        if core0 >= 2 else "")
+                     + f"no class-A word on the stock ring; struct q0 {q0:#x} B below struct a1 (heap limit {q0:#x} B "
+                       "lower)"
+                     + ("; core 0 is the only synth: the core-1 legacy voice is retired (no ENABLE X:2E70 write, no "
+                        "core-1 frame)" if core0 == 5 else ""))
+    if fm_patch:
+        parts.append("FM patch (FM_PATCH, emulation only): algorithm, ratio bank, feedback and the modulator AD-to-floor "
+                     "envelope from patch slot 7 codec 2, latched ahead of the ONSET in the envelope group (PATCH_FM "
+                     "A09000, MOD_AD A0A000, sent only when changed; a barrier sends all), the synth page's FM view "
+                     "(Up / Down); flash trims C1-C3")
+    if bankview:
+        parts.append("FM patch (FM_PATCH, emulation only) as 7302 with the ratio family and algorithm read from track 8's "
+                     "sample slot (channel parameter 0, slots 0..31: family slot & 15, algorithm slot >> 4) at the "
+                     "press: track 8's Sample view selects them (page 0 serial4, page 1 dual_stack; pages 2..7 dark and "
+                     "inert, the release of an inert press swallowed; the view opens on the page of the selected base), "
+                     "codec 2 version 2 (bytes +2 and +3 reserved; version 1 converted once at load or boot), new "
+                     "projects slot 0 and FM depth 96, no FM view (macros 1..4 on the single synth page view) "
+                     "(FM_BANKVIEW, which implies PAD_POLY, FM_PATCH and the flash trims C1-C3)")
+    if recover:
+        parts.append("runtime content-transfer recovery (CORE0_RECOVER, 0.2.1 candidate, emulation only): a runtime bulk "
+                     "whose pre-transfer epoch is ACKed with FAULT 0 is followed by the own DSP reinit through READY "
+                     "(READY=0 once, INIT_COUNT + 1 confirmed on two consecutive reads), a new epoch and the barrier; "
+                     "every uncertain outcome excludes until a DSP load; transfers from another task, a transfer after "
+                     "READY=0 and allocator pages outside 0x300000..0xD86000 exclude; 0F reply "
+                     + ("185 bytes with the OPTIONAL timing counters t_ack_max, t_init_max, t_init_last (ticks, "
+                        "0xFFFE saturated, 0xFFFF incomplete) and c_init_late (CORE0_RECOVER_TIMING; struct q0 block "
+                        "0xD0)" if timing else "173 bytes"))
+    if meter_read:
+        parts.append("BENCH ONLY: cmd 08 is the restricted core-0 meter readout (X:$5C00..$5E5F, 1..16 words, a 14-bit "
+                     "nonce, the 0F idle rule and a deadline before every DSP word, no write; the general cmd 08 read is "
+                     "compiled out; BENCH_METER_READ)")
     if not dump_open:
         parts.append("cmd 7D reads only ITCM 0x00000100-0x00003FFF (module RAM and code); every other address, "
                      "internal flash included, gets the refusal (13 bytes, no data)")
-    floor = (0x2004F0E0 if synth else 0x2004F400) - (0x20 if scales else 0)
+    floor = (0x2004F0E0 if synth else 0x2004F400) - (0x20 if scales else 0) - q0
     return {"src": "arrhythmia.c", "hooks": OR_HOOKS + (OR_A1_HOOKS if synth else []) + (OR_SCALES_HOOKS if scales else [])
-                      + (OR_AD_HOOKS if ad else []),
+                      + (OR_AD_HOOKS if ad else []) + (OR_BANKVIEW_HOOKS if bankview else []),
             "defines": [f"SYNTH={synth}", f"CMD08={cmd08}"] + (["A1_PATCH=1"] if a1_patch else [])
                        + (["SCALES=1"] if scales else []) + ([f"AD_BLOCKS={ad_blocks}u"] if ad_blocks else [])
-                       + (["DUMP_ALLOW=0"] if dump_open else []) + (["AD_LIVE=1"] if ad else []),
+                       + (["DUMP_ALLOW=0"] if dump_open else []) + (["AD_LIVE=1"] if ad else [])
+                       + (["CORE0_SYNTH=1"] if core0 else []) + (["CORE0_TONE=1"] if core0 >= 2 else [])
+                       + (["CORE0_KEYSCALE=1"] if core0 >= 3 else []) + (["CORE0_BULK_EXCLUDE=1", "CORE0_BENCH=1"] if core0 >= 4 else [])
+                       + (["CORE0_ONLY=1"] if core0 == 5 else []) + (["PAD_POLY=1"] if pad_poly else [])
+                       + (["FM_PATCH=1", "TRIM_RING=1", "TRIM_HIDE=1", "TRIM_LEDS=1"] if fm_patch else [])
+                       + (["FM_BANKVIEW=1"] if bankview else []) + (["BENCH_METER_READ=1"] if meter_read else [])
+                       + (["FM_207=1"] if fm207 else []) + (["CORE0_RECOVER=1"] if recover else [])
+                       + (["CORE0_RECOVER_TIMING=1"] if timing else [])
+                       + (["LEGACY_FM206_ARM=1"] if legacy_fm206 else []),
             "profile": dict({"synth": synth, "cmd08": "meter windows" if cmd08 else "refused", "a1_patch": a1_patch,
                              "image": f"{image[0]} {image[1]}" if image else "none (emulation only)",
                              "dsp_layer": dsp}, **({"scales": 1} if scales else {}),
                             **({} if dump_open else {"cmd7d": "ITCM 0x00000100-0x00003FFF only"}),
-                            **({"ad": "PATCH_AD"} if ad else {})),
+                            **({"ad": "PATCH_AD"} if ad else {}),
+                            **({"core0": "core-0 queue feed (prototype)"} if core0 else {}),
+                            **({"core0_bulk": "recovered: own reinit and a new epoch after a silent runtime bulk, "
+                                              "otherwise excluded until a DSP load (CORE0_RECOVER)" if recover else
+                                              "excluded: closed after any bulk interval until a DSP load",
+                                "core0_bench": "pacing 4 entries / 1 hold per Main pass; silence before bulk; "
+                                               "startup bulk before OPEN restarts admission; SysEx 0F telemetry"}
+                               if core0 >= 4 else {}),
+                            **({"core0_only": "core 0 only: core-1 legacy voice retired (no ENABLE, no core-1 frame)"}
+                               if core0 == 5 else {}),
+                            **({"core0_tone": "A08000 live tone (proposed), VERSION "
+                                              + ("000207 (FM patch latches, frozen; FM_207)" if fm207 else
+                                                 "000206 (FM patch latches, proposed, not frozen)" if fm else
+                                                 "000205 (key-scaled instrument)" if core0 >= 3 else "000204")}
+                               if core0 >= 2 else {}),
+                            **({"fm_patch": "PATCH_FM A09000 + MOD_AD A0A000 latched in the envelope group, patch slot "
+                                            "7 codec 2, page FM view; trims C1-C3 (TRIM_RING, TRIM_HIDE, TRIM_LEDS)"}
+                               if fm_patch else {}),
+                            **({"fm_patch": "PATCH_FM A09000 + MOD_AD A0A000 latched in the envelope group, patch slot "
+                                            "7 codec 2 version 2, macros 1..4 on the single synth page view (no FM "
+                                            "view); trims C1-C3 (implied by FM_BANKVIEW)",
+                                "bankview": "family and algorithm = track 8's sample slot 0..31 (channel parameter 0), "
+                                            "Sample view pages 0 (serial4) and 1 (dual_stack) select them; codec 2 "
+                                            "version 2; label 7304"}
+                               if bankview else {}),
+                            **({"core0_timing": "OPTIONAL: t_ack_max, t_init_max, t_init_last (ticks; 0xFFFE "
+                                                "saturated, 0xFFFF incomplete) and c_init_late in the 0F tail"}
+                               if timing else {}),
+                            **({"meter_read": "bench only: cmd 08 = restricted core-0 meter readout X:$5C00..$5E5F"} if meter_read else {})),
             "version": version, "abi": 3, "heap_floor": f"0x{floor:08X}",
             "host_table": {"note": "host_note", "note_port": "host_note_port", "param": "host_param",
                            "ui": "host_ui", "midi": "host_midi"},
             "module": "modules/paint.c",
+            **({"probes": ["vc_tune_pitch"]} if core0 else {}),
             "extra": [{"addr": "0x080101CA", "expect": "4a16", "new": struct.pack("<H", label).hex(),
                        "note": f"build-info block: build number 5706 -> {label} (Arrhythmia 0.1 ARM-only base"
                                + (f" of {image[0]} {image[1]}" if image else "") + "; emulation only, never flashed)"}],
@@ -443,6 +607,12 @@ def main(target):
         if len(f) >= 8 and f[7] in VTS | TAILS and f[3] == "FUNC":
             entry[f[7]] = int(f[1], 16) & ~1
     assert set(entry) == set(HOOKS) | set(BWS) | set(VTS) | set(TAILS), entry
+    probes = {}                               # emulator test entry points (internal functions; only profiles that ask)
+    for line in syms.splitlines():
+        f = line.split()
+        if len(f) >= 8 and f[7] in cfg.get("probes", ()) and f[3] == "FUNC":
+            probes[f[7]] = int(f[1], 16) & ~1
+    assert set(probes) == set(cfg.get("probes", ())), probes
     code += b"\xff" * (-len(code) % 4)
     blob = b""
     if table:
@@ -495,7 +665,9 @@ def main(target):
     if cfg.get("profile"):
         spec["profile"] = cfg["profile"]
     if cfg.get("heap_floor"):
-        spec["heap_floor"] = cfg["heap_floor"]        # heap limit after hook_boot (tests read it)
+        spec["heap_floor"] = cfg["heap_floor"]
+    if probes:
+        spec["probes"] = {k: f"0x{code_at + v:08X}" for k, v in probes.items()}        # heap limit after hook_boot (tests read it)
     if table:
         spec["host_table"] = f"0x{CODE_AT:08X}"
         spec["exports"] = {k: f"0x{code_at + v:08X}" for k, v in exports.items()}

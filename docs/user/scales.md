@@ -1,10 +1,10 @@
 # Arrhythmia: scales on tracks 1 to 7
 
-Applies to Arrhythmia 0.1.1 (arrhythmia-firmware build 7261, arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet.
+Applies to Arrhythmia 0.2: arrhythmia-firmware build 7323 and arrhythmia-devkit build 7228. Test status:
+see the [release notes](../../RELEASE-NOTES-0.2.0.md). **TBD** items are not confirmed.
 
-Scales are in both images: **arrhythmia-firmware** (build 7261, set on the synth page) and **arrhythmia-devkit** (build
-7228, set over SysEx only).
+Scales are in both images. In arrhythmia-firmware (build 7323), set them on the synth page. In
+arrhythmia-devkit (build 7228), set them over SysEx only.
 
 ## What it is
 

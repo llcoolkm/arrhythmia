@@ -1,0 +1,40 @@
+{
+  "arm_sha256": "9055ff901cbce68d7c0e498222e5294df40c4416026373e9f4e0b1c8109b0fe0",
+  "core0_sha256": "edf31f2710e587928c9dc071336d42cb1e52fd361a7414aaffbe7897578f6fe0",
+  "core1_sha256": "b3f9e8481e11e634c9aead897b00c7ed3d80c5926434e4456614953ab4e8d948",
+  "files": {
+    "tests/test_dspvoice207_source.py": "f6ee6f3fcd0988be6fabe8da04c721fd9975a0d35ab2e4dc3bb03e8d04aa2c82",
+    "tools/dspvoice/LICENSE": "7e026001d44d5b4dc6794e3868a8bcbb0c86432186fbd18423b01fc79f11fd03",
+    "tools/dspvoice/adapter.py": "8ba8c7c639838493c1137474937b3e6ad8b6b35cc6efeca51b01cb1d708a9b5a",
+    "tools/dspvoice/assemble.py": "ad1b68e7f4bdba9fafd0e477640f3092d4f2421116cb61c767706b08bd5ece8b",
+    "tools/dspvoice/toolchain/CMakeLists.txt": "4dd5b9a81db6eb263137081bbd84366e666287a5391e897c4baa670066bd889d",
+    "tools/dspvoice/toolchain/NOTICES.md": "a333859e148fd7edd869df146a51f6aefecd5bf35475afa12546e41a931990be",
+    "tools/dspvoice/toolchain/README.md": "5a4a8a4cbaaa558312cae7da12b90960639a440f9ec9fb526b7ca9fe35b8f9fe",
+    "tools/dspvoice/toolchain/UPSTREAM.md": "b017e0b4d7ca2275b6c1b930b057cfdb8a6cb918ca01ca6d5780c0b8a832d77a",
+    "tools/dspvoice/toolchain/dspasm.cpp": "c42e0ffef4be37261f520c41f1d07030cdb739763809a34c5b2c5b0b5369ece5",
+    "tools/dspvoice206/NOTICE.md": "444adcd3dfc19330f69c1933bd042f466bfd738bca6c801c688b7dfb6bd177f3",
+    "tools/dspvoice206/assembler.py": "3633126e1dfd9df23fb9763dc4e3e63416819656fe7f23796aa02979db5bc0ae",
+    "tools/dspvoice206/startup.asm": "71458bd7d4555992bc33ddd53daf7cfd9c5ae88bae5978cff889f3a6da08dbcf",
+    "tools/dspvoice206/suppression.asm": "e7c58be88219a9d138a0e032d0dee7d444717b54445e3ae1bef3292feb2f4162",
+    "tools/dspvoice206/tables.py": "2989e4655ab1419ab2056935f94f76ac22d07fdd74590f11866adf452899ca10",
+    "tools/dspvoice207/NOTICE.md": "3bee23a28198dbff312f22c02c874e0985c3e0c7ef6203db88065de54fd189c9",
+    "tools/dspvoice207/README.md": "58cdedb1bdaa3d127dde9f983bbdd53989ff0f789b02900c0280d810515d45c5",
+    "tools/dspvoice207/build.py": "99a360c80aad382a27457b2e00d20fe3bd87503dade79e954f78eda28911ac9d",
+    "tools/dspvoice207/instrument.asm": "bcf415578a705029bd5a601c1a0ee6341c25f97b6e56865ed43a769f0aeee06f",
+    "tools/dspvoice207/tables.py": "d2b7f0f535de5ea859fb583ff3e9e5f2a878765b467663565856844ef63ebdbe",
+    "tools/syx.py": "8473d9df33c9dab1fffceca34303d4f4f7f6120e72505d07c2dc609eb6e1475c"
+  },
+  "format": "arrhythmia-dsp207-own-source/1",
+  "image_sha256": "72ec2c87d7c4629b66de8debd9d46ebc3f58575bea521226d04a92df842a5b6d",
+  "release_label": 7308,
+  "release_version": [
+    0,
+    0,
+    0,
+    8,
+    0,
+    8
+  ],
+  "syx_sha256": "2731b3d8eba47928b25e1f6fc124212878eb57f0182a24127e1f92c0fd3d0381",
+  "version": 519
+}

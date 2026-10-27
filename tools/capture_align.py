@@ -4,9 +4,9 @@
         [--against REF.wav [--against-sidecar REF.json] --pairs 1=1,2=2] [--segments DIR] [--no-calibration]
         [detection options]
 
-Active window (Codex answer 6): 200 ms total, from 2 ms before the detected onset to 198 ms after, identical for
+Active window: 200 ms total, from 2 ms before the detected onset to 198 ms after, identical for
 every hit and take. It is never zero-padded: a window that leaves the file makes the hit incomplete. The full
-post-hit tail (onset to 2 ms before the next onset, i.e. the next window's start, or end of file) is reported separately with Codex's tail figures (answer 7).
+post-hit tail (onset to 2 ms before the next onset, i.e. the next window's start, or end of file) is reported separately with the tail figures.
 
 Definitions (also written into every report):
   cosine       sum(a*b) / sqrt(sum(a^2) * sum(b^2)) over raw samples, no mean removal
@@ -41,7 +41,7 @@ Two kinds of comparison:
     automatically for both files. Without metadata a file gets diagnostics only. 'silence' and 'no-note' takes are
     silent-audio controls: no hit is expected and no waveform verdict is given.
 
-Chain calibration (Codex ruling): the recorder's input gains cannot be hand-matched, so a per-session ratio per
+Chain calibration (analysis policy): the recorder's input gains cannot be hand-matched, so a per-session ratio per
 channel, frozen by `capture.py calibrate` (5 pilot hits, schema circuit-rhythm-calibration/1) and embedded in the
 take's sidecar, divides each analysed channel of a capture before any analysis (the WAV is never changed). Renders
 are never calibrated. A capture analysing more than one channel without one is invalid ("no chain calibration");
@@ -68,7 +68,7 @@ import wavio  # noqa: E402
 COSINE_TARGET = 0.99
 NRMSE_TARGET = 0.05
 LAG_WINDOW = 4096          # samples used to pick a per-pair diagnostic lag (85 ms at 48 kHz = one fixture length)
-# whole-take verdict alignment (Codex ruling): each hit gets its own fractional-sample lag of B, searched within
+# whole-take verdict alignment (analysis policy): each hit gets its own fractional-sample lag of B, searched within
 # +-LAG_BOUND_MS of the hit's fitted schedule position, the same lag for every channel of the hit; one gain for the
 # take. A best lag at the bound is a reason (unaligned). The lag is refined by parabolic interpolation of |cosine|
 # around the best integer lag and applied with a band-limited fractional delay (Hann-windowed sinc, 2*SINC_HALF+1
@@ -109,7 +109,7 @@ ONSET_FLOOR_DB = 6.0
 # hide in it. Honest leads from the foot to the crossing (envelope, 20 Hz / 12 kHz chain, -6..-35 dBFS and renders):
 # 10 ms raised-cosine attack up to 2.1 ms, 10 ms dB-linear from -80 dB up to 7.3 ms; 20 ms leaves a factor 2.7
 MAX_ATTACK_LEAD_MS = 20.0
-# timing consistency (verdict-blocking, Claude's bound, open for confirmation on the first real capture): per hit,
+# timing consistency (verdict-blocking, the proposed bound, open for confirmation on the first real capture): per hit,
 # d = waveform lag - onset-detector lag (B's onset minus A's onset minus the schedule shift, both onsets
 # interpolated); the spread of d over the hits must be at most TIMING_SPREAD_MAX samples. Set from 660 honest
 # synthetic takes (attacks 0.3/3/10 ms raised-cosine and dB-linear, -30..-10 dBFS,
@@ -148,7 +148,7 @@ FLOOR_TOL_DB, FLOOR_REF = 10.0, 1e-4
 # channel-map label of a channel that carries nothing (e.g. the H5studio's switched-off MIC capsule on USB 1/2): not
 # analysed or paired, still checked for full-scale/non-finite samples, and it must stay below TAIL_FALLBACK (-80 dBFS)
 UNUSED_LABEL = "unused"
-# recorder-chain calibration (Codex ruling 2026-10-17): one frozen ratio per channel from CAL_MIN_HITS pilot hits per
+# recorder-chain calibration (analysis policy 2026-10-17): one frozen ratio per channel from CAL_MIN_HITS pilot hits per
 # session; the per-hit ratios (dB) may spread at most CAL_SPREAD_MAX_DB (max - min), and each hit's channel must match
 # the reference channel's shape (COSINE_TARGET, NRMSE_TARGET), else the calibration is refused
 CALIBRATION_SCHEMA = "circuit-rhythm-calibration/1"
@@ -1611,7 +1611,7 @@ def keyboard_note_reasons(k, name):
 
 
 def _capture_keyboard_notes(ta, tb):
-    """Capture vs capture (Codex ruling 2026-10-19): (reasons, status). No measured note is required; an absent or
+    """Capture vs capture (2026-10-19 policy): (reasons, status). No measured note is required; an absent or
     'unknown' note leaves the absolute keyboard-note state unverified; two measured notes must be equal."""
     reasons, measured, unverified = [], {}, []
     for n, t in (("A", ta), ("B", tb)):

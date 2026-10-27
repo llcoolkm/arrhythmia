@@ -1,11 +1,11 @@
-<p align="center"><img src="docs/img/arrhythmia-logo.png" alt="Arrhythmia logo: an anatomical heart beside the word Arrhythmia under a red, irregular heartbeat line" width="600"></p>
+<p align="center"><img src="docs/img/arrhythmia-logo.png" alt="Arrhythmia FM logo: an anatomical heart beside the word Arrhythmia under a red, irregular heartbeat line, over a pink sunset, a neon grid and palm trees, with chrome letters FM" width="700"></p>
 
 # Arrhythmia
 
 Arrhythmia is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds new functions.
 
-Current release: **0.1.1**. The [release notes](RELEASE-NOTES-0.1.1.md) give the changes and the test status. The
-[0.1.0 release notes](RELEASE-NOTES-0.1.0.md) give the earlier record.
+Current release: **0.2**. The [release notes](RELEASE-NOTES-0.2.0.md) give the changes and the test status.
+The [0.1.1](RELEASE-NOTES-0.1.1.md) and [0.1.0](RELEASE-NOTES-0.1.0.md) release notes give the earlier record.
 
 ## Principles
 
@@ -48,10 +48,22 @@ For problems, other download procedures and the return to stock, refer to the
 
 The synthesizer functions are in arrhythmia-firmware only.
 
-* **Chord synthesizer on track 8.** Each pad and each sequencer step plays 1 to 4 notes, with 4 voices
-  ([synth](docs/user/synth.md)).
-* **Attack and decay for the synthesizer (new in 0.1.1).** On track 8, macro 2 sets the attack and macro 3 sets the
-  decay. Parameter locks operate on both ([attack and decay](docs/user/synth.md#attack-and-decay)).
+* **FM synthesizer on track 8 (new in 0.2).** A 4-operator FM synthesizer with 4 voices replaces the saw
+  synthesizer of 0.1.x ([synth](docs/user/synth.md)).
+* **Synth recovery after sample loading (new in 0.2).** After a pack change or a sample load, the synth starts
+  again by itself. If a restart fails, the synth stays silent until you turn the unit off and on
+  ([loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs)).
+* **Sounds chosen in the Sample view (new in 0.2).** In track 8's Sample view, the 16 pads of rows 3 and 4 select
+  one of 16 ratio families. The first page uses the serial algorithm, the second page the dual stack algorithm. A tap
+  selects the sound and plays it. Sample flips on steps choose the sound per step
+  ([choosing a sound](docs/user/synth.md#choosing-a-sound-the-sample-view)).
+* **Full envelope and tone controls (new in 0.2).** On track 8, macros 1 to 8 set tune, attack, decay, sustain,
+  release, FM depth, filter cutoff and resonance. MIDI CC 21 to 28 and parameter locks operate on all eight
+  ([macros](docs/user/synth.md#macros-on-track-8)).
+* **FM feedback and modulator envelope (new in 0.2).** On the synth page, macros 1 to 4 set feedback, modulator
+  attack, modulator decay and modulator floor.
+* **Chords on track 8.** Each pad and each sequencer step plays 1 to 4 notes. With 1 note per press and poly on,
+  held pads sound together (new in 0.2).
 * **MIDI polyphony on track 8.** MIDI notes on the channel of track 8 play on the synthesizer.
 * **Scales on tracks 1 to 7.** The Note view can use one of ten scales ([scales](docs/user/scales.md)).
 * **Modules.** Small programs on the microSD card can control the pads, lights, notes and MIDI. This function is for
@@ -60,19 +72,31 @@ The synthesizer functions are in arrhythmia-firmware only.
 ## Limits
 
 * In arrhythmia-firmware, track 8 plays the synthesizer only. It does not play samples.
-* The synthesizer has one fixed saw sound with attack and decay. It has no sustain and no presets.
-* Attack and decay apply to all sounding notes of track 8. A parameter lock also changes notes that are sounding.
-* The synthesizer has a maximum of 4 voices.
+* The synthesizer has 32 sounds: 16 ratio families under 2 algorithms. It has no presets. The other six pages of
+  track 8's Sample view are dark.
+* At high pitch the ratio families fade to a plain tone and sound alike
+  ([known issues](docs/user/synth.md#known-issues)).
+* Sample flips stored on track 8 in 0.1.x projects and factory patterns now change the sound on those steps.
+* The synthesizer has a maximum of 4 voices, including notes in their release.
+* While samples load into the unit (a pack change, or a sample transfer or load including SysEx read-back), the
+  synth stops and its sounding notes are cut. It starts again by itself after the load
+  ([loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs)).
+* The processing time of the synth has not been measured on the unit. Under very heavy use the audio can glitch or
+  drop out ([known issues](RELEASE-NOTES-0.2.0.md#processing-time-is-not-measured-on-the-unit)).
+* The synth's output is lowered by a fixed amount. Set the balance with track 8's mixer level ([output level](docs/user/synth.md#output-level)).
 * Arrhythmia is not for the Circuit Tracks or for other firmware versions of the Circuit Rhythm.
 
 ## Two images
 
 | Image | For | Contents |
 |---|---|---|
-| **arrhythmia-firmware** (build 7261) | users | synthesizer with attack and decay, scales, bug fixes, modules |
+| **arrhythmia-firmware** (build 7323) | users | FM synthesizer, scales, bug fixes, modules |
 | **arrhythmia-devkit** (build 7228, unchanged from 0.1.0) | developers | DSP load meter, module tools, scales, bug fixes. No synthesizer. |
 
 If you are not sure, install **arrhythmia-firmware**.
+
+The [source rebuild guide](docs/README.md#rebuilding-the-images) covers the current 0.2 image and the
+[0.1.1 image 7261](docs/README.md#rebuild-the-011-firmware-image-7261).
 
 ## Requirements
 
@@ -90,7 +114,7 @@ Use **Back to stock** on the installer page, or `tools/flash.py` on Linux
 
 * You install modified firmware at your own risk.
 * Make a backup before the installation.
-* A very high load can cause audio errors.
+* A very high load can cause audio errors. The processing time of the synth is not measured on the unit.
 
 ## Licence
 

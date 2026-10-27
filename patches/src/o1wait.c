@@ -348,6 +348,19 @@ uint32_t hook_engine_on(uint32_t g, uint32_t note, uint32_t vel, uint32_t d)
     return STOCK_PUBLISH(g, note, vel, d);
 }
 
+#if CORE0_SYNTH
+static uint32_t q0_bulk_call(fn4 f, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+{
+    q0_bulk_enter();
+    uint32_t r = f(a, b, c, d);
+    q0_bulk_leave();
+    return r;
+}
+#define BULK_CALL(f, a, b, c, d) q0_bulk_call(f, a, b, c, d)
+#else
+#define BULK_CALL(f, a, b, c, d) f(a, b, c, d)
+#endif
+
 /* Sample length: 0 = empty for every slot once the pack
  * failed, so stale descriptors left by an aborted or refused upload are not offered by the UI either. */
 uint32_t hook_fs_length(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
@@ -358,7 +371,14 @@ uint32_t hook_fs_length(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 
 uint32_t hook_fs_alloc(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
+#if CORE0_RECOVER                             /* allocator validation: a page outside the pool is refused (0 = exhausted) */
+    if (o1_faulted())
+        return o1_refuse();
+    uint32_t r = STOCK_FS_ALLOC(a, b, c, d);
+    return r && q0_alloc_bad(r) ? 0 : r;
+#else
     return o1_faulted() ? o1_refuse() : STOCK_FS_ALLOC(a, b, c, d);        /* 0 = exhausted: the upload fails */
+#endif
 }
 
 uint32_t hook_fs_reset(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
@@ -366,9 +386,11 @@ uint32_t hook_fs_reset(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     return o1_faulted() ? o1_refuse() : STOCK_FS_RESET(a, b, c, d);
 }
 
+/* The filesystem bulk read (vtable path): the whole stock call, its cleanup and error returns included, inside the
+ * bulk interval. */
 uint32_t hook_fs_bulk(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
-    return o1_faulted() ? o1_refuse() : STOCK_FS_BULK(a, b, c, d);
+    return o1_faulted() ? o1_refuse() : BULK_CALL(STOCK_FS_BULK, a, b, c, d);
 }
 
 uint32_t hook_fs_free(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
@@ -413,7 +435,13 @@ uint32_t hook_pack_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
         o1_refuse();
         return 1;                             /* the pack load fails before any DSP traffic */
     }
-    return STOCK_PACK_ACCESS(a, b, c, d);
+    uint32_t r = STOCK_PACK_ACCESS(a, b, c, d);
+#if CORE0_RECOVER                             /* the whole pack load is ONE bulk interval, closed in o1_pack_result
+                                                 (the pack loader returns early only when this is 1) */
+    if (r != 1)
+        q0_bulk_enter();
+#endif
+    return r;
 }
 
 static uint32_t slot_upload(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
@@ -423,7 +451,14 @@ static uint32_t slot_upload(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
         o->pack_failed = 1;                   /* a slot not uploaded after a reset: the pack is unusable */
         return o1_refuse();
     }
+#if CORE0_SYNTH                               /* the PCM upload runs the SHI in 16-bit bulk mode: no core-0 queue access */
+    q0_bulk_enter();
+    uint32_t r = STOCK_SLOT_UPLOAD(a, b, c, d);
+    q0_bulk_leave();
+    return r;
+#else
     return STOCK_SLOT_UPLOAD(a, b, c, d);
+#endif
 }
 
 uint32_t hook_slot_upload(uint32_t a, uint32_t b, uint32_t c, uint32_t d)   /* pack loader loop */
@@ -438,25 +473,28 @@ uint32_t hook_slot_job(uint32_t a, uint32_t b, uint32_t c, uint32_t d)      /* s
 
 uint32_t hook_sx_upload(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
-    return o1_faulted() ? o1_refuse() : STOCK_SX_UPLOAD(a, b, c, d);
+    return o1_faulted() ? o1_refuse() : BULK_CALL(STOCK_SX_UPLOAD, a, b, c, d);
 }
 
 uint32_t hook_sx_read(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
-    return o1_faulted() ? o1_refuse() : STOCK_SX_READ(a, b, c, d);
+    return o1_faulted() ? o1_refuse() : BULK_CALL(STOCK_SX_READ, a, b, c, d);
 }
 
 /* SysEx sample read-back: one bulk read chunk per iteration, the result ignored, so the
  * loop runs on after the first chunk aborted; each later chunk is refused here (no frame, no semaphore). */
 uint32_t hook_bulk_chunk(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
-    return o1_faulted() ? o1_refuse() : STOCK_BULK_READ(a, b, c, d);
+    return o1_faulted() ? o1_refuse() : BULK_CALL(STOCK_BULK_READ, a, b, c, d);
 }
 
 /* The pack loader's result (its success tail is replaced by a B.W here): r0 = 0 (failed) when a fault is set, as
  * the loader's own early-exit path reports; the frame is the loader's. */
 static uint32_t __attribute__((used, noinline)) o1_pack_result(void)
 {
+#if CORE0_RECOVER
+    q0_bulk_leave();                          /* the pack interval opened in hook_pack_access */
+#endif
     return o1_faulted() ? 0 : 1;
 }
 

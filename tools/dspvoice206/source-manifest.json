@@ -1,0 +1,28 @@
+{
+  "core0_sha256": "cbbeb9b1185fb52cd1ebee536d04d3589f716c94b55589153bd36f57bf7bf8c8",
+  "core1_sha256": "b3f9e8481e11e634c9aead897b00c7ed3d80c5926434e4456614953ab4e8d948",
+  "files": {
+    "tests/test_dspvoice206_source.py": "8628761976b321b95a086f1112e365007c035866f0fb28cfab45f6e6f6d98f47",
+    "tools/dspvoice/LICENSE": "7e026001d44d5b4dc6794e3868a8bcbb0c86432186fbd18423b01fc79f11fd03",
+    "tools/dspvoice/adapter.py": "8ba8c7c639838493c1137474937b3e6ad8b6b35cc6efeca51b01cb1d708a9b5a",
+    "tools/dspvoice/assemble.py": "ad1b68e7f4bdba9fafd0e477640f3092d4f2421116cb61c767706b08bd5ece8b",
+    "tools/dspvoice/toolchain/CMakeLists.txt": "4dd5b9a81db6eb263137081bbd84366e666287a5391e897c4baa670066bd889d",
+    "tools/dspvoice/toolchain/NOTICES.md": "a333859e148fd7edd869df146a51f6aefecd5bf35475afa12546e41a931990be",
+    "tools/dspvoice/toolchain/README.md": "5a4a8a4cbaaa558312cae7da12b90960639a440f9ec9fb526b7ca9fe35b8f9fe",
+    "tools/dspvoice/toolchain/UPSTREAM.md": "b017e0b4d7ca2275b6c1b930b057cfdb8a6cb918ca01ca6d5780c0b8a832d77a",
+    "tools/dspvoice/toolchain/dspasm.cpp": "c42e0ffef4be37261f520c41f1d07030cdb739763809a34c5b2c5b0b5369ece5",
+    "tools/dspvoice206/NOTICE.md": "444adcd3dfc19330f69c1933bd042f466bfd738bca6c801c688b7dfb6bd177f3",
+    "tools/dspvoice206/README.md": "5224c331a76f7879d4fa90510eebbf3599388a72f3be641233ed63ab743b76e5",
+    "tools/dspvoice206/assembler.py": "3633126e1dfd9df23fb9763dc4e3e63416819656fe7f23796aa02979db5bc0ae",
+    "tools/dspvoice206/build.py": "f0a322dbc08a0a9c1151ba4df7bb203a844d0b0ed201498e3b20e97a0edcc2d2",
+    "tools/dspvoice206/instrument.asm": "5c763b25f7ac224a80a24a437a0d1fc53bc6f390ff85a2e95ec2d85c54267286",
+    "tools/dspvoice206/startup.asm": "71458bd7d4555992bc33ddd53daf7cfd9c5ae88bae5978cff889f3a6da08dbcf",
+    "tools/dspvoice206/suppression.asm": "e7c58be88219a9d138a0e032d0dee7d444717b54445e3ae1bef3292feb2f4162",
+    "tools/dspvoice206/tables.py": "2989e4655ab1419ab2056935f94f76ac22d07fdd74590f11866adf452899ca10",
+    "tools/syx.py": "8473d9df33c9dab1fffceca34303d4f4f7f6120e72505d07c2dc609eb6e1475c"
+  },
+  "format": "arrhythmia-dsp206-own-source/1",
+  "image_sha256": "ab8b07a2930e57620902b0fa45f3f0d7870475ca99b01c1c295f5a0610b1fe78",
+  "syx_sha256": "d72fd952b3375df8b45582576f2ce67619fe16437d8d75c20b2d359a06615e72",
+  "version": 518
+}

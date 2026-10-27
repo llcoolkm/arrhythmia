@@ -18,8 +18,10 @@
  */
 #include "synth_settings.h"
 #include "a1_cmd.c"
-#if AD_LIVE
-#include "ad_life.h"
+#if AD_LIVE && defined(FM_207) && FM_207
+#include "ad_life207.h"                 /* 0.2 profiles (VERSION 000207): the A10 attack, 10 ms to 8 s */
+#elif AD_LIVE
+#include "ad_life.h"                    /* every other AD profile: the original attack, 2 ms to 2 s */
 #endif
 
 #define A1_MAGIC        0x31544E41u     /* "ANT1" */
@@ -117,8 +119,10 @@ typedef uint32_t (*tick_fn)(void);
 #define XY_WRITE_BODY   ((fn4_t)0x080311DBu)    /* DSP word write (no lock) */
 #define BUS_CACHE       0x20003684u             /* cached next DSP write address */
 #define BUS_SEM         0x20003688u             /* DSP bus semaphore */
+#if !CORE0_ONLY                                 /* CORE0_ONLY (0.2): the core-1 voice is retired; no symbol for it */
 #define SYNTH_CORE      1u                      /* core 1 runs the voice decoder */
 #define X_ENABLE        0x2E70u                 /* synth ENABLE word */
+#endif
 
 #ifndef SYNTH
 #define SYNTH           1               /* profile switch: 0 = track 8 unchanged (no tap, no commands, no RAM
@@ -168,7 +172,9 @@ struct a1 {
     uint16_t pad1;
     struct a1q nq[NQ];
     uint32_t reset_seq, reset_seen;           /* admission-side ALL OFF: the Main task resets its table */
-    uint8_t phase, pad2[3];                   /* PH_*: admission state across DSP loads (activation) */
+    uint8_t phase;                            /* PH_*: admission state across DSP loads (activation) */
+    uint8_t fresh;                            /* FM_BANKVIEW: the stock store reset ran since the last refresh */
+    uint8_t pad2[2];
     /* counters (tests, diagnostics) */
     uint16_t c_tap[NSRC], c_drop_on;
     uint16_t c_why[NWHY];
@@ -188,6 +194,31 @@ struct a1 {
 #endif
 };
 _Static_assert(sizeof(struct a1) <= A1_SIZE, "A1 block");
+#if CORE0_SYNTH
+#include "core0feed.h"
+_Static_assert(Q0_AT + Q0_SIZE == A1_AT, "Q0 block directly below struct a1");
+/* N bound: stock offs 8 + ONSET 4 + RELEASE 4 + envelope groups (4 + 1, one N entry each) + tone
+ * (4 + 1; emitted only under CORE0_TONE, at most one per ONSET gap) = 26 < 32 (the expanded count, two N entries per group: 31). */
+_Static_assert(8 + 4 + 4 + (4 + 1) + (4 + 1) < NQ, "core-0 N bound");
+#if FM_PATCH
+/* FM_PATCH: the PATCH_FM and MOD_AD latches ride in the same group entry, so N is unchanged (26 entries, admission
+ * k + 2). Raw queue entries behind them: 8 stock + 4 ONSET + 4 RELEASE + 5 groups x 4 (ENV pair, PATCH_FM, MOD_AD)
+ * + 5 tones = 41 (the expanded count: 31 + 2 x 5), and a dirty full press is 4 KILL + 4 + 4 ONSET + 1 TONE = 13 <= Q0_CAP. */
+_Static_assert(8 + 4 + 4 + 5 * FM_GROUP_MAX + 5 == 41 && 4 + FM_GROUP_MAX + 4 + 1 == TONE_RESERVE
+               && TONE_RESERVE <= Q0_CAP && FM_GROUP_MAX <= Q0_BATCH, "FM_PATCH queue bound");
+#endif
+#define K_OURS(k)       ((k) == VK_ONSET || K_PARAM(k) || (k) == VK_REL || (k) == VK_TONE)
+#define NQ_PURGE(a, voices, rel, patch, before) nq_purge(a, voices, rel, patch, before)
+#else
+#define K_OURS(k)       ((k) == VK_ONSET || K_PARAM(k))
+#define NQ_PURGE(a, voices, rel, patch, before) nq_purge(a, voices, patch, before)
+#define Q0_FLUSH(a)     ((void)0)
+#define ENV_MASK        VC_AD_MASK
+#define ENV_ISS(a)      (a)->ad_iss
+#define ENV_WANT(a)     (a)->ad_want
+#define ENV_SET_ISS(a, v)  ((a)->ad_iss = (uint16_t)(v))
+#define ENV_SET_WANT(a, v) ((a)->ad_want = (uint16_t)(v))
+#endif
 
 static struct a1 *a1(void)
 {
@@ -215,12 +246,18 @@ static uint32_t eng_lock(void)
 {
     uint32_t sem = *(volatile uint32_t *)ENG_CELL + 0xCu;
     SEM_TAKE(sem);
+#if CORE0_SYNTH
+    Q0->busy |= B_ENG;                        /* our transaction: every entry hook checks this BEFORE locking */
+#endif
     return sem;
 }
 
 static void eng_unlock(uint32_t sem)
 {
     uint32_t cell = sem;
+#if CORE0_SYNTH
+    Q0->busy &= (uint8_t)~B_ENG;
+#endif
     SEM_GIVE(&cell);
 }
 
@@ -240,6 +277,19 @@ static uint32_t ad_ticks(uint32_t ad)
 static void ring_put(struct a1 *a, uint32_t w0, uint32_t w1)
 {
     volatile uint32_t *pc = (volatile uint32_t *)PROD_CELL;
+#if CORE0_ONLY && TRIM_RING                   /* trim C1: only stock words reach the stock ring (ours go to the core-0
+                                                 queue), so none of the class-A bookkeeping below can run */
+    {
+        uint32_t p = *pc, at = RING + 2 * p;
+        SH_WRITE(0, w0 << 8, at);
+        SH_WRITE(0, w1 << 8, at + 1);
+        p = (p + 1) & 15u;
+        *pc = p;
+        SH_WRITE(0, p << 8, RING_PROD);
+        (void)a;
+        return;
+    }
+#endif
     uint32_t p = *pc, at = RING + 2 * p, k = vc_kind(w0), m = 0;
     if (k == VK_ONSET) {                      /* the DSP expects gen = stored + 1: taken from the mirror now */
         m = vc_onset_mask(w0);
@@ -327,6 +377,27 @@ static void nq_del(struct a1 *a, uint32_t i)
 
 /* Purge from N, among the entries issued before boundary `before`: the voices in `voices` from onsets (an onset
  * left with none is deleted) and, if `patch`, every patch entry. Entries issued at or after the boundary stay. */
+#if CORE0_SYNTH
+/* CORE0: also the RELEASE entries of `voices` (rel), and the envelope groups (patch); then orphan groups go (q0_tidy). */
+static void q0_tidy(struct a1 *a);
+static void nq_purge(struct a1 *a, uint32_t voices, uint32_t rel, uint32_t patch, uint16_t before)
+{
+    for (uint32_t i = 0; i < a->nq_n;) {
+        struct a1q *e = nq_at(a, i);
+        if ((int16_t)(e->seq - before) < 0 &&
+            ((e->kind == VK_ONSET && !vc_onset_strip(voices, &e->w0, &e->w1)) ||
+             (rel && e->kind == VK_REL && (voices >> vc_rel_voice(e->w0) & 1u)) ||
+             (patch && (K_PARAM(e->kind) || e->kind == VK_TONE)))) {
+            a->c_purged++;
+            nq_del(a, i);
+        } else {
+            i++;
+        }
+    }
+    q0_tidy(a);
+}
+#include "core0feed.c"
+#else
 static void nq_purge(struct a1 *a, uint32_t voices, uint32_t patch, uint16_t before)
 {
     for (uint32_t i = 0; i < a->nq_n;) {
@@ -341,7 +412,41 @@ static void nq_purge(struct a1 *a, uint32_t voices, uint32_t patch, uint16_t bef
         }
     }
 }
+#endif
 
+#if CORE0_SYNTH
+/* Two targets, one FIFO: the stock ring takes the stock words in order, the core-0 queue takes ours (P first, then
+ * ours in N in order; q0_drain). While the queue is not OPEN no entry of ours leaves the ARM (dropped, counted). */
+static void ad_drain(struct a1 *a)
+{
+    if (Q0->ph != Q_OPEN) {
+        if (a->pq_alloff || a->pq_kill)
+            a->c_gated++;
+        a->pq_alloff = a->pq_kill = 0;
+        for (uint32_t i = 0; i < a->nq_n;) {
+            if (K_OURS(nq_at(a, i)->kind)) {
+                a->c_gated++;
+                nq_del(a, i);
+            } else {
+                i++;
+            }
+        }
+    }
+    for (uint32_t i = 0; i < a->nq_n;) {
+        struct a1q *e = nq_at(a, i);
+        if (K_OURS(e->kind)) {
+            i++;
+            continue;
+        }
+        if (!ring_free(a))
+            break;
+        uint32_t w0 = e->w0, w1 = e->w1;
+        nq_del(a, i);
+        ring_put(a, w0, w1);
+    }
+    q0_drain(a);
+}
+#else
 static void ad_drain(struct a1 *a)
 {
     if (a->phase == PH_CLOSED) {              /* activation gate at the one publication point: while CLOSED no class-A
@@ -387,6 +492,7 @@ static void ad_drain(struct a1 *a)
         ring_put(a, w0, w1);
     }
 }
+#endif
 
 /* Class-A ALL OFF at this point of the issue order (Stop, choke, mute, edit, CC 123, project, recovery, an
  * unexpected forced off of channel 7): purges every queued onset issued before it, cancels a pending KILL
@@ -394,7 +500,7 @@ static void ad_drain(struct a1 *a)
 static void issue_alloff(struct a1 *a)
 {
     uint16_t b = (uint16_t)(a->seq + 1);
-    nq_purge(a, 15, 0, b);
+    NQ_PURGE(a, 15, 1, CORE0_SYNTH, b);
     a->pq_alloff = 1;
     a->pq_kill = 0;
     a->alloff_seq = b;
@@ -467,7 +573,11 @@ static uint32_t make_room(struct a1 *a)
 static void put_n(struct a1 *a, uint32_t w0, uint32_t w1, uint32_t epoch)
 {
     ad_drain(a);
+#if CORE0_SYNTH                               /* a stock word goes straight to the ring if no stock word waits */
+    if (!K_OURS(vc_kind(w0)) && !q0_stock_waiting(a) && ring_free(a)) {
+#else
     if (!a->pq_alloff && !a->pq_kill && !a->nq_n && ring_free(a)) {
+#endif
         a->c_direct++;
         ring_put(a, w0, w1);
         return;
@@ -489,14 +599,33 @@ static uint32_t voice_onset_room(struct a1 *a, uint32_t nvoices)
 {
     uint32_t k = vc_onset_entries((1u << nvoices) - 1u);
     ad_drain(a);
+#if CORE0_SYNTH                               /* the whole press reserved before either envelope half: k ONSET + the
+                                                 envelope group + a tone entry */
+    return a->nq_n + k + 2u <= NQ - NQ_ONSET_RESERVE;
+#else
     if (!a->pq_alloff && !a->pq_kill && !a->nq_n && ring_free(a) >= k)
         return 1;
     return a->nq_n + k <= NQ - NQ_ONSET_RESERVE;
+#endif
 }
 
 /* Publishes or queues every entry of the onset in order; a chord may straddle blocks (entries are consumed one per
  * block), but none of its entries is ever dropped alone: only an ALL OFF (which also damps the published ones) or
  * a KILL of its voices removes queued entries. */
+#if CORE0_SYNTH
+static void voice_emit_onset_t(struct a1 *a, uint32_t mask, const uint8_t *note, uint32_t vel, uint32_t tune)
+{
+    for (uint32_t v = 0; v < 4; v++)
+        if (mask >> v & 1u) {
+            uint32_t w0, w1;
+            vc_onset_tuned(v, note[v], tune, vel, &w0, &w1);
+            a->c_deferred++;
+            nq_push(a, w0, w1, VK_ONSET, a->pepoch);     /* room reserved by voice_onset_room() */
+        }
+    ad_drain(a);
+}
+#endif
+
 static void voice_emit_onset(struct a1 *a, uint32_t mask, const uint8_t *note, uint32_t vel)
 {
     uint32_t w[4][2], n = vc_onset_words(mask, note, vel, w);
@@ -515,7 +644,7 @@ static void voice_emit_onset(struct a1 *a, uint32_t mask, const uint8_t *note, u
 static void voice_emit_kill(struct a1 *a, uint32_t mask)
 {
     uint16_t b = (uint16_t)(a->seq + 1);
-    nq_purge(a, mask, 0, b);
+    NQ_PURGE(a, mask, 1, 0, b);
     a->pq_kill |= (uint8_t)mask;
     a->kill_seq = b;
     a->seq = b;
@@ -539,7 +668,7 @@ static void voice_emit_patch(struct a1 *a)
 {
     if (!A1_PATCH)
         return;
-    nq_purge(a, 0, 1, (uint16_t)(a->seq + 1));
+    NQ_PURGE(a, 0, 0, 1, (uint16_t)(a->seq + 1));
     a->epoch = (uint8_t)(a->epoch % 63u + 1u);
     uint32_t w0, w1;
     for (uint32_t i = 0; i < PATCH_FIELDS; i++) {
@@ -571,8 +700,13 @@ static uint32_t ad_read(struct a1 *a)
 {
     uint32_t ch = pl_channel(rw(PL_R_CELL), A1_T);
     if (!ch)
-        return a->ad_want;
+        return ENV_WANT(a);
+#if CORE0_SYNTH                               /* snapshot A, D, S, R: macros 2..5 = params 7..10 */
+    return ad_attack_of(PL_GET(ch, 7) & 0x7Fu) | ad_decay_of(PL_GET(ch, 8) & 0x7Fu) << 7 |
+           (PL_GET(ch, 9) & 0x7Fu) << 14 | (PL_GET(ch, 10) & 0x7Fu) << 21;
+#else
     return ad_attack_of(PL_GET(ch, 7) & 0x7Fu) | ad_decay_of(PL_GET(ch, 8) & 0x7Fu) << 7;
+#endif
 }
 
 /* Issue (or coalesce) the latest values; mode AD_KNOB (Main pass: knob, CC, lock with no note), AD_NOTE (a track-8
@@ -584,16 +718,27 @@ static uint32_t ad_read(struct a1 *a)
  * is superseded and deleted, so N holds at most one PATCH_AD per queued ONSET entry plus one.
  * AD_KNOB issues only with no PATCH_AD queued and at least AD_PACE_MS after the previous issue (minimum spacing). */
 enum { AD_KNOB, AD_NOTE, AD_BAR };
+#if FM_PATCH
+/* FM_PATCH: the group also carries the FM latches (fm_patch.h), so "the values" are the envelope, PATCH_FM and MOD_AD
+ * together: the same issue, coalescing and supersede rules apply to all three as one snapshot. */
+#define FM_SAME(w0, w1, env) (((w1) & ENV_MASK) == (env) && fmn_fm(w0, w1) == Q0->fm_want && fmn_md(w0) == Q0->md_want)
+#endif
 static void ad_service(struct a1 *a, uint32_t want, uint32_t mode)
 {
     uint32_t now = TICK();
-    a->ad_want = (uint16_t)want;
+    ENV_SET_WANT(a, want);
+#if FM_PATCH
+    q0_fm_read();
+#endif
     int32_t q = -1;
     uint32_t behind = 0;
     for (uint32_t i = 0; i < a->nq_n; i++) {
         uint32_t k = nq_at(a, i)->kind;
         if (k == VK_AD) {
             if (q >= 0 && !behind) {          /* superseded: nothing between it and this one uses the values */
+#if FM_PATCH
+                nq_at(a, i)->w1 |= nq_at(a, (uint32_t)q)->w1 & FMN_BAR;   /* the later one inherits a barrier */
+#endif
                 nq_del(a, (uint32_t)q);
                 a->c_ad_coal++;
                 i--;
@@ -605,16 +750,32 @@ static void ad_service(struct a1 *a, uint32_t want, uint32_t mode)
     }
     if (q >= 0 && !behind) {
         struct a1q *e = nq_at(a, (uint32_t)q);
-        if ((e->w1 & VC_AD_MASK) != want) {
-            uint32_t w0;
-            vc_ad(want, &w0, &e->w1);         /* coalesced: the queued snapshot takes the latest values */
-            a->ad_iss = (uint16_t)want;
+#if FM_PATCH
+        if (!FM_SAME(e->w0, e->w1, want)) {   /* coalesced in place, the barrier mark kept */
+            e->w0 = fmn_w0(Q0->fm_want, Q0->md_want);
+            e->w1 = fmn_w1(want, Q0->fm_want, e->w1 & FMN_BAR);
+            ENV_SET_ISS(a, want);
+            Q0->fm_iss = Q0->fm_want;
+            Q0->md_iss = Q0->md_want;
             a->c_ad_coal++;
         }
+#else
+        if ((e->w1 & ENV_MASK) != want) {
+            uint32_t w0;
+            vc_ad(want, &w0, &e->w1);         /* coalesced: the queued snapshot takes the latest values */
+            ENV_SET_ISS(a, want);
+            a->c_ad_coal++;
+        }
+#endif
         return;
     }
-    if (mode != AD_BAR && want == a->ad_iss)
+#if FM_PATCH
+    if (mode != AD_BAR && want == ENV_ISS(a) && Q0->fm_want == Q0->fm_iss && Q0->md_want == Q0->md_iss)
         return;
+#else
+    if (mode != AD_BAR && want == ENV_ISS(a))
+        return;
+#endif
     uint32_t early = a->ad_ok && (int32_t)(now - a->ad_at) < (int32_t)AD_PACE_MS;
     if (mode == AD_KNOB) {
         if (q >= 0) {                         /* one queued already (an ONSET behind it): wait for its publication */
@@ -628,12 +789,28 @@ static void ad_service(struct a1 *a, uint32_t want, uint32_t mode)
     } else if (mode == AD_NOTE && early) {
         a->c_ad_note++;                       /* pacing exception: the values go ahead of the note */
     }
+#if FM_PATCH                                  /* our group: straight into N (put_n would classify it by word0) */
+    a->ad_at = now;                           /* the actual tick; validity in ad_ok */
+    a->ad_ok = 1;
+    ENV_SET_ISS(a, want);
+    Q0->fm_iss = Q0->fm_want;
+    Q0->md_iss = Q0->md_want;
+    ad_drain(a);
+    if (!make_room(a)) {
+        a->c_overflow++;
+        return;
+    }
+    a->c_deferred++;
+    nq_push(a, fmn_w0(Q0->fm_want, Q0->md_want), fmn_w1(want, Q0->fm_want, mode == AD_BAR), VK_AD, a->pepoch);
+    ad_drain(a);
+#else
     uint32_t w0, w1;
     vc_ad(want, &w0, &w1);
     a->ad_at = now;                           /* the actual tick; validity in ad_ok */
     a->ad_ok = 1;
-    a->ad_iss = (uint16_t)want;
+    ENV_SET_ISS(a, want);
     put_n(a, w0, w1, a->pepoch);
+#endif
 }
 
 /* Barrier (ALL OFF from Stop, choke, edit, CC 123, project change; boot ALL OFF of a DSP load): every queued
@@ -650,6 +827,9 @@ static void ad_barrier(struct a1 *a)
     }
     a->c_ad_barrier++;
     ad_service(a, ad_read(a), AD_BAR);
+#if CORE0_TONE                                /* and the current tone, always (an epoch drops the DSP's tone caches) */
+    q0_tone(a, q0_tone_read(), TONE_BAR);
+#endif
 }
 #define AD_BARRIER(a)   ad_barrier(a)
 
@@ -691,6 +871,51 @@ __attribute__((noinline)) static void ad_make_slot(volatile uint8_t *b, uint32_t
     wr32(b + TM_CRC_AT, tm_crc(b, TM_CRC_AT));
 }
 
+#if FM_BANKVIEW
+#define SV_BASE_AT      0x28CECu        /* store: each track's selected sample slot (the base; the refresh copies it into
+                                           the base observable and channel parameter 0) */
+#define OBS_SETP        ((uint32_t (*)(uint32_t, uint32_t))0x0803FD27u)   /* (cell, i): element i, writable */
+#define AD_M6_NEW       96u             /* new projects: macro 6 (FM depth, channel parameter 11) = 96 */
+#define ST_RESET        ((void (*)(uint32_t))0x08032DB3u)   /* the stock store reset (new project) */
+
+/* ---- Fresh creation ----------------------------------------------------------------------------
+ * The new-project defaults (slot 0, M6 96) are written only when the stock firmware created a new project. Our four
+ * hooks wrap its store reset where a project operation creates one: hook_rst_absent (an empty slot selected),
+ * hook_rst_tail (a loaded file that is not a valid project), hook_rst_clear (clear) and hook_rst_pack (a pack switch
+ * with no file for the slot). Each runs the reset, then sets a1's flag, which the next refresh consumes
+ * (ad_preapply). A valid project loaded sets nothing, so an old or imported project keeps its slot byte and M6 as
+ * stored (its Length too, except the 0.1.1 conversion of exactly 127/127 to 64/0 in ad_preapply / ad_boot_default);
+ * the boot project is never given the defaults. */
+void hook_store_reset(uint32_t store)
+{
+    ST_RESET(store);
+    struct a1 *a = a1();
+    if (a)
+        a->fresh = 1;
+}
+void hook_rst_absent(uint32_t store) __attribute__((alias("hook_store_reset")));
+void hook_rst_tail(uint32_t store) __attribute__((alias("hook_store_reset")));
+void hook_rst_clear(uint32_t store) __attribute__((alias("hook_store_reset")));
+void hook_rst_pack(uint32_t store) __attribute__((alias("hook_store_reset")));
+
+/* Codec 2 version 1 -> 2, once (a private bench file of the 7302 / 7303 line): algorithm +2 (0..1) and bank +3
+ * (0..15) are validated independently, an invalid field reading 0, and only then composed into track 8's selected
+ * slot bank + 16 x algorithm `sel` (the store byte the refresh applies, or 0 for the caller to send); then the
+ * version byte 2 and the CRC. Bytes +2 and +3 stay as they were (reserved, preserved), every other byte too. Under
+ * the suspension, by the caller. Returns the slot. */
+__attribute__((noinline)) static uint32_t ad_fm_convert(volatile uint8_t *b, uint32_t sel)
+{
+    volatile uint8_t *p = b + SYN_PATCH_AT;
+    uint32_t a = p[SF_ALGO], f = p[SF_BANK];
+    f = (f < FM_BANKS ? f : 0u) + (a < FM_ALGOS ? 16u * a : 0u);
+    if (sel)
+        *(volatile uint8_t *)sel = (uint8_t)f;
+    p[SP_VERSION] = SYN_PATCH_FM_VERSION;
+    wr32(b + TM_CRC_AT, tm_crc(b, TM_CRC_AT));
+    return f;
+}
+#endif
+
 /* Before every stock project refresh (load / absent slot, clear, pack switch; trackmodes.c TM_HOOK): the store is
  * the project about to be applied, and the refresh loads the channels, their value cells and displays from it, so
  * the new Length is consistent everywhere from the first moment and the project's first PATCH_AD carries it. Inside
@@ -698,18 +923,41 @@ __attribute__((noinline)) static void ad_make_slot(volatile uint8_t *b, uint32_t
 __attribute__((noinline)) static void ad_preapply(uint32_t P)
 {
     uint32_t s = store_of(P), ch = s ? pl_channel(rw(P + 0x54), A1_T) : 0;
+#if FM_BANKVIEW
+    struct a1 *a = a1();
+    if (!a)
+        return;
+    uint32_t fresh = a->fresh;                /* a stock new project (hook_store_reset), consumed by this refresh */
+    a->fresh = 0;
+    if (!ch)
+        return;
+#else
     if (!ch || !a1())
         return;
+#endif
     volatile uint8_t *b = (volatile uint8_t *)(s + TM_EXT);
     uint32_t buf = s + PL_SER_AT + PL_SER_LEN * A1_T;
     SUSPEND_ALL();
     uint32_t why = tm_check(b);
     if (ad_slot_unset(b, why)) {
-        if (ad_len14(ch, buf) == 0x3FFFu) {
+        if (ad_len14(ch, buf) == 0x3FFFu) {   /* the one preservation exception (0.1.1, kept deliberately): a stored Length
+                                                 (decay, parameters 8 / 15) of
+                                                 exactly 127/127 becomes 64/0, once; attack, M6, the slot and every
+                                                 other Length stay as stored */
             pl_put(ch, 8, buf, AD_LEN_NEW);
             pl_put(ch, 15, buf, 0);
         }
-        ad_make_slot(b, why);
+        ad_make_slot(b, why);                 /* the metadata; every other channel value and slot byte as stored */
+#if FM_BANKVIEW
+        if (fresh) {                          /* a stock new project only: slot 0, Unity under serial4 (the selected
+                                                 slot, which the refresh copies into the base and channel parameter 0),
+                                                 and FM depth 96 */
+            *(volatile uint8_t *)(s + SV_BASE_AT + A1_T) = (uint8_t)FM_DEF_BANK;
+            pl_put(ch, 11, buf, AD_M6_NEW);
+        }
+    } else if (why == TM_OK && syn_fm_v1(b + SYN_PATCH_AT)) {
+        ad_fm_convert(b, s + SV_BASE_AT + A1_T);
+#endif
     }
     RESUME_ALL();
 }
@@ -734,12 +982,20 @@ static void ad_boot_default(void)
     if (!t || !t->store || t->site != 0 || store_of(t->P) != t->store)
         return;
     volatile uint8_t *b = (volatile uint8_t *)(t->store + TM_EXT);
+#if FM_BANKVIEW                               /* also a codec-2 version-1 slot: converted once (ad_fm_convert) */
+    if (!ad_slot_unset(b, t->why) && !(t->why == TM_OK && syn_fm_v1(b + SYN_PATCH_AT)))
+        return;
+#else
     if (!ad_slot_unset(b, t->why))
         return;
+#endif
     uint32_t ch = pl_channel(rw(PL_R_CELL), A1_T), th = ad_cc_thunk();
     if (!ch || !th)
         return;
     uint32_t def = (PL_GET(ch, 8) & 0x7Fu) == 127u && (PL_GET(ch, 15) & 0x7Fu) == 127u, done = 0;
+#if FM_BANKVIEW
+    uint32_t fam = 0;
+#endif
     SUSPEND_ALL();
     if (!(st->tok & TOK_CONTENT) && phase(t->P) == 0 && ad_slot_unset(b, t->why) &&
         (t->why != TM_EMPTY || all_zero(b, TM_EXT_LEN))) {
@@ -747,12 +1003,36 @@ static void ad_boot_default(void)
         t->why = TM_OK;
         t->writes++;
         done = 1;
+#if FM_BANKVIEW
+    } else if (!(st->tok & TOK_CONTENT) && phase(t->P) == 0 && t->why == TM_OK && syn_fm_v1(b + SYN_PATCH_AT)) {
+        fam = ad_fm_convert(b, 0);            /* the block now; the slot through the CC-8 path below */
+        t->writes++;
+        done = 2;
+#endif
     }
     RESUME_ALL();
+#if FM_BANKVIEW
+    if (done == 1 && def) {                   /* LSB first, then the MSB, as the macro page sends a 14-bit pair */
+#else
     if (done && def) {                        /* LSB first, then the MSB, as the macro page sends a 14-bit pair */
+#endif
         ((pl_sink_fn)rw(rw(th)))(th, 16u * A1_T + 15u, 0);
         ((pl_sink_fn)rw(rw(th)))(th, 16u * A1_T + 2u, AD_LEN_NEW);
     }
+#if FM_BANKVIEW                               /* the v1 conversion only (done 2): the converted slot is sent as
+                                                 channel parameter 0 (the CC-8 source) and set and notified in the
+                                                 project's base cell, as a CC 8 does, so the store byte follows. The boot
+                                                 project (done 1: slot unset) keeps
+                                                 its slot and M6 as stored: no defaults at boot (hook_store_reset) */
+    if (done == 2) {
+        ((pl_sink_fn)rw(rw(th)))(th, 16u * A1_T + 8u, fam);
+        uint32_t bc = rw(t->P + 0x9Cu + 4u * A1_T);
+        if (in_sram(bc, 0x14)) {
+            *(volatile uint8_t *)OBS_SETP(bc, 0) = (uint8_t)fam;
+            NOTIFY(bc);
+        }
+    }
+#endif
 }
 
 /* ---- Track 8 ignores slice mode --------------------------------------------------------------------------------
@@ -882,11 +1162,118 @@ static volatile uint8_t *ad_c8(uint32_t qb)
     return a1() && q && qb == q ? (volatile uint8_t *)obs_el(q, 0xC) : 0;
 }
 
+#if FM_BANKVIEW
+/* ---- Track 8's Sample view selects the FM ratio family and algorithm ---------------------------------------------
+ * Slots 0..31 are valid (page 0: families under serial4, page 1: under dual_stack, both in block 0); pages 2..7
+ * (slots 32..127, blocks 1..3) are dark and inert. Our hooks: the view's press and release (select a family and
+ * algorithm, or swallow an inert press), its observer (the invalid positions dark again after every redraw) and the
+ * Main pass (sv_entry: open the page of the selected base). The offsets in the code are the fields it reads and
+ * writes. */
+#define SV_VT           0x08068294u                 /* Sample view vtable (word 0: press, 1: release) */
+#define SV_REL          ((fn4_t)0x0805C2BFu)        /* its release (vtable word 0x08068298) */
+#define SV_OBS          ((fn4_t)0x0805C405u)        /* its observer entry (vtable word 0x080682C0, this = view + 8) */
+#define SV_COLTAB       0x08062AB0u                 /* the view's colour table (u16 palette values) */
+#define SV_OFF          0u                          /* palette value 0: dark (the stock Note view's unlit pads) */
+
+/* The view's block (element 0 of its block cell, the whole byte) and colour buffer, 0 if they do not check out. */
+static volatile uint16_t *sv_col(uint32_t view)
+{
+    uint32_t o = rw(view + 4), b = in_sram(o, 4) ? rw(o) : 0;
+    return in_sram(b, 64) ? (volatile uint16_t *)b : 0;
+}
+
+/* Every buffer position whose slot (32 x block + position) is not valid is dark: the whole buffer for any block but
+ * 0 (block 0 is pages 0 and 1, all 32 slots valid). Main task (input, observers). */
+__attribute__((noinline)) static void sv_dark(uint32_t view)
+{
+    volatile uint16_t *col = sv_col(view);
+    uint32_t blk = *(volatile uint8_t *)obs_el(rw(view + 0x1C), 0);
+    for (uint32_t i = 0; col && blk && i < 32; i++)
+        col[i] = SV_OFF;
+}
+
+/* Track 8's Sample view, 0 otherwise (the object checks out and its track cell is track 8's). */
+static uint32_t sv_t8(uint32_t view)
+{
+    return in_sram(view, 0x58) && rw(view) == SV_VT && ad_c8(rw(view + 0x14)) ? view : 0;
+}
+
+/* The view's observer: the stock observer first, then the invalid positions dark again. On a change to block 0 the
+ * plain colour of all 32 positions is restored first (an earlier block left them dark). */
+uint32_t hook_sv_obs(uint32_t th, uint32_t obs, uint32_t c, uint32_t d)
+{
+    uint32_t view = sv_t8(th - 8);
+    volatile uint16_t *col = view ? sv_col(view) : 0;
+    if (col && obs == rw(view + 0x1C) && *(volatile uint8_t *)obs_el(obs, 0) == 0) {
+        uint16_t plain = *(const volatile uint16_t *)(SV_COLTAB + 2u * (*(volatile uint16_t *)(view + 0x24) + 2u));
+        for (uint32_t i = 0; i < 32; i++)
+            col[i] = plain;
+    }
+    uint32_t r = SV_OBS(th, obs, c, d);
+    if (col)
+        sv_dark(view);
+    return r;
+}
+
+/* Main pass: track 8's Sample view in front (host_ui snapshot: track 8, view 0, front) that was not at the previous
+ * pass, or a project applied since: the page of the selected base is set in the page cell and notified, as an Up
+ * press does, then the invalid positions go dark. The selected base is track 8's store byte (SV_BASE_AT), live channel parameter 0 only when no base is set (0xFF);
+ * 0..15 opens page 0, 16..31 page 1, anything else page 0. Read-only for the selection: the base, parameter 0 and the
+ * FM template are never written. Leaving and coming back applies the rule again; Up and Down browse freely while the
+ * view stays in front (they select nothing). */
+__attribute__((noinline)) static void sv_entry(void)
+{
+    volatile struct pg *g = PG;               /* the caller holds a1(), so the region and struct tm are live */
+    struct tm *t = TM;
+    uint8_t gen = (uint8_t)t->gen;
+    if (((volatile struct state *)REGION)->ui != (0x80010000u | A1_T)) {
+        g->sv_in = 0;
+        return;
+    }
+    if (g->sv_in && g->sv_gen == gen)
+        return;
+    /* the snapshot was taken this pass through checked links (ui_snap: lambda, controller and grid page checks) */
+    uint32_t grid = rw(rw(rw(BTN_CELL + 4)) + 0x3C), pg8 = rw(grid + 0x19C + 4 * A1_T);
+    uint32_t view = sv_t8(rw(grid + 0x14 + 4 * A1_T)), cell = in_sram(pg8, 0x14) ? rw(pg8 + 0x10) : 0;
+    if (!view || !in_sram(cell, 0x14))
+        return;                               /* not resolvable yet: again at the next pass */
+    uint32_t base = t->store ? *(volatile uint8_t *)(t->store + SV_BASE_AT + A1_T) : 0xFFu, ch;
+    if (base == 0xFFu)                        /* no base set: live parameter 0 */
+        base = (ch = pl_channel(rw(PL_R_CELL), A1_T)) ? PL_GET(ch, 0) : 0;
+    uint8_t page = (uint8_t)(base < FM_SLOTS ? base >> 4 : 0);
+    if (*(volatile uint8_t *)obs_el(cell, 0) != page) {
+        *(volatile uint8_t *)OBS_SETP(cell, 0) = page;
+        NOTIFY(cell);
+    }
+    sv_dark(view);
+    g->sv_in = 1;
+    g->sv_gen = gen;
+}
+
+/* The press decides its physical pad (bit (arg & 15): arg = pad - 16 + 16 x (page & 1)). On track 8's view the full
+ * slot is computed in 32 bits from arg and the whole block byte; it selects (family slot & 15, algorithm slot >> 4)
+ * only for arg <= 31 and slot < FM_SLOTS (32), which also requires block 0 (the note's block <= 3 is implied). Any
+ * other press is inert: nothing reaches the stock press (no slot write, no audition, no held pad), and the pad's bit
+ * is set so its release is swallowed as well. Every other press clears its pad's bit. */
+uint32_t hook_sv_press(uint32_t obj, uint32_t pad, uint32_t vel, uint32_t d)
+{
+    volatile uint8_t *c = in_sram(obj, 0x58) ? ad_c8(rw(obj + 0x14)) : 0;
+    uint16_t bit = (uint16_t)(1u << (pad & 15u));
+    if (c) {
+        uint32_t blk = *(volatile uint8_t *)obs_el(rw(obj + 0x1C), 0), slot = pad + 32u * blk;
+        if (pad > 31u || slot >= FM_SLOTS) {
+            PG->sv_mask |= bit;
+            return d;
+        }
+    }
+    PG->sv_mask &= (uint16_t)~bit;
+#else
 /* The audition's note is sent from inside the stock function: setting C reads 0 for that one call (the value cell's
  * byte, no notify, restored right after; Main task, which is where the cell is read). */
 uint32_t hook_sv_press(uint32_t obj, uint32_t pad, uint32_t vel, uint32_t d)
 {
     volatile uint8_t *c = in_sram(obj, 0x58) ? ad_c8(rw(obj + 0x14)) : 0;
+#endif
     uint8_t was = c ? *c : 0;
     if (was)
         *c = 0;
@@ -895,6 +1282,20 @@ uint32_t hook_sv_press(uint32_t obj, uint32_t pad, uint32_t vel, uint32_t d)
         *c = was;
     return r;
 }
+
+#if FM_BANKVIEW
+/* The release of an inert press is swallowed (any view of the Sample-view vtable, any page: the bit belongs to the
+ * physical pad), so it can never end an earlier valid audition held on another pad. */
+uint32_t hook_sv_rel(uint32_t obj, uint32_t pad, uint32_t c, uint32_t d)
+{
+    uint16_t bit = (uint16_t)(1u << (pad & 15u));
+    if (PG->sv_mask & bit) {
+        PG->sv_mask &= (uint16_t)~bit;
+        return d;
+    }
+    return SV_REL(obj, pad, c, d);
+}
+#endif
 
 /* The step's note is written into the step's array; with C = 1 it is rewritten with the note cell, as C = 0 writes it
  * (the step's other fields do not depend on C). */
@@ -984,6 +1385,9 @@ uint32_t hook_save_post(uint32_t a, uint32_t b, uint32_t c, uint32_t store, uint
             pl_put(ch, 13 + k, buf, v & PL_LOCK ? PLX->lsb[A1_T][k - 1] : PL_GET(ch, 13 + k) & 0x7Fu);
         }
     }
+#if FM_PATCH
+    pg_fm_save(store);                        /* the FM view's pending macro deltas are in the saved slot */
+#endif
     return SAVE_POST(a, b, c, store, e, f);
 }
 #else
@@ -999,6 +1403,13 @@ static void a1_ring(uint32_t *pair, uint32_t origin)
         ORIG_RING(pair);
         return;
     }
+#if CORE0_SYNTH
+    if (Q0->busy) {                           /* re-entered inside our own transaction (unreachable by inference: no
+                                                 stock ring writer runs inside it); never lock or touch N here */
+        Q0->c_reent++;
+        return;
+    }
+#endif
     if (vc_stock_ch7(pair[0])) {
         if (origin == O_SLOT) {               /* a sample-slot change on track 8 (exempt) */
             a->c_ch7_slot++;
@@ -1036,6 +1447,9 @@ static void table_reset(struct a1 *a)
     for (uint32_t i = 0; i < NINST; i++)
         a->in[i].ser = 0;
     a->lane = 0;
+#if CORE0_SYNTH
+    Q0->sus = 0;
+#endif
 }
 
 /* Every forced-off path: class-A ALL OFF (purges queued onsets issued before it; the DSP damps the voices and
@@ -1043,6 +1457,10 @@ static void table_reset(struct a1 *a)
  * the old one are purged here and filtered at publication) and publishes the patch after the ALL OFF. */
 static void all_off(struct a1 *a, uint32_t why, uint32_t project)
 {
+#if CORE0_SYNTH
+    REJ_CLEAR(a->phase != PH_OPEN);           /* a global boundary: no outstanding rejected press survives it
+                                                 (CORE0_RECOVER: CLOSED drops survive a boundary while closed) */
+#endif
     if (a->phase != PH_OPEN) {                /* closed / not yet open: the table is reset, nothing is published */
         a->c_gated++;
         a->c_why[why]++;
@@ -1052,7 +1470,7 @@ static void all_off(struct a1 *a, uint32_t why, uint32_t project)
     uint32_t sem = eng_lock();
     if (project) {
         a->pepoch++;
-        nq_purge(a, 15, 1, (uint16_t)(a->seq + 1));
+        NQ_PURGE(a, 15, 1, 1, (uint16_t)(a->seq + 1));
     }
     voice_emit_alloff(a);
     if (project)
@@ -1181,7 +1599,9 @@ static uint32_t is_free(const struct a1voice *x)
 static uint32_t is_aged(struct a1 *a, uint32_t v, uint32_t now)
 {
     const struct a1voice *x = &a->v[v];
-#if AD_LIVE                                   /* the per-voice deadline from the attack + decay in force */
+#if CORE0_SYNTH                               /* snapshot: a voice held at a sustain > 0 has no deadline */
+    return x->state != V_FREE && x->pub_at && !(Q0->sus >> v & 1u) && (int32_t)(now - a->dl[v]) >= 0;
+#elif AD_LIVE                                 /* the per-voice deadline from the attack + decay in force */
     return x->state != V_FREE && x->pub_at && (int32_t)(now - a->dl[v]) >= 0;
 #else
     (void)a;
@@ -1248,23 +1668,45 @@ static struct a1inst *inst_new(struct a1 *a)
 
 static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
 {
+    Q0_FLUSH(a);                              /* deferred boundaries first: never applied to a later note */
     a1_sync(a);
     if (a->phase != PH_OPEN) {                /* activation: admission closed (dropped, counted) */
         a->c_pre_enable++;
+#if CORE0_RECOVER
+        q0_rej_drop(src, note);               /* recorded, so its late off is swallowed after the reopen */
+#endif
         return;
     }
     uint8_t out[4], notes[4] = {0, 0, 0, 0};
     uint32_t n = chord(note, out), now = TICK();
+#if PAD_POLY                                  /* pads join MIDI: true pad chords with POLY on (master 2026-10-21) */
+    uint32_t poly = (src == SRC_MIDI || src == SRC_PAD) && n == 1 && setting(SR_POLY);
+#else
     uint32_t poly = src == SRC_MIDI && n == 1 && setting(SR_POLY);
+#endif
     uint32_t sem = eng_lock();
-#if AD_LIVE
+#if CORE0_SYNTH
+    if (Q0->bulk || Q0->rej_quar) {           /* inside a bulk SHI interval, or in rejection quarantine: refused */
+        if (Q0->bulk)
+            Q0->c_bulk_drop++;
+        q0_rej_add(src, note);                /* its off must not release an older instance */
+        eng_unlock(sem);
+        return;
+    }
+#elif AD_LIVE
     ad_service(a, ad_read(a), AD_NOTE);       /* changed values always go ahead of this note */
 #endif
     if (!voice_onset_room(a, n)) {               /* dropped before allocation: the table is untouched */
         a->c_drop_on++;
+#if CORE0_SYNTH
+        q0_rej_add(src, note);
+#endif
         eng_unlock(sem);
         return;
     }
+#if CORE0_SYNTH
+    q0_rej_accept(src, note);                 /* accepted: every older rejection of this pitch is superseded */
+#endif
     struct a1inst *in = inst_new(a);
     uint32_t ser = ++a->serial;
     if (!ser)
@@ -1316,13 +1758,59 @@ static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
             if (cutm >> v & 1)
                 a->v[v].state = V_FREE, a->v[v].cut = 0;
     }
+#if CORE0_SYNTH                               /* after the KILL boundary (its purge tidies orphan groups): the press's
+                                                 envelope group (if changed), then its ONSETs with the Tune snapshot */
+    Q0->busy |= B_HOLD;                       /* the group and the ONSETs go out together (one hold if they fit) */
+    ad_service(a, ad_read(a), AD_NOTE);
+#if CORE0_TONE
+    q0_tone(a, q0_tone_read(), TONE_NOTE);    /* changed tone values go ahead of the note (pacing exception) */
+#endif
+    Q0->busy &= (uint8_t)~B_HOLD;
+    voice_emit_onset_t(a, mask, notes, vel, q0_tune());
+#else
     voice_emit_onset(a, mask, notes, vel);
+#endif
     eng_unlock(sem);
 }
 
 /* The newest unreleased instance with this source and root releases (no command under the AD). */
+#if CORE0_SYNTH
+/* An off bound at its arrival (core0feed.c, press ownership): the newest instance of src / note whose serial is not
+ * newer than snap, the value of a->serial when the off arrived. */
+static void a1_release_at(struct a1 *a, uint32_t src, int32_t note, uint32_t snap)
+{
+    a1_sync(a);
+    struct a1inst *best = 0;
+    for (uint32_t i = 0; i < NINST; i++) {
+        struct a1inst *in = &a->in[i];
+        if (in->ser && in->src == src && in->root == (uint8_t)(note & 0x7F) && ser_cmp(in->ser, snap) <= 0
+                && (!best || ser_cmp(in->ser, best->ser) > 0))
+            best = in;
+    }
+    if (!best) {
+        a->c_stale_off++;
+        return;
+    }
+    uint32_t sem = eng_lock();
+    q0_release_voices(a, best->mask, best->ser);
+    best->ser = 0;
+    ad_drain(a);
+    eng_unlock(sem);
+}
+
 static void a1_release(struct a1 *a, uint32_t src, int32_t note)
 {
+    Q0_FLUSH(a);                              /* older staged offs (each already bound at its arrival) go first */
+    if (q0_rej_off(src, note)) {              /* decided now: the off of a rejected press is swallowed */
+        a->c_stale_off++;
+        return;
+    }
+    a1_release_at(a, src, note, a->serial);
+}
+#else
+static void a1_release(struct a1 *a, uint32_t src, int32_t note)
+{
+    Q0_FLUSH(a);                              /* an older staged off resolves before this one */
     a1_sync(a);
     struct a1inst *best = 0;
     for (uint32_t i = 0; i < NINST; i++) {
@@ -1343,6 +1831,7 @@ static void a1_release(struct a1 *a, uint32_t src, int32_t note)
     }
     best->ser = 0;
 }
+#endif
 
 /* ---- hooks: the tap -------------------------------------------------------------------------------------------- */
 
@@ -1369,6 +1858,11 @@ uint32_t hook_ron(uint32_t r, uint32_t n12, uint32_t vel, uint32_t port, uint32_
     if (src < 0)
         return ROUTER_ON(r, n12, vel, port, a5);
     a->c_tap[src]++;
+#if CORE0_SYNTH
+    if (Q0->busy)                             /* inside our transaction: no lock, no N (press dropped, off staged) */
+        q0_reent_note(a, (uint32_t)src, (int32_t)n12 - 12, vel & 0x7F);
+    else
+#endif
     if (vel & 0x7F)
         a1_press(a, (uint32_t)src, (int32_t)n12 - 12, vel & 0x7F);
     else
@@ -1386,6 +1880,11 @@ uint32_t hook_roff(uint32_t r, uint32_t n12, uint32_t port, uint32_t a4)
     if (src < 0)
         return ROUTER_OFF(r, n12, port, a4);
     a->c_tap[src]++;
+#if CORE0_SYNTH
+    if (Q0->busy)
+        q0_reent_note(a, (uint32_t)src, (int32_t)n12 - 12, 0);
+    else
+#endif
     a1_release(a, (uint32_t)src, (int32_t)n12 - 12);
     a->depth++;
     uint32_t ret = ROUTER_OFF(r, n12, port, a4);
@@ -1442,6 +1941,39 @@ uint32_t hook_eng_off(uint32_t e, uint32_t g, uint32_t note, uint32_t d)
  * reuse is still an ordered KILL -> ONSET. A voice whose onset was purged never reached the DSP (a steal's KILL
  * stays pending in P): FREE. An onset already in the ring cannot be withdrawn and starts, then decays. Closed:
  * as all_off (table reset, nothing published). */
+#if CORE0_SYNTH
+static void release_all(struct a1 *a, uint32_t why)
+{
+    REJ_CLEAR(a->phase != PH_OPEN);
+    if (a->phase != PH_OPEN) {
+        all_off(a, why, 0);
+        return;
+    }
+                                              /* Stop / mute / CC 123: the 0.1.1 cancellation of
+                                                 unpublished onsets (and their orphan groups), then a generation-matched
+                                                 RELEASE for every held voice whose ONSET is PROD-published */
+    uint32_t sem = eng_lock();
+    uint16_t b = (uint16_t)(a->seq + 1);
+    NQ_PURGE(a, 15, 0, 0, b);
+    a->seq = b;
+    uint32_t held = 0;
+    for (uint32_t v = 0; v < 4; v++) {
+        struct a1voice *x = &a->v[v];
+        if (x->state == V_FREE)
+            continue;
+        if (!x->pub_at)
+            x->state = V_FREE, x->cut = 0, x->inst = 0, a->dl[v] = 0;
+        else if (x->state == V_HELD)
+            held |= 1u << v;
+    }
+    q0_release_voices(a, held, 0);
+    for (uint32_t i = 0; i < NINST; i++)
+        a->in[i].ser = 0;
+    ad_drain(a);
+    eng_unlock(sem);
+    a->c_why[why]++;
+}
+#else
 static void release_all(struct a1 *a, uint32_t why)
 {
     if (a->phase != PH_OPEN) {
@@ -1468,6 +2000,7 @@ static void release_all(struct a1 *a, uint32_t why)
     eng_unlock(sem);
     a->c_why[why]++;
 }
+#endif
 #define SOFT_OFF(a, why) release_all(a, why)
 #else
 #define SOFT_OFF(a, why) all_off(a, why, 0)
@@ -1480,6 +2013,14 @@ static uint32_t force(uint32_t g, uint32_t why)
     struct a1 *a = a1();
     if (!a || (g & 0xFF) != A1_G)
         return FORCE_OFF(g);
+#if CORE0_SYNTH
+    if (Q0->busy) {                           /* deferred to the next Main pass, never locked from here */
+        Q0->defer |= (uint8_t)(why == WHY_STOP ? DEF_STOP : why == WHY_CHOKE ? DEF_CHOKE : DEF_EDIT);
+        Q0->c_reent++;
+        return 0;
+    }
+    Q0_FLUSH(a);
+#endif
     a1_sync(a);
 #if AD_LIVE
     if (why == WHY_STOP) {
@@ -1499,7 +2040,14 @@ uint32_t hook_fo_edit(uint32_t g) { return force(g, WHY_EDIT); }     /* sample e
 uint32_t hook_midi_alloff(uint32_t midi_in, uint32_t g, uint32_t c, uint32_t d)
 {
     struct a1 *a = a1();
+#if CORE0_SYNTH
+    if (a && (g & 0xFF) == A1_G && Q0->busy) {
+        Q0->defer |= DEF_CC123;
+        Q0->c_reent++;
+    } else
+#endif
     if (a && (g & 0xFF) == A1_G) {
+        Q0_FLUSH(a);
         a1_sync(a);
         SOFT_OFF(a, WHY_CC123);
     }
@@ -1514,10 +2062,13 @@ uint32_t hook_midi_alloff(uint32_t midi_in, uint32_t g, uint32_t c, uint32_t d)
 
 static void a1_close(struct a1 *a)
 {
+#if CORE0_SYNTH
+    REJ_CLEAR(1);                             /* CORE0_RECOVER: CLOSED drops survive the close (late-off gate) */
+#endif
     uint32_t sem = eng_lock();
     for (uint32_t i = 0; i < a->nq_n;) {      /* nothing of ours crosses a DSP load; other entries stay */
         uint32_t k = nq_at(a, i)->kind;
-        if (k == VK_ONSET || K_PARAM(k))
+        if (K_OURS(k))
             nq_del(a, i);
         else
             i++;
@@ -1531,10 +2082,18 @@ static void a1_close(struct a1 *a)
     a->ad_pub = a->ad_iss = a->ad_want = AD_DEFAULT;  /* a mode-0 load restores the DSP's defaults */
     a->ad_ok = 0;
 #endif
+#if CORE0_SYNTH                               /* and so does an epoch reset (S 64, R 0) */
+    Q0->sr_pub = Q0->sr_iss = Q0->sr_want = SR_DEFAULT;
+#if CORE0_TONE
+    Q0->tone_pub = Q0->tone_iss = TONE_NONE;  /* the DSP's tone caches do not survive a load or an epoch */
+    Q0->tone_ok = 0;
+#endif
+#endif
     eng_unlock(sem);
     table_reset(a);
 }
 
+#if !CORE0_ONLY
 /* X:2E70 <- 1 on core 1 through the DSP word writer, under the bus semaphore, with the global (not per-core) address
  * cache invalidated before and after. Never the locking writer from here (deadlock), never SuspendAll around the
  * blocking transport, never a DSP read. */
@@ -1563,14 +2122,40 @@ static void a1_activate(struct a1 *a)
         a->c_enable++;
     }
 }
+#endif
 
 static uint32_t dsp_load(uint32_t mode, uint32_t r1, uint32_t r2, uint32_t r3)
 {
     struct a1 *a = a1();
+#if CORE0_SYNTH
+    if (a) {
+        q0_close();                           /* no queue access from here until the next ready header and ACK */
+#if CORE0_BULK_EXCLUDE
+        Q0->excl = 0;                         /* a DSP load re-copies the instrument's tables: the path may reopen */
+#if CORE0_RECOVER
+        Q0->rf &= (uint8_t)~(RF_RINIT | RF_SEEN | RF_TX | RF_LATE | RF_POST);   /* no reinit attempt (nor its
+                                                                         post-init check) survives a DSP load; the
+                                                                         late-acceptance warning ends with it */
+#if CORE0_RECOVER_TIMING
+        Q0->c_init_late = 0;
+#endif
+#endif
+#if CORE0_BENCH
+        Q0->bst = 0;                          /* not yet OPEN since this load: the startup rule applies again */
+#endif
+#endif
+        if (Q0->busy)
+            Q0->defer |= DEF_CLOSE;           /* inside our transaction: the purge waits for the next Main pass */
+        else
+            a1_close(a);
+        a->c_load++;
+    }
+#else
     if (a) {
         a1_close(a);
         a->c_load++;
     }
+#endif
     return ORIG_DSPLOAD(mode, r1, r2, r3);
 }
 
@@ -1581,6 +2166,24 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {
     uint32_t ret = ORIG_TEMPO(r0, r1, r2, r3);          /* the original call completes first */
     struct a1 *a = a1();
+#if CORE0_SYNTH                               /* ENABLE1 to core 1 as before; no class-A word on the old ring and no boot
+                                                 ALL OFF; admission waits for the ready header and the epoch ACK */
+    if (!a || Q0->busy)
+        return ret;
+    q0_close();
+    a1_close(a);
+    ad_boot_default();
+#if !CORE0_ONLY                               /* CORE0_ONLY: no ENABLE, no core-1 frame; c_enable stays 0 */
+    a1_enable_write();
+    a->c_enable++;
+#endif
+    Q0->ph = Q_HEADER;
+    Q0->t_ph = Q0->t_poll = TICK();
+    a->c_why[WHY_BOOT]++;
+    return ret;
+#endif
+#if !CORE0_ONLY                               /* the 0.1.x core-1 activation (unreachable with CORE0_SYNTH; absent with
+                                                 CORE0_ONLY, which retires a1_activate) */
     if (!a)
         return ret;
     a1_close(a);                              /* also covers a boot whose load entry was not seen */
@@ -1599,10 +2202,48 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     if (a->phase != PH_ENABLED)
         a->c_late++;
     return ret;
+#endif
 }
 
 /* ---- Main loop and boot ---------------------------------------------------------------------------------------- */
 
+#if CORE0_SYNTH
+uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
+{
+    struct a1 *a = a1();
+#if FM_PATCH
+    pg_fm_tick();                             /* the FM view's coalesced macro write (synthpage.c) */
+#endif
+    if (a && !Q0->busy) {
+        ad_boot_default();
+#if FM_BANKVIEW
+        sv_entry();                           /* track 8's Sample view opens on the selected base's page (no lock) */
+#endif
+#if CORE0_BENCH
+        Q0->held = 0;                         /* a new Main pass: one queue write hold allowed (bench pacing) */
+#endif
+        q0_service(a);                        /* deferred work, header / ACK polls, recovery, bulk reconcile, refresh */
+        a1_sync(a);
+#if CORE0_TONE
+        if (a->phase == PH_OPEN) {            /* M6..M8 knob, CC, p-lock, host_param: picked up on every Main pass */
+            uint32_t want = q0_tone_read();
+            if (want != Q0->tone_iss) {
+                uint32_t sem = eng_lock();
+                q0_tone(a, want, TONE_KNOB);
+                eng_unlock(sem);
+            }
+        }
+#endif
+        if (a->pq_alloff || a->pq_kill || a->nq_n) {
+            uint32_t sem = eng_lock();
+            a->cons_ok = 0;
+            ad_drain(a);
+            eng_unlock(sem);
+        }
+    }
+    return ORIG_TX(r0, r1, r2, r3);
+}
+#else
 uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {
     struct a1 *a = a1();
@@ -1636,6 +2277,7 @@ uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     }
     return ORIG_TX(r0, r1, r2, r3);
 }
+#endif
 
 uint32_t hook_a1_boot(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {

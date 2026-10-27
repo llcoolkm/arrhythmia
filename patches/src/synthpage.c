@@ -40,6 +40,19 @@
  *          codec and in the block; nothing is removed, only the controls. SysEx/tests can poke the byte.
  *   Track 8 light magenta while open; red blink after a refused edit (BUSY, READONLY, REFUSED); Shift light white
  *          while held. Everything else dark.
+ * FM VIEW (FM_PATCH builds only): Down shows it, Up returns to the view above (the chord view).
+ *   rows 1-2 pads 0..15  ratio bank 0..15 (amber; bright = in force)
+ *   row 3 pads 16, 17    algorithm serial4, dual_stack (cyan); pads 18, 19 dark and inert (algorithms not offered)
+ *   every other pad dark and inert; Shift held: the scale picker and root keyboard exactly as in the chord view.
+ *   macros 1..4: feedback, modulator attack, decay, floor (0..127; knob lights 1, 4, 57, 60 show the stored value);
+ *   macros 5..8 consumed, no edit. Encoder deltas are summed in struct pg and written by ONE edit (one CRC, about
+ *   0.23 ms) at most every PG_FM_PACE_MS, from the Main pass (pg_fm_tick), never per event.
+ *   Up light dim in the FM view, Down light dim in the chord view (the way to the other view).
+ *   The values live in patch slot 7 codec 2 (synth_settings.h); every note captures them at its press.
+ * FM_BANKVIEW (label 7304): no FM view. Family and algorithm are chosen in track 8's
+ *   Sample view (notetap.c); macros 1..4 above act on the single (chord) view, whose own macros are compiled out
+ *   (PG_TRIM), with the same coalescing, owner and save rules and knob lights; Up and Down are consumed and do
+ *   nothing, their lights dark; pg.view stays 0.
  * Every edit is one tm_edit() call (T1 path: BUSY first, live-tail check, CRC), made at once from the input hook
  * (Main task, inside event()'s suspension; tm_edit nests its own). The read-modify-write of the field happens inside
  * tm_edit's gate, on the live block, so a load or save in flight is never written and a refused edit changes nothing.
@@ -56,6 +69,14 @@
 #define PG_TOGGLE       1u
 #define PG_ADD          2u
 #define PG_PATCH        0x80u           /* arg bit 7: the field is a patch byte offset, else a record byte offset */
+#if FM_PATCH
+#define PG_FMSET        3u              /* op: FM field (codec 2 byte offset) = value */
+#define PG_FMFLUSH      4u              /* op: add the summed macro deltas pg.acc[] to the FM fields SF_FB..SF_MF */
+#define PG_FM_PACE_MS   20u             /* minimum spacing of the coalesced macro writes (policy value) */
+#define BTN_DOWN        0x13u
+#define BTN_UP          0x14u
+#define PG_TICK         ((uint32_t (*)(void))0x08024069u)   /* RTOS tick (ms), as notetap.c's TICK */
+#endif
 
 struct pg {
     uint8_t open;                       /* the page is shown and takes input (only while s->mode == 0) */
@@ -64,13 +85,46 @@ struct pg {
     uint8_t opens;                      /* times opened since boot (mod 256) */
     uint32_t edits, refused;            /* edits made / refused since boot */
     uint8_t hide_patch;                 /* 1: waveform pads and macros 1..3 hidden and inert (one fixed DSP patch) */
+#if FM_PATCH
+    uint8_t view;                       /* 0 the chord view, 1 the FM view */
+    uint8_t pad[2];
+    int8_t acc[4];                      /* summed deltas of macros 1..4 not yet written (feedback, mod A, D, floor) */
+    uint32_t fm_t;                      /* tick of the last coalesced write */
+    uint32_t acc_gen;                   /* tm()->gen (project applies) the pending acc[] belongs to: a load, clear or
+                                           pack switch since cancels it, whatever the store address */
+#if FM_BANKVIEW                         /* track 8's Sample view (notetap.c hook_sv_press / hook_sv_rel / sv_entry) */
+    uint16_t sv_mask;                   /* physical sample pads 16..31 (bit pad - 16) whose press was inert: their
+                                           release is swallowed too, whatever view or page it reaches */
+    uint8_t sv_in;                      /* 1: track 8's Sample view was in front at the last Main pass (entered) */
+    uint8_t sv_gen;                     /* tm()->gen (low byte) at that entry: a project apply re-enters */
+#endif
+#else
     uint8_t pad[3];
+#endif
 };
 #ifndef PG_HIDE_PATCH
 #define PG_HIDE_PATCH 0
 #endif
 _Static_assert(sizeof(struct pg) <= PG_SIZE, "page state must fit its block");
+#if FM_BANKVIEW
+_Static_assert(__builtin_offsetof(struct pg, acc_gen) == 24 && __builtin_offsetof(struct pg, sv_mask) == 28
+               && sizeof(struct pg) == PG_SIZE, "FM_BANKVIEW: the Sample-view state fills the last 4 bytes of struct pg");
+#endif
 #define PG ((volatile struct pg *)PG_AT)
+#if FM_PATCH
+/* The owner of pending macro deltas: tm()->gen + 1 (every project apply, load, clear or pack switch, increments gen,
+ * also when the new project lands at the same store address); 0 = no runtime copy, never an owner. */
+__attribute__((noinline)) static uint32_t pg_gen(void)
+{
+    struct tm *t = tm();
+    return t ? t->gen + 1u : 0u;
+}
+#endif
+#if PG_HIDE_PATCH && TRIM_HIDE                  /* trim C2: hidden at compile time, the patch controls compiled out */
+#define PG_TRIM 1
+#else
+#define PG_TRIM 0
+#endif
 
 static void pg_boot(void)               /* from hook_boot, block already zeroed */
 {
@@ -92,6 +146,47 @@ static uint32_t pg_edit_cb(volatile uint8_t *b, uint32_t arg)
 {
     uint32_t off = arg & 0x7F, op = (arg >> 16) & 0xFF;
     int32_t v = (int8_t)(arg >> 8);
+#if FM_PATCH
+    if (op >= PG_FMSET) {                     /* FM fields: codec 2, created over an unset or codec-1 slot */
+        volatile struct pg *g = PG;
+        if (op == PG_FMFLUSH && (!g->acc_gen || pg_gen() != g->acc_gen)) {
+            for (uint32_t i = 0; i < 4; i++)  /* a project applied since the deltas: cancelled before the block is */
+                g->acc[i] = 0;                /* read, created or written (the store may be a stale capture) */
+            return TS_REFUSED;
+        }
+        struct tm *t = tm();                  /* b was captured before the suspension: a project applied in between */
+        if (!t || b != (volatile uint8_t *)(t->store + TM_EXT))   /* (B owns the deltas, b is still A): A is */
+            return TS_BUSY;                   /* never touched, the deltas stay for the next pass with B's block */
+        volatile uint8_t *p = b + SYN_PATCH_AT;
+        uint32_t st = syn_fm_status(p);
+        if (st == SYN_UNKNOWN) {
+            for (uint32_t i = 0; i < 4; i++)
+                g->acc[i] = 0;
+            return TS_READONLY;
+        }
+        if (st != SYN_V1)
+            syn_fm_create(p);
+#if FM_BANKVIEW                             /* no FMSET op: +2 and +3 are reserved, never edited */
+        (void)off;
+        (void)v;
+        {
+#else
+        if (op == PG_FMSET) {
+            p[off] = syn_fm_byte(off, v);
+        } else {
+#endif
+            for (uint32_t i = 0; i < 4; i++) {
+                p[SF_FB + i] = syn_fm_byte(SF_FB + i, syn_fm_get(p, SF_FB + i) + g->acc[i]);
+                g->acc[i] = 0;
+            }
+        }
+        return TS_OK;
+    }
+#endif
+#if PG_TRIM
+    if (arg & PG_PATCH)
+        return TS_READONLY;
+#else
     if (arg & PG_PATCH) {
         volatile uint8_t *p = b + SYN_PATCH_AT;
         uint32_t st = syn_patch_status(p);
@@ -103,6 +198,7 @@ static uint32_t pg_edit_cb(volatile uint8_t *b, uint32_t arg)
         p[off] = syn_patch_byte(off, op == PG_ADD ? cur + v : op == PG_TOGGLE ? !cur : v);
         return TS_OK;
     }
+#endif
     volatile uint8_t *r = b + SYN_REC_AT;
     uint32_t st = syn_rec_status(r);
     if (st == SYN_UNKNOWN || off < SR_NPP || off >= SR_NPP + SR_FIELDS)
@@ -165,6 +261,15 @@ static void pg_pad(struct state *s, uint32_t pad)
             pg_sc(s, (pad >= 16 ? SC_OP_ROOT : SC_OP_SCALE) | (uint32_t)k << 8);
         return;
     }
+#if FM_PATCH && !FM_BANKVIEW
+    if (PG->view) {                         /* FM view: banks, algorithms; every other pad inert */
+        if (pad < FM_BANKS)
+            pg_edit(s, SF_BANK, (int32_t)pad, PG_FMSET);
+        else if (pad >= 16 && pad < 16 + FM_ALGOS)
+            pg_edit(s, SF_ALGO, (int32_t)pad - 16, PG_FMSET);
+        return;
+    }
+#endif
     if (pad == 15) {
         pg_sc(s, SC_OP_MINOR);
         return;
@@ -186,7 +291,7 @@ static void pg_pad(struct state *s, uint32_t pad)
         pg_edit(s, SR_SCALE, 0, PG_TOGGLE);
     else if (pad >= 16 && pad <= 19)
         pg_edit(s, SR_VOICING, (int32_t)pad - 16, PG_SET);
-    else if ((pad == 20 || pad == 21) && !PG->hide_patch)
+    else if ((pad == 20 || pad == 21) && !PG_TRIM && !PG->hide_patch)
         pg_edit(s, PG_PATCH | SP_WAVE, (int32_t)pad - 20, PG_SET);
     else if (pad == 23)
         pg_edit(s, SR_POLY, 0, PG_TOGGLE);
@@ -210,6 +315,10 @@ static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit)
     if (!open || index == BTN_PLAY || index == BTN_REC)
         return 0;                           /* Play and Rec pass through; their releases follow */
     s->btn_eat |= bit;                      /* consumed: the release is swallowed, also after the page closed */
+#if FM_PATCH && !FM_BANKVIEW
+    if (index == BTN_DOWN || index == BTN_UP)
+        g->view = index == BTN_DOWN;
+#endif
 #if SCALES
     if (index < SC_TRACKS)                  /* Track 1..7: that sample track's Note view in scale or chromatic */
         pg_sc(s, SC_OP_TOGGLE | index << 8);
@@ -233,10 +342,92 @@ static uint32_t pg_encoder(struct state *s, uint32_t knob, uint32_t delta)
     if (!pg_live(s))
         return 0;
     int32_t d = (int16_t)delta;
-    if (knob < 3 && d && !PG->hide_patch)
+#if FM_PATCH
+    if (FM_BANKVIEW || PG->view) {          /* summed here, written by pg_fm_tick (one CRC per PG_FM_PACE_MS) */
+        if (knob < 4) {
+            uint32_t gen = pg_gen();
+            if (PG->acc_gen != gen) {           /* deltas left from an earlier project: dropped */
+                for (uint32_t i = 0; i < 4; i++)
+                    PG->acc[i] = 0;
+                PG->acc_gen = gen;
+            }
+            int32_t x = PG->acc[knob] + d;
+            PG->acc[knob] = (int8_t)(x < -127 ? -127 : x > 127 ? 127 : x);
+        }
+        return 1;
+    }
+#endif
+    if (knob < 3 && d && !PG_TRIM && !PG->hide_patch)
         pg_edit(s, PG_PATCH | (SP_ATTACK + knob), d < -127 ? -127 : d > 127 ? 127 : d, PG_ADD);
     return 1;
 }
+
+#if FM_PATCH
+/* Drop the pending sum of owner `own`, decided and cleared in one suspended step: an encoder event that re-owned the
+ * sum since (pg_encoder, under event()'s suspension: acc reset, acc_gen = the new owner) keeps its delta. */
+__attribute__((noinline)) static void pg_fm_drop(uint32_t own)
+{
+    volatile struct pg *g = PG;
+    SUSPEND_ALL();
+    if (g->acc_gen == own)
+        for (uint32_t i = 0; i < 4; i++)
+            g->acc[i] = 0;
+    RESUME_ALL();
+}
+
+/* Main pass (hook_a1_tick): the pending macro deltas as one edit, at most every PG_FM_PACE_MS. A BUSY edit keeps them
+ * for the next pass; READONLY / REFUSED drop them (the page blinks, as for any refused edit). Open or closed page.
+ * Runs without the suspension: every drop goes through pg_fm_drop with the owner seen here. */
+static void pg_fm_tick(void)
+{
+    struct state *s = region();
+    volatile struct pg *g = PG;
+    if (!s || !(g->acc[0] | g->acc[1] | g->acc[2] | g->acc[3]))
+        return;
+    uint32_t own = g->acc_gen;
+    if (!own || pg_gen() != own) {            /* a project barrier since the deltas (load, clear, pack): cancelled */
+        pg_fm_drop(own);
+        return;
+    }
+    if ((int32_t)(PG_TICK() - g->fm_t) < (int32_t)PG_FM_PACE_MS)
+        return;
+    g->fm_t = PG_TICK();
+    pg_edit(s, 0, 0, PG_FMFLUSH);
+    if (g->res != TS_OK && g->res != TS_BUSY)
+        pg_fm_drop(own);
+}
+#endif
+
+#if FM_PATCH
+/* The stock save of `store` is about to post its write job (hook_save_post, notetap.c): owned pending deltas go into
+ * the store now, so the saved slot holds every completed knob edit. Inside the save, tm_edit would answer BUSY; this is
+ * its body without that gate (the save itself is the operation in progress), as the save hooks edit the store. */
+__attribute__((noinline)) static void pg_fm_save(uint32_t store)
+{
+    volatile struct pg *g = PG;
+    struct tm *t = tm();
+    if (!(g->acc[0] | g->acc[1] | g->acc[2] | g->acc[3]))
+        return;
+    volatile uint8_t *b = (volatile uint8_t *)(store + TM_EXT);
+    SUSPEND_ALL();
+    if (t && t->store == store && (t->why == TM_OK || (t->why == TM_EMPTY && all_zero(b, TM_EXT_LEN))) &&
+            pg_edit_cb(b, PG_FMFLUSH << 16) == TS_OK) {
+        if (t->why == TM_EMPTY) {
+            wr32(b, TM_BLK_MAGIC);
+            b[4] = TM_VERSION;
+            b[5] = 0;
+            b[6] = (uint8_t)TM_EXT_LEN;
+            b[7] = (uint8_t)(TM_EXT_LEN >> 8);
+        }
+        wr32(b + TM_CRC_AT, tm_crc(b, TM_CRC_AT));
+        t->why = TM_OK;
+        t->writes++;
+    }
+    for (uint32_t i = 0; i < 4; i++)          /* written, cancelled (not owned) or refused: nothing stays pending */
+        g->acc[i] = 0;
+    RESUME_ALL();
+}
+#endif
 
 /* The page's lights into s->leds (UI task, LED frame, caller holds the suspension; s->mode == 0, so the buffer is
  * not a module's). Reads the runtime copy of record 7 and the live patch slot. */
@@ -245,7 +436,7 @@ static void pg_leds(struct state *s)
     const uint8_t *t = pad_leds();
     struct tm *m = tm();
     const volatile uint8_t *rec = m && m->why == TM_OK ? m->rec[7] : 0;
-    const volatile uint8_t *pat = m && m->why == TM_OK && m->store ? (const volatile uint8_t *)(m->store + TM_EXT +
+    __attribute__((unused)) const volatile uint8_t *pat = m && m->why == TM_OK && m->store ? (const volatile uint8_t *)(m->store + TM_EXT +
                                                                                                  SYN_PATCH_AT) : 0;
     for (uint32_t i = 0; i < LEDS; i++)
         s->leds[i] = 0;
@@ -295,11 +486,13 @@ static void pg_leds(struct state *s)
             v = (int32_t)i == voicing ? BRIGHT : DIM;
             pad_rgb(s, t, 16 + i, 0, v, v);
         }
+#if !PG_TRIM
         int32_t wave = syn_patch_get(pat, SP_WAVE);
         for (uint32_t i = 0; i < 2 && !PG->hide_patch; i++) {
             v = (int32_t)i == wave ? BRIGHT : DIM;
             pad_rgb(s, t, 20 + i, v, 0, v);
         }
+#endif
         v = syn_rec_get(rec, SR_POLY) ? BRIGHT : DIM;
         pad_rgb(s, t, 23, v, 0, 0);
         for (uint32_t i = 0; i < 5; i++) {
@@ -307,9 +500,38 @@ static void pg_leds(struct state *s)
             pad_rgb(s, t, 24 + i, 0, 0, v);
         }
     }
-    /* knob lights: macro 1 (0, 1, 2), macro 2 (3, 4, 5), macro 3 (56, 57, 58) (docs/led-map.json), green by value */
     volatile struct pg *g = PG;
-    if (!g->hide_patch) {
+#if FM_BANKVIEW                             /* the single view: knob lights 1, 4, 57, 60 (macros 1..4, green); Up and
+                                               Down dark (no other view) */
+    s->leds[1] = (uint8_t)(syn_fm_get(pat, SF_FB) & 0x7E);
+    s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
+    s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
+    s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);
+#elif FM_PATCH
+    if (g->view && !s->shift) {             /* FM view (Shift shows the chord view's scale and root layers) */
+        int32_t bank = syn_fm_get(pat, SF_BANK), algo = syn_fm_get(pat, SF_ALGO);
+        for (uint32_t i = 0; i < 32; i++) {
+            v = (int32_t)i == bank || (int32_t)i - 16 == algo ? BRIGHT : DIM;
+            if (i < FM_BANKS)
+                pad_rgb(s, t, i, v, v >> 1, 0);
+            else if (i < 16 + FM_ALGOS)
+                pad_rgb(s, t, i, 0, v, v);
+            else
+                pad_rgb(s, t, i, 0, 0, 0);
+        }
+    }
+    if (g->view) {                          /* knob lights 1, 4, 57, 60 (macros 1..4, green), Up light (55) */
+        s->leds[1] = (uint8_t)(syn_fm_get(pat, SF_FB) & 0x7E);
+        s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
+        s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
+        s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);
+        s->leds[55] = DIM;
+    } else {
+        s->leds[52] = DIM;                  /* Down light: the FM view is below */
+    }
+#endif
+    /* knob lights: macro 1 (0, 1, 2), macro 2 (3, 4, 5), macro 3 (56, 57, 58) (docs/led-map.json), green by value */
+    if (!PG_TRIM && !g->hide_patch) {
         s->leds[1] = (uint8_t)(syn_patch_get(pat, SP_ATTACK) & 0x7E);
         s->leds[4] = (uint8_t)(syn_patch_get(pat, SP_DECAY) & 0x7E);
         s->leds[57] = (uint8_t)(syn_patch_get(pat, SP_LEVEL) & 0x7E);

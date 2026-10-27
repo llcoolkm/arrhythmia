@@ -32,6 +32,18 @@ every file passes these checks; if any file fails, nothing is written and the fi
   over short lines escapes the single-line hex scan above); a match is reported as novation-bytes.
   The values of JSON "hex" keys are exempt from this rule only: they are crpatch payloads built from our own code
   (release/, web/, test fixtures) and are still byte-scanned.
+* Provenance rules (D7, curation 0.2), on every text file: decompiler-name (decompiler auto-names of stock code:
+  FUN_, thunk_FUN_, DAT_, LAB_, PTR_, UNK_, pointer-prefixed PTR_FUN_ / PTR_DAT_, and the IDA sub_/loc_/off_
+  forms of a flash address); decompilation
+  (the words decomp / decompile... and the reverse-engineering tool's name, which also covers its scripts directory);
+  private-path (a PRIVATE_DOCS, PRIVATE_TESTS or EXCLUDE path, an excluded tool or patch source by path, a docs/
+  or tests/ path not published, or the bare
+  file name of a private doc or test that no published file shares); commit-hash (a 40-hex git object name, or a 7
+  to 12 hex short hash with a digit and a letter next to commit, branch, rev, review, Codex or @). The private DSP
+  branch name is a deny-file string. A deny-file provenance_exceptions entry (path -> literals) passes a reviewed
+  finding (e.g. an upstream project's public commit pin). SELF_EXEMPT: this tool names the private paths and the
+  reverse-engineering tool in its deny lists, and its test uses synthetic paths; both are exempt from private-path
+  and decompilation only.
 
 The deny file (default export-deny.json at the repo root) is private: it holds the serial and host names, so it is
 outside the allow-list and in DENY_PATHS. Firmware images are looked up in this checkout, then in the main checkout of
@@ -60,7 +72,8 @@ PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md
                "docs/user/synth.md",
                "docs/user/scales.md", "docs/user/developers.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
-               "docs/user/img/scales-note-view.png")
+               "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
+               "docs/user/img/synth-macros.png")
 # Developer reference (master, 2026-10-19): curated from the private notes under D7, one file by name.
 PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flashing.md",
                    "docs/dev/backup-and-recovery.md", "docs/dev/devkit-sysex.md", "docs/dev/modules-reference.md",
@@ -79,8 +92,10 @@ PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capt
                 "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
 PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
-              "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/plockfix.c", "patches/src/scales.c",
+              "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/ad_life207.h", "patches/src/plockfix.c", "patches/src/scales.c",
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
+              # 0.2 ARM sources compiled by arrhythmia-firmware-arm-fm.
+              "patches/src/core0feed.c", "patches/src/core0feed.h", "patches/src/fm_patch.h", "patches/src/tune_pitch.h",
               "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c")
 # DSP voice source of arrhythmia-firmware 0.1.1 (build 7261): our assembly, generators, adapter, builder, the line
 # assembler frontend and its licence notices, and the test; exactly the files that tools/dspvoice/source-manifest.json
@@ -92,9 +107,31 @@ PUBLIC_DSPVOICE = ("tools/dspvoice/source-manifest.json", "tools/dspvoice/LICENS
                    "tools/dspvoice/toolchain/CMakeLists.txt", "tools/dspvoice/toolchain/NOTICES.md",
                    "tools/dspvoice/toolchain/README.md", "tools/dspvoice/toolchain/UPSTREAM.md",
                    "tools/dspvoice/toolchain/dspasm.cpp", "tests/test_dspvoice_source.py")
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "web/index.html")
-ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
-         + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE)
+# VERSION 206 own DSP source, exact files plus its source test and manifest.
+PUBLIC_DSPVOICE206 = ('tests/test_dspvoice206_source.py',
+                    'tools/dspvoice206/NOTICE.md',
+                    'tools/dspvoice206/README.md',
+                    'tools/dspvoice206/assembler.py',
+                    'tools/dspvoice206/build.py',
+                    'tools/dspvoice206/instrument.asm',
+                    'tools/dspvoice206/startup.asm',
+                    'tools/dspvoice206/suppression.asm',
+                    'tools/dspvoice206/tables.py',
+                    'tools/dspvoice206/source-manifest.json')
+# VERSION 207 own DSP source; dependencies already listed above stay unchanged.
+PUBLIC_DSPVOICE207 = ('tests/test_dspvoice207_source.py',
+                    'tools/dspvoice207/NOTICE.md',
+                    'tools/dspvoice207/README.md',
+                    'tools/dspvoice207/build.py',
+                    'tools/dspvoice207/instrument.asm',
+                    'tools/dspvoice207/tables.py',
+                    'tools/dspvoice207/source-manifest.json')
+PUBLIC_DSPVOICE207RC = ('tests/test_dspvoice207rc_source.py', 'tools/dspvoice207rc/README.md', 'tools/dspvoice207rc/NOTICE.md', 'tools/dspvoice207rc/build.py', 'tools/dspvoice207rc/instrument.asm', 'tools/dspvoice207rc/source-manifest.json')
+PUBLIC_DSPVOICE207REL = ('tests/test_dspvoice207rel_source.py', 'tools/dspvoice207rel/README.md', 'tools/dspvoice207rel/NOTICE.md', 'tools/dspvoice207rel/build.py', 'tools/dspvoice207rel/instrument.asm', 'tools/dspvoice207rel/source-manifest.json')
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "web/index.html")
+ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+         + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
+         + PUBLIC_DSPVOICE207REL)
 # Allow-listed files published under another name (source path -> published path). The public README is
 # docs/user/README.md, published at the export root; this repo's own root README.md is private (DENY_PATHS).
 PUBLISH_AS = {"docs/user/README.md": "README.md"}
@@ -111,7 +148,10 @@ EXCLUDE = ("docs/nor-backup.md", "docs/codex-brief.md", "docs/release-plan.md", 
            "patches/src/devkit.c", "patches/src/devkit_dsp.c", "patches/src/devkit_input.c",
            "patches/src/devkit_mode.c", "patches/src/devkit_play.c", "patches/src/devkit_load.c",
            "patches/src/devkit_clock.c", "patches/src/lightshow.c", "patches/src/heapdiag.c",
-           "patches/src/flashdump.c")
+           "patches/src/flashdump.c",
+           # PRIVATE bench-only: the no-Play gate and the core-0 bench build path. Never public.
+           "patches/src/noplay.c", "tools/core0_bench_profile.py", "tools/core0_benchstack.py",
+           "tools/core0_telem.py", "tools/core0_meter_read.py")
 # Never exported: an allow-listed path that is not excluded but matches DENY_PATHS refuses the whole export.
 # docs/nor-backup.md holds the unit serial; the other four EXCLUDE docs are internal process documents (master,
 # 2026-10-19). PRIVATE_DOCS / PRIVATE_TESTS: notes and tests built on maps of the stock firmware (decompilation,
@@ -127,8 +167,14 @@ PRIVATE_DOCS = ("docs/a1-notetap.md", "docs/a1-trace-t60-2s.txt", "docs/a1-trace
                 "docs/synth-page.md", "docs/track-modes-t1.md", "docs/track-modes.md",
                 "docs/tracks-generative-feasibility.md", "docs/tracks-on-rhythm.md", "docs/tracks-resources.md",
                 "docs/v01-integration.md", "docs/voice-stream.md",
-                "docs/dsp-source-bundle-handoff.md")
-PRIVATE_TESTS = ("tests/test_a1_notetap.py", "tests/test_a2_page.py", "tests/test_a2_regressions.py",
+                "docs/dsp-source-bundle-handoff.md", "docs/core0-bench-plan.md", "docs/core0-bench-7287.md", "docs/core0-bench-7289.md",
+                "docs/core0-arm-proto.md",
+                "docs/core0-arm-feed.md", "docs/core0-fmpatch-arm.md",
+                "docs/core0-fmpatch-replay-206.md", "docs/core0-bench-7303.md", "docs/core0-bench-7303-result.md",
+                "docs/core0-fm-bankview.md", "docs/core0-bankview-arm.md",
+                "docs/core0-timing-bench-206.md", "docs/core0-meter-read.md",
+                "docs/core0-public-0.2-candidate.md", "docs/core0-public-0.2-curation.md", "docs/curation-0.2/")
+PRIVATE_TESTS = ("tests/test_core0_telem.py", "tests/test_a1_notetap.py", "tests/test_a2_page.py", "tests/test_a2_regressions.py",
                  "tests/test_cmd08_meter.py", "tests/test_cmd7d.py", "tests/test_devkit.py", "tests/test_devkit_clock.py",
                  "tests/test_devkit_dsp.py", "tests/test_devkit_input.py", "tests/test_devkit_load.py",
                  "tests/test_devkit_mode.py", "tests/test_devkit_play.py", "tests/test_dsp_extract.py",
@@ -139,7 +185,10 @@ PRIVATE_TESTS = ("tests/test_a1_notetap.py", "tests/test_a2_page.py", "tests/tes
                  "tests/test_o1_bounded_waits.py", "tests/test_pattern_map.py", "tests/test_plock_fix.py",
                  "tests/test_scales.py", "tests/test_track_gate.py", "tests/test_track_modes.py",
                  "tests/test_trackmodes_t1.py", "tests/test_update_crc.py", "tests/test_version_reply.py",
-                 "tests/test_voicestack.py")
+                 "tests/test_voicestack.py", "tests/test_core0_bench.py", "tests/test_core0_joined.py",
+                 "tests/test_core0_feed.py", "tests/test_core0_only.py", "tests/test_core0_fmpatch.py",
+                 "tests/test_core0_joined206.py", "tests/test_core0_bench7303.py", "tests/test_core0_bankview.py",
+                 "tests/test_core0_meter_read.py", "tests/test_core0_public02.py")
 DENY_PATHS = EXCLUDE + PRIVATE_DOCS + PRIVATE_TESTS + ("README.md", "ghidra_scripts/", "export-deny.json", "firmware/",
                                                        "build/")
 SKIP_PARTS = ("__pycache__",)
@@ -177,6 +226,20 @@ LISTING = re.compile(
     rb"(?:\.[wn])?(?:[ \t]|$))", re.I)
 DUMPADDR = re.compile(rb"^[ \t>*|`#/;-]*(?:(?:0x)?[0-9A-Fa-f]{4,8}:?|[PXYLpxyl]:\$?(?:0x)?[0-9A-Fa-f]{1,6}:?)[ \t]+")
 HEXTOK = re.compile(rb"^(?:[0-9A-Fa-f]{2}){1,4}$")
+# Provenance (D7). The tool's name is assembled so that the pattern itself is plain text.
+_RE_TOOL = b"ghi" + b"dra"
+DECOMP_NAME = re.compile(rb"(?<![A-Za-z0-9_])(?:(?:thunk|PTR)_)*(?:FUN|DAT|LAB|PTR|UNK)_[0-9A-Fa-f]{6,8}(?![0-9A-Za-z])"
+                         rb"|(?<![A-Za-z0-9_])(?:sub|loc|off|unk)_0?80[0-9A-Fa-f]{5}(?![0-9A-Za-z])")
+DECOMP_CITE = re.compile(rb"(?i)(?<![a-z])decomp(?:il\w*)?(?![a-z])|" + _RE_TOOL)
+GIT_OBJECT = re.compile(rb"(?<![0-9A-Fa-f])[0-9a-f]{40}(?![0-9A-Fa-f])")
+SHORT_HASH = re.compile(rb"(?<![0-9A-Za-z_])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,12}(?![0-9A-Za-z_])")
+HASH_BEFORE = re.compile(rb"(?i)(?<![a-z])(?:commits?|branch(?:es)?|rev|reviews?|codex(?:'s)?)(?![a-z])|@")
+HASH_AFTER = re.compile(rb"(?i)^[^\n]{0,48}?(?<![a-z])(?:commits?|branch(?:es)?|reviews?|codex)(?![a-z])")
+HASH_CHAIN = re.compile(rb"^[ \t]*[/,][ \t]*$")
+HASH_WINDOW = 64            # bytes before a short hash searched for its context word (the same comment, in practice)
+REPO_PATH = re.compile(rb"(?<![A-Za-z0-9_./-])(?:docs|tests)/[A-Za-z0-9_./-]*[A-Za-z0-9_]")
+SELF_EXEMPT = {"tools/export_public.py": ("private-path", "decompilation"),
+               "tests/test_export_public.py": ("private-path", "decompilation")}   # synthetic fixture paths
 HEXSTR = re.compile(rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{%d,}(?![0-9A-Fa-f])" % (2 * HEXDUMP_BYTES))
 JSONHEX = re.compile(rb'"hex"[ \t]*:[ \t]*"$')
 
@@ -302,6 +365,7 @@ def load_deny(path):
     cfg.setdefault("marker_exceptions", {})
     cfg.setdefault("ip_exceptions", {})
     cfg.setdefault("bytes_exceptions", {})
+    cfg.setdefault("provenance_exceptions", {})
     if not cfg["serials"] or not cfg["hostnames"]:
         raise Refused(f"deny file {path} lists no serials or no hostnames; refusing to run without them")
     return cfg
@@ -425,7 +489,58 @@ def jpeg_dht(data):
     return out
 
 
-def check_file(path, data, cfg, index, allow_emails):
+def private_names(allow=ALLOW, exclude=EXCLUDE):
+    """Bare file names of private docs and tests that no published file shares (a citation without its directory)."""
+    public = {a.rsplit("/", 1)[-1] for a in allow if not a.endswith("/")}
+    return sorted({d.rsplit("/", 1)[-1] for d in PRIVATE_DOCS + PRIVATE_TESTS + exclude
+                   if not d.endswith("/") and (d.startswith("docs/") or d.startswith("tests/"))} - public)
+
+
+def provenance_findings(path, data, allow=ALLOW, exclude=EXCLUDE, passed=()):
+    """Findings of the provenance rules; passed: reviewed literals (deny file provenance_exceptions) for this path."""
+    out = []
+    skip = SELF_EXEMPT.get(path, ())
+    seen = set()
+
+    def add(rule, detail):
+        if rule not in skip and detail not in passed and (rule, detail) not in seen:
+            seen.add((rule, detail))
+            out.append((rule, detail))
+
+    for m in DECOMP_NAME.finditer(data):
+        add("decompiler-name", m.group().decode())
+    for m in DECOMP_CITE.finditer(data):
+        add("decompilation", m.group().decode())
+    for m in REPO_PATH.finditer(data):
+        ref = m.group().decode().rstrip(".")
+        if denied(ref) or not (allowed(ref, allow, exclude) or any(a.startswith(ref.rstrip("/") + "/") for a in allow)):
+            add("private-path", ref)
+    for d in exclude:                         # excluded tools and sources cited by path (docs/ and tests/ above)
+        if not d.endswith("/") and not d.startswith(("docs/", "tests/")):
+            for m in re.finditer(rb"(?<![A-Za-z0-9_./-])" + re.escape(d.encode()) + rb"(?![A-Za-z0-9_-])", data):
+                add("private-path", m.group().decode())
+    names = private_names(allow, exclude)
+    if names:
+        rx = re.compile(rb"(?<![A-Za-z0-9_./-])(?:" + b"|".join(re.escape(n.encode()) for n in names)
+                        + rb")(?![A-Za-z0-9_-])")
+        for m in rx.finditer(data):
+            add("private-path", m.group().decode())
+    for m in GIT_OBJECT.finditer(data):
+        add("commit-hash", m.group().decode())
+    toks = [m for m in SHORT_HASH.finditer(data) if data[max(0, m.start() - 2):m.start()] not in (b"0x", b"0X")]
+    hit = [bool(HASH_BEFORE.search(data[max(0, m.start() - HASH_WINDOW):m.start()]) or HASH_AFTER.search(data[m.end():]))
+           for m in toks]
+    for i in range(1, len(toks)):             # "hash / hash", "hash, hash": a neighbour of a hash is one too
+        for a, b in ((i - 1, i), (i, i - 1)):
+            if hit[a] and not hit[b] and HASH_CHAIN.match(data[toks[i - 1].end():toks[i].start()]):
+                hit[b] = True
+    for m, h in zip(toks, hit):
+        if h:
+            add("commit-hash", m.group().decode())
+    return out
+
+
+def check_file(path, data, cfg, index, allow_emails, allow=ALLOW, exclude=EXCLUDE):
     out = []
     if denied(path):
         out.append(("path", "private path"))
@@ -451,6 +566,7 @@ def check_file(path, data, cfg, index, allow_emails):
             break
     if b"\0" in data:
         return out
+    out += provenance_findings(path, data, allow, exclude, cfg.get("provenance_exceptions", {}).get(path, ()))
     for first, last, count in listing_runs(data):
         if count >= LISTING_LINES:
             out.append(("listing", f"lines {first}-{last}: {count} disassembly lines (limit {LISTING_LINES - 1})"))
@@ -520,7 +636,7 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
             findings.append((path, "path", "symbolic link"))
             continue
         data = git(repo, "cat-file", "blob", obj, data=True)
-        for rule, detail in check_file(path, data, cfg, index, allow_emails):
+        for rule, detail in check_file(path, data, cfg, index, allow_emails, allow, exclude):
             findings.append((path, rule, detail))
         files.append((path, mode, data))
     dests = {}

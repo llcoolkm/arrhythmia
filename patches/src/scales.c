@@ -308,7 +308,7 @@ static void sc_sync(void)
     }
 }
 
-/* noinline: one entry for the per-pass cost measurement (tests/test_scales.py test_one_rebuild_per_pass) */
+/* noinline: one entry for the per-pass cost measurement */
 __attribute__((noinline)) static void sc_main(struct state *s)
 {
     struct tm *t = tm();

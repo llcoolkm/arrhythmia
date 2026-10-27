@@ -34,6 +34,22 @@
  *   +6..+63      reserved: written 0 on creation, otherwise preserved
  * The mapping of attack/decay/level to the DSP constants is the patch publisher's, not this codec's; the stored
  * values are user-scale 0..127.
+ * Patch 7, codec 2 (FM_PATCH builds only; SYN_PATCH_FM): the core-0 FM voice
+ *   +0  codec    2                      +1  version  1 (any other value with codec 2 = unknown)
+ *   +2  algo     0 serial4, 1 dual_stack (FM_ALGOS)                     default FM_DEF_ALGO (fm_patch.h)
+ *   +3  bank     ratio bank 0..15                                       default FM_DEF_BANK
+ *                FM_BANKVIEW (version 2): +2 and +3 reserved, never read or edited, preserved (a newly created slot
+ *                holds 0, the defaults); family and algorithm are track 8's sample slot 0..31 (channel parameter 0,
+ *                read at the press by core0feed.c q0_fm_read: family = slot & 15, algorithm = slot >> 4)
+ *   +4  fb       feedback 0..127                                        default FM_DEF_FB
+ *   +5  mod_a    modulator attack 0..127                                default FM_DEF_MA
+ *   +6  mod_d    modulator decay 0..127                                 default FM_DEF_MD
+ *   +7  mod_f    modulator floor 0..127                                 default FM_DEF_MF
+ *   +8..+63      reserved: written 0 when codec 2 is created, otherwise preserved
+ *   An FM_PATCH build reads codec 2; unset, codec 1 (whose fields no released build lets anyone edit: patch controls
+ *   hidden) and unknown read as the FM defaults. Its first FM edit creates codec 2 over an unset or codec-1 slot and
+ *   refuses an unknown one. Older builds see codec 2 as unknown: defaults, read-only, and never the new-project
+ *   conversion (the slot is set). Stock firmware saves the T1 block as opaque store bytes.
  *
  * Invalid data. Unset or unknown: every field decodes to its default. Known version with a field out of range: that
  * field decodes to its default, the others as stored (the stored byte is left alone until that field is edited).
@@ -43,6 +59,9 @@
 #ifndef SYNTH_SETTINGS_H
 #define SYNTH_SETTINGS_H
 #include <stdint.h>
+#if FM_PATCH
+#include "fm_patch.h"
+#endif
 
 #define SYN_REC_AT        0x078u        /* block offset of record 7 */
 #define SYN_REC_LEN       16u
@@ -132,7 +151,11 @@ static inline uint32_t syn_patch_status(const volatile uint8_t *p)
 }
 
 /* Decoded value of one record field (byte offset SR_*); rec may be 0 (= unset). */
+#if TRIM_LEDS                                   /* trim C3: one out-of-line copy for every reader */
+__attribute__((noinline)) static int32_t syn_rec_get(const volatile uint8_t *rec, uint32_t off)
+#else
 static inline int32_t syn_rec_get(const volatile uint8_t *rec, uint32_t off)
+#endif
 {
     int32_t def = syn_rec_lim(off, 2);
     if (!rec || syn_rec_status(rec) != SYN_V1)
@@ -141,7 +164,11 @@ static inline int32_t syn_rec_get(const volatile uint8_t *rec, uint32_t off)
     return v < syn_rec_lim(off, 0) || v > syn_rec_lim(off, 1) ? def : v;
 }
 
+#if TRIM_LEDS
+__attribute__((noinline)) static int32_t syn_patch_get(const volatile uint8_t *p, uint32_t off)
+#else
 static inline int32_t syn_patch_get(const volatile uint8_t *p, uint32_t off)
+#endif
 {
     int32_t def = syn_patch_lim(off, 2);
     if (!p || syn_patch_status(p) != SYN_V1)
@@ -149,6 +176,83 @@ static inline int32_t syn_patch_get(const volatile uint8_t *p, uint32_t off)
     int32_t v = p[off];
     return v > syn_patch_lim(off, 1) ? def : v;
 }
+
+#if FM_PATCH
+#define SYN_PATCH_FM      2u            /* patch codec: core-0 FM voice */
+#if FM_BANKVIEW                         /* version 2 (label 7304): bytes +2 and +3 reserved (family and algorithm are track
+                                           8's sample slot, channel parameter 0); version 1 is converted once at load or
+                                           boot (notetap.c ad_preapply / ad_boot_default) and reads as unknown until then */
+#define SYN_PATCH_FM_VERSION 2u
+#define FM_SLOTS   (FM_BANKS * FM_ALGOS)   /* valid slots 0..31: page 0 serial4 families, page 1 dual_stack families */
+#else
+#define SYN_PATCH_FM_VERSION 1u
+#endif
+#define SF_ALGO    2u
+#define SF_BANK    3u
+#define SF_FB      4u
+#define SF_MA      5u
+#define SF_MD      6u
+#define SF_MF      7u
+#define SF_FIELDS  6u                   /* fields SF_ALGO .. SF_MF */
+enum { SYN_FM_SUB = SYN_UNKNOWN + 1 };  /* codec 1 in the slot: FM defaults; the first FM edit converts it */
+
+static inline uint32_t syn_fm_status(const volatile uint8_t *p)
+{
+    if (syn_zero(p, 0, SYN_PATCH_LEN))
+        return SYN_UNSET;
+    if (p[SP_CODEC] == SYN_PATCH_FM)
+        return p[SP_VERSION] == SYN_PATCH_FM_VERSION ? SYN_V1 : SYN_UNKNOWN;
+    return p[SP_CODEC] == SYN_PATCH_SUB && p[SP_VERSION] == SYN_PATCH_VERSION ? SYN_FM_SUB : SYN_UNKNOWN;
+}
+
+#if FM_BANKVIEW
+/* A private bench file of the 7302 / 7303 line: codec 2 version 1, its algorithm in +2 and ratio bank in +3. */
+static inline uint32_t syn_fm_v1(const volatile uint8_t *p)
+{
+    return p[SP_CODEC] == SYN_PATCH_FM && p[SP_VERSION] == 1u;
+}
+#endif
+
+/* {max, default} of an FM field (the minimum is 0 for all) */
+static inline int32_t syn_fm_lim(uint32_t off, uint32_t which)
+{
+    int32_t hi = 127, def = 0;
+    switch (off) {
+    case SF_ALGO: hi = (int32_t)FM_ALGOS - 1; def = FM_DEF_ALGO; break;
+    case SF_BANK: hi = (int32_t)FM_BANKS - 1; def = FM_DEF_BANK; break;
+    case SF_FB:   def = FM_DEF_FB; break;
+    case SF_MA:   def = FM_DEF_MA; break;
+    case SF_MD:   def = FM_DEF_MD; break;
+    default:      def = FM_DEF_MF; break;
+    }
+    return which ? def : hi;
+}
+
+/* Decoded FM field (SF_*); p may be 0 (= unset). One out-of-line copy for the page and the note path. */
+__attribute__((noinline)) static int32_t syn_fm_get(const volatile uint8_t *p, uint32_t off)
+{
+    int32_t def = syn_fm_lim(off, 1);
+    if (!p || syn_fm_status(p) != SYN_V1)
+        return def;
+    int32_t v = p[off];
+    return v > syn_fm_lim(off, 0) ? def : v;
+}
+
+static inline uint8_t syn_fm_byte(uint32_t off, int32_t v)
+{
+    int32_t hi = syn_fm_lim(off, 0);
+    return (uint8_t)(v < 0 ? 0 : v > hi ? hi : v);
+}
+
+/* Create codec 2 over an unset or codec-1 slot: header, every field at its default, reserved bytes zero. */
+static inline void syn_fm_create(volatile uint8_t *p)
+{
+    p[SP_CODEC] = SYN_PATCH_FM;
+    p[SP_VERSION] = SYN_PATCH_FM_VERSION;
+    for (uint32_t off = SF_ALGO; off < SYN_PATCH_LEN; off++)
+        p[off] = off < SF_ALGO + SF_FIELDS ? (uint8_t)syn_fm_lim(off, 1) : 0;
+}
+#endif
 
 /* Clamp v to the field's range: the stored byte for it. */
 static inline uint8_t syn_rec_byte(uint32_t off, int32_t v)

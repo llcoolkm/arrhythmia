@@ -99,6 +99,9 @@ static uint32_t store_of(uint32_t P)
 }
 
 /* CRC-32/ISO-HDLC (zlib crc32), bitwise: the build keeps .text only, so no table. */
+#if FM_PATCH                                  /* one out-of-line copy for every writer (FM_PATCH flash budget) */
+__attribute__((noinline))
+#endif
 static uint32_t tm_crc(const volatile uint8_t *p, uint32_t n)
 {
     uint32_t c = 0xFFFFFFFFu;
@@ -110,6 +113,9 @@ static uint32_t tm_crc(const volatile uint8_t *p, uint32_t n)
     return ~c;
 }
 
+#if FM_PATCH
+__attribute__((noinline))
+#endif
 static uint32_t all_zero(const volatile uint8_t *b, uint32_t n)
 {
     uint32_t any = 0;

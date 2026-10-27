@@ -236,14 +236,38 @@ static void pl_capture(struct plk *p, uint32_t E, uint32_t t, uint32_t k, uint32
         PLX->lsb[t][k - 1] = (uint8_t)pl_now(E, 16 * t + 13 + k, t);
 }
 
+#ifndef LEGACY_FM206_ARM
+#define LEGACY_FM206_ARM 0              /* original VERSION 206 controls, only for its rebuild profile */
+#endif
+
 #if defined(AD_LIVE) && AD_LIVE
 /* AD build: Clear + macro 3 on track 8 resets Length to 64/0 instead of the stock default 127/127. The macro page
  * sends the reset through the dispatcher as a turn does (src 1, LSB id 16t + 15, then MSB 16t + 2); while hook_macro
  * has marked the call as track 8's Clear + macro 3, exactly those two writes take 64 / 0 here, before the stock
  * dispatcher, so the channel, value cell, display, MIDI out and the p-lock fix see the one value. A write in lock
  * edit (Rec + held step: the preview of the lock the page records with src 2) is lock-class and stays stock, as do
- * src 2 and the lane clear (anticlockwise). */
+ * src 2 and the lane clear (anticlockwise).
+ * FM_BANKVIEW builds only (0.2, labels 7304 / 7306, where track 8's macro 6 is FM depth): Clear + macro 6 resets FM
+ * depth to 96 (AD_CLR_M6 = AD_M6_NEW) instead of the stock 0, the same way (src 1, id 16t + 5, stock value 0). Every
+ * other AD build (7251 / 7261 and the 7280..7302 prototypes; historical profiles keep their existing macro 6 meaning)
+ * compiles the macro-3-only code below, byte for byte as before. */
 #define AD_CLR_T        7u              /* track 8 */
+#if defined(FM_BANKVIEW) && FM_BANKVIEW && !LEGACY_FM206_ARM
+#define AD_CLR_M6       96u             /* track 8 macro 6 (FM depth) default: matches AD_M6_NEW (notetap.c) */
+#define AD_CLR_KNOB(k)  ((k) == 2 || (k) == 5)
+static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
+{
+    uint32_t E;
+    if (src != 1 || (E = pl_engine(D)) == 0 || pl_editing(E, AD_CLR_T))
+        return v;
+    if (v == 127u && (id == 16u * AD_CLR_T + 2u || id == 16u * AD_CLR_T + 15u))
+        return id == 16u * AD_CLR_T + 2u ? 64u : 0u;
+    if (v == 0u && id == 16u * AD_CLR_T + 5u)
+        return AD_CLR_M6;
+    return v;
+}
+#else
+#define AD_CLR_KNOB(k)  ((k) == 2)
 static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
 {
     uint32_t E;
@@ -252,6 +276,7 @@ static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
         return v;
     return id == 16u * AD_CLR_T + 2u ? 64u : 0u;
 }
+#endif
 #endif
 
 uint32_t hook_disp(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
@@ -346,14 +371,15 @@ uint32_t PL_MACRO(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
 }
 
 #if defined(AD_LIVE) && AD_LIVE
-/* Track 8's macro page, knob 3 (k = 2, Length), with Clear held (the page's cell + 0x20, element 0 bit 0): every
- * dispatcher write the page makes in this call is the Clear reset (Clear sends nothing else through the dispatcher),
- * so hook_disp gives it Length 64/0 (ad_clr_value). */
+/* Track 8's macro page, knob 3 (k = 2, Length; FM_BANKVIEW builds also knob 6, k = 5, FM depth), with Clear held (the
+ * page's cell + 0x20, element 0 bit 0): every dispatcher write the page makes in this call is the Clear reset (Clear
+ * sends nothing else through the dispatcher), so hook_disp gives it Length 64/0 (FM_BANKVIEW: or macro 6 96)
+ * (ad_clr_value). */
 uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
 {
     struct plk *p = plk();
     uint32_t c = in_sram(page, 0x68) ? rw(page + 0x20) : 0;
-    uint32_t arm = p && k == 2 && c && rw(page) == PL_MACRO_VT && *(volatile uint16_t *)(page + 0x44) == 16u * AD_CLR_T &&
+    uint32_t arm = p && AD_CLR_KNOB(k) && c && rw(page) == PL_MACRO_VT && *(volatile uint16_t *)(page + 0x44) == 16u * AD_CLR_T &&
                    in_sram(c, 0x14) && in_sram(rw(c + 0xC), 4) && in_sram(rw(c + 0x10), 4) && (*pl_el(c, 0) & 1);
     if (arm)
         p->ad_clr = 1;

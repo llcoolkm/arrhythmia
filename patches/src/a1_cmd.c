@@ -40,6 +40,23 @@
 #define VC_NOTE_MAX     119u
 
 enum { VK_STOCK_ON, VK_STOCK_OFF, VK_STOCK_OTHER, VK_ONSET, VK_KILL, VK_ALLOFF, VK_PATCH, VK_AD };
+#if CORE0_SYNTH
+/* Core-0 queue packets (draft; PROVISIONAL, not frozen):
+ *   RELEASE word0 = 0xA02000 | voice << 10, word1 = the expected generation (bits 0..3 only): generation-matched.
+ *   ENV AD  word0 = 0xA06000, word1 = A | D << 7;  ENV SR  word0 = 0xA07000, word1 = S | R << 7 (7-bit indices, bits
+ *           14..23 zero). The two form one coherent ordered group ahead of the ONSETs that capture them: in the ARM
+ *           FIFO the group is ONE entry (VK_AD, word1 = A | D << 7 | S << 14 | R << 21), expanded here at publication.
+ *   ONSET   unchanged layout; the pitch includes M1 Tune (vc_tune_pitch, the 60-pair table).
+ *   TONE    (CORE0_TONE; the proposed packet, not frozen) word0 = 0xA08000 exactly,
+ *           word1 = depth | cutoff << 7 | resonance << 14 (M6 / M7 / M8, params 11 / 12 / 13), bits 21..23 zero. Live:
+ *           it acts on sounding voices; the DSP's one queue handler publishes every target before the block latch. */
+#define VC_OP_REL       2u
+#define VC_SR_W0        0xA07000u
+#define VC_TONE_W0      0xA08000u
+#define VC_TONE_MASK    0x1FFFFFu
+enum { VK_REL = VK_AD + 1, VK_TONE };
+#include "tune_pitch.h"
+#endif
 
 /* TOP[k] = note 108 + k: (rounded mantissa, exponent) of the 48-bit increment; a switch so that it stays in .text. */
 static uint32_t vc_top(uint32_t k, uint32_t *e)
@@ -152,10 +169,15 @@ static void vc_pcommit(uint32_t count, uint32_t epoch, uint32_t *w0, uint32_t *w
 }
 
 /* PATCH_AD: the only serializer of the AD packet. ad = attack | decay << 7 (the packed form the voice table keeps). */
+#if CORE0_SYNTH
+#define VC_AD_NMASK     0x0FFFFFFFu     /* the ARM FIFO keeps the whole A/D/S/R group in one entry (above) */
+#else
+#define VC_AD_NMASK     VC_AD_MASK
+#endif
 static void vc_ad(uint32_t ad, uint32_t *w0, uint32_t *w1)
 {
     *w0 = VC_AD_W0;
-    *w1 = ad & VC_AD_MASK;
+    *w1 = ad & VC_AD_NMASK;
 }
 
 static uint32_t vc_kind(uint32_t w0)
@@ -174,6 +196,12 @@ static uint32_t vc_kind(uint32_t w0)
     if (w0 == VC_AD_W0)
         return VK_AD;
 #endif
+#if CORE0_SYNTH
+    if (op == VC_OP_REL)
+        return VK_REL;
+    if (w0 == VC_TONE_W0)
+        return VK_TONE;
+#endif
     return op == VC_OP_KILL ? VK_KILL : op == VC_OP_ALLOFF ? VK_ALLOFF : VK_PATCH;
 }
 
@@ -188,3 +216,47 @@ static uint32_t vc_stock_ch7(uint32_t w0)
     uint32_t k = vc_kind(w0);
     return (k == VK_STOCK_ON || k == VK_STOCK_OFF) && (w0 & 7u) == 7u;
 }
+
+#if CORE0_SYNTH
+static void vc_release(uint32_t v, uint32_t gen, uint32_t *w0, uint32_t *w1)
+{
+    *w0 = VC_CLASS | VC_OP_REL << 12 | (v & 3u) << 10;
+    *w1 = gen & 15u;
+}
+
+static uint32_t vc_rel_voice(uint32_t w0)
+{
+    return (w0 >> 10) & 3u;
+}
+
+/* The two wire entries of one envelope group (N entry word1 = A | D << 7 | S << 14 | R << 21), AD first. */
+static void vc_env_pair(uint32_t env, uint32_t w[2][2])
+{
+    w[0][0] = VC_AD_W0;
+    w[0][1] = env & VC_AD_MASK;
+    w[1][0] = VC_SR_W0;
+    w[1][1] = (env >> 14) & VC_AD_MASK;
+}
+
+/* Note 0..119 at Tune t (channel param 6, clamped 4..124, 64 = neutral, 5 steps per semitone) -> M | e << 24:
+ * u = 5 note + t - 4 (0..715, nonnegative), row k = u % 60, octave u / 60 - 10, e = E[k] + octave (11..23).
+ * The pitch is not folded back into MIDI 0..119. At t = 64 it equals vc_pitch() for all 120 notes (test). */
+__attribute__((noinline)) static uint32_t vc_tune_pitch(uint32_t note, uint32_t tune)
+{
+    if (note > VC_NOTE_MAX)
+        note = VC_NOTE_MAX;
+    tune = tune < 4u ? 4u : tune > 124u ? 124u : tune;
+    uint32_t u = 5u * note + tune - 4u;
+    const uint8_t *t = tune_tab() + 4u * (u % 60u);
+    return ((uint32_t)t[0] << 16 | (uint32_t)t[1] << 8 | t[2]) | (t[3] + u / 60u - 10u) << 24;
+}
+
+static void vc_onset_tuned(uint32_t v, uint32_t note, uint32_t tune, uint32_t vel, uint32_t *w0, uint32_t *w1)
+{
+    uint32_t p = vc_tune_pitch(note, tune), m = p & 0xFFFFFFu, e = p >> 24;
+    if (!vel)
+        vel = 1;
+    *w0 = (VC_HB_ONSET + (v & 3u)) << 16 | (m >> 8);
+    *w1 = (m & 0xFFu) << 16 | (e & 31u) << 11 | (vel & 0x7Fu) << 4;
+}
+#endif
