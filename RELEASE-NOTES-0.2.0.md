@@ -37,11 +37,6 @@ The chord functions, the scales, the parameter lock fix and the modules stay. ar
 * **Pad chords.** With notes per press 1 and poly on, held pads sound together, up to 4.
 * **New projects** start on Unity under serial (the first pad of the first page), with FM depth 96.
 * **Clear + macro 6** on track 8 sets FM depth to 96, the new-project value.
-* **The synth recovers after sample loading.** After a pack change or a sample transfer or load (including read-back
-  over SysEx), track 8's synth starts again by itself with the settings loaded at that moment. Notes sounding on
-  track 8 at that moment are cut, and notes for track 8 during the load do not sound. Ordinary sample edits do not
-  trigger it. In earlier 0.2 test builds the synth stayed silent until a power cycle.
-  Details: [Loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs).
 * **Fixed output level.** The synth's output is lowered by a fixed amount, against crackle on loud chords. Set the
   balance with track 8's mixer level. Details, the amount and a loudness measurement:
   [Output level](docs/user/synth.md#output-level).
@@ -64,8 +59,13 @@ Details: [docs/user/synth.md](docs/user/synth.md).
 
 ### Fixed
 
-* FM feedback (synth page macro 1) was too weak to hear. Its range is increased 4 times. Feedback applies from
-  the next note and needs FM depth above 0.
+* **Synth silent after sample loading.** In earlier 0.2 test builds, the synth stayed silent after a sample load
+  until a power cycle. Now, after a pack change or a sample transfer or load (including read-back over SysEx), track
+  8's synth starts again by itself with the settings loaded at that moment. Notes sounding on track 8 at that moment
+  are cut, and notes for track 8 during the load do not sound. Ordinary sample edits do not trigger it. Details:
+  [Loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs).
+* **FM feedback too weak.** FM feedback (synth page macro 1) was too weak to hear. Its range is increased 4 times.
+  Feedback applies from the next note and needs FM depth above 0.
 
 ### Other
 

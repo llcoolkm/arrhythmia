@@ -69,7 +69,7 @@ import syx  # noqa: E402
 # the DSP meter's own program listing, which tools/dspmeter.py builds arrhythmia-devkit's DSP layer from.
 # modules/stars.c is the one published example module (master, 2026-10-19); the other examples stay private.
 PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
-               "docs/user/synth.md",
+               "docs/user/synth.md", "docs/user/principles.md",
                "docs/user/scales.md", "docs/user/developers.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",

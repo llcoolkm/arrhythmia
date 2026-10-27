@@ -4,19 +4,8 @@
 
 Arrhythmia is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds new functions.
 
-Current release: **0.2**. The [release notes](RELEASE-NOTES-0.2.0.md) give the changes and the test status.
-The [0.1.1](RELEASE-NOTES-0.1.1.md) and [0.1.0](RELEASE-NOTES-0.1.0.md) release notes give the earlier record.
-
-## Principles
-
-* **Bug fixes first.** The main objective is to correct bugs in the stock firmware 2.0.1.
-* **Patch only.** Arrhythmia does not contain the Novation firmware. You download the official firmware file from
-  Novation. The patcher reads that file and adds the changes on your computer.
-* **Interoperability.** The patch lets the unit operate with corrected and new software. Your own programs (modules)
-  can also operate with the unit.
-* **Standard update path.** The installation uses the SysEx update protocol of the unit. You must confirm each
-  installation on the unit.
-* **Reversible.** You can install the stock firmware again through the same path.
+Current release: **0.2**. The changes are in the [release notes](RELEASE-NOTES-0.2.0.md).
+The [principles](docs/user/principles.md) give the objectives of the project.
 
 Arrhythmia is not affiliated with Novation or Focusrite. Novation and Focusrite do not endorse Arrhythmia.
 
@@ -50,9 +39,6 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 * **FM synthesizer on track 8 (new in 0.2).** A 4-operator FM synthesizer with 4 voices replaces the saw
   synthesizer of 0.1.x ([synth](docs/user/synth.md)).
-* **Synth recovery after sample loading (new in 0.2).** After a pack change or a sample load, the synth starts
-  again by itself. If a restart fails, the synth stays silent until you turn the unit off and on
-  ([loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs)).
 * **Sounds chosen in the Sample view (new in 0.2).** In track 8's Sample view, the 16 pads of rows 3 and 4 select
   one of 16 ratio families. The first page uses the serial algorithm, the second page the dual stack algorithm. A tap
   selects the sound and plays it. Sample flips on steps choose the sound per step
