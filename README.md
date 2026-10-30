@@ -4,7 +4,7 @@
 
 Arrhythmia is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds new functions.
 
-Current release: **0.2**. The changes are in the [release notes](RELEASE-NOTES-0.2.0.md).
+Current release: **0.2.1**. The changes are in the [release notes](RELEASE-NOTES-0.2.1.md).
 The [principles](docs/user/principles.md) give the objectives of the project.
 
 Arrhythmia is not affiliated with Novation or Focusrite. Novation and Focusrite do not endorse Arrhythmia.
@@ -39,6 +39,9 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 * **FM synthesizer on track 8 (new in 0.2).** A 4-operator FM synthesizer with 4 voices replaces the saw
   synthesizer of 0.1.x ([synth](docs/user/synth.md)).
+* **Synth recovery after sample loading (new in 0.2).** After a pack change or a sample load, the synth starts
+  again by itself. If a restart fails, the synth stays silent until you turn the unit off and on
+  ([loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs)).
 * **Sounds chosen in the Sample view (new in 0.2).** In track 8's Sample view, the 16 pads of rows 3 and 4 select
   one of 16 ratio families. The first page uses the serial algorithm, the second page the dual stack algorithm. A tap
   selects the sound and plays it. Sample flips on steps choose the sound per step
@@ -52,8 +55,9 @@ The synthesizer functions are in arrhythmia-firmware only.
   held pads sound together (new in 0.2).
 * **MIDI polyphony on track 8.** MIDI notes on the channel of track 8 play on the synthesizer.
 * **Scales on tracks 1 to 7.** The Note view can use one of ten scales ([scales](docs/user/scales.md)).
-* **Modules.** Small programs on the microSD card can control the pads, lights, notes and MIDI. This function is for
-  developers ([developers](docs/user/developers.md)).
+* **Modules.** Small programs on the microSD card can control the pads, lights, notes and MIDI. The release has 10 modules:
+  paint, games, a light show and modules that play notes ([modules](docs/user/modules.md)). To write your own, see
+  [developers](docs/user/developers.md).
 
 ## Limits
 
@@ -76,7 +80,7 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 | Image | For | Contents |
 |---|---|---|
-| **arrhythmia-firmware** (build 7323) | users | FM synthesizer, scales, bug fixes, modules |
+| **arrhythmia-firmware** (build 7329) | users | FM synthesizer, scales, bug fixes, modules |
 | **arrhythmia-devkit** (build 7228, unchanged from 0.1.0) | developers | DSP load meter, module tools, scales, bug fixes. No synthesizer. |
 
 If you are not sure, install **arrhythmia-firmware**.

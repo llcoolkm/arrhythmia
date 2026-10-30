@@ -174,7 +174,7 @@ struct a1 {
     uint32_t reset_seq, reset_seen;           /* admission-side ALL OFF: the Main task resets its table */
     uint8_t phase;                            /* PH_*: admission state across DSP loads (activation) */
     uint8_t fresh;                            /* FM_BANKVIEW: the stock store reset ran since the last refresh */
-    uint8_t pad2[2];
+    uint8_t sk, sr;                           /* STEP_CHORDS: stashed key, audition root (router note; 0 none) */
     /* counters (tests, diagnostics) */
     uint16_t c_tap[NSRC], c_drop_on;
     uint16_t c_why[NWHY];
@@ -190,7 +190,11 @@ struct a1 {
     uint16_t ad_pub;                          /* last published = in force at the DSP once consumed */
     uint16_t c_ad, c_ad_coal, c_ad_wait, c_ad_paced, c_ad_purged, c_ad_barrier;
     uint16_t c_ad_note;                       /* PATCH_AD issued ahead of a note inside the pacing window */
-    uint8_t ad_ok, pad3;                      /* ad_at valid (an issue since the last DSP load) */
+    uint8_t ad_ok;                            /* ad_at valid (an issue since the last DSP load) */
+    uint8_t cg;                               /* STEP_CHORDS: the record accumulator's project (tm gen, low byte) */
+#if BOOT_PULSE
+    uint32_t bp;                              /* boot pulse: bit 31 on, bits 16..23 pads loaded, bits 0..15 start tick */
+#endif
 #endif
 };
 _Static_assert(sizeof(struct a1) <= A1_SIZE, "A1 block");
@@ -856,6 +860,14 @@ static uint32_t ad_slot_unset(volatile uint8_t *b, uint32_t why)
     return why == TM_EMPTY || (why == TM_OK && syn_patch_status(b + SYN_PATCH_AT) == SYN_UNSET);
 }
 
+#if FB_MACRO1
+/* Codec 2 version 3 at its defaults (Tune 64), one out-of-line copy. */
+__attribute__((noinline)) static void ad_fm_new(volatile uint8_t *p)
+{
+    syn_fm_create(p);
+}
+#endif
+
 /* Create patch slot 7 in block b (status why: EMPTY or OK with the slot unset), the block header too if it was
  * empty (as tm_edit does), then the CRC. Under the suspension, by the caller. */
 __attribute__((noinline)) static void ad_make_slot(volatile uint8_t *b, uint32_t why)
@@ -867,9 +879,45 @@ __attribute__((noinline)) static void ad_make_slot(volatile uint8_t *b, uint32_t
         b[6] = (uint8_t)TM_EXT_LEN;
         b[7] = (uint8_t)(TM_EXT_LEN >> 8);
     }
+#if FB_MACRO1                                 /* codec 2 version 3 at once: never mistaken for a 0.2.0 slot */
+    ad_fm_new(b + SYN_PATCH_AT);
+#else
     syn_patch_create(b + SYN_PATCH_AT);
+#endif
     wr32(b + TM_CRC_AT, tm_crc(b, TM_CRC_AT));
 }
+
+#if FB_MACRO1
+/* A block whose slot is of 0.2.0 or older (syn_fm_old): converted once by ad_fb_convert. */
+__attribute__((noinline)) static uint32_t ad_fb_old(volatile uint8_t *b, uint32_t why)
+{
+    return why == TM_OK && syn_fm_old(b + SYN_PATCH_AT);
+}
+/* A slot of 0.2.0 or older (syn_fm_old) -> codec 2 version 3, once, so the project sounds as before: its Tune
+ * (channel parameter 6, `tune`) moves to +4, and its feedback (+4 of codec 2; the default of codec 1) is returned as
+ * the new parameter-6 value, which the caller writes. Other bytes are kept. Under the suspension, by the caller. */
+__attribute__((noinline)) static uint32_t ad_fb_convert(volatile uint8_t *b, uint32_t tune)
+{
+    volatile uint8_t *p = b + SYN_PATCH_AT;
+    uint32_t fb = FM_DEF_FB;
+    if (p[SP_CODEC] == SYN_PATCH_FM) {
+        fb = p[SF_FB] <= 127u ? p[SF_FB] : FM_DEF_FB;
+        p[SP_VERSION] = SYN_PATCH_FM_VERSION;
+    } else {
+        ad_fm_new(p);
+    }
+    p[SF_TUNE] = (uint8_t)(tune & 0x7Fu);
+    wr32(b + TM_CRC_AT, tm_crc(b, TM_CRC_AT));
+    return syn_p6_of_fb(fb);
+}
+
+/* Track 8's parameter 6 in a channel-layout buffer (as ad_len14). */
+static uint32_t ad_p6(uint32_t ch, uint32_t buf)
+{
+    uint32_t f[4] = {0, rw(ch + 4), 0, (uint32_t)&buf};
+    return PL_GET((uint32_t)f, 6) & 0x7Fu;
+}
+#endif
 
 #if FM_BANKVIEW
 #define SV_BASE_AT      0x28CECu        /* store: each track's selected sample slot (the base; the refresh copies it into
@@ -910,7 +958,11 @@ __attribute__((noinline)) static uint32_t ad_fm_convert(volatile uint8_t *b, uin
     f = (f < FM_BANKS ? f : 0u) + (a < FM_ALGOS ? 16u * a : 0u);
     if (sel)
         *(volatile uint8_t *)sel = (uint8_t)f;
+#if FB_MACRO1
+    p[SP_VERSION] = 2u;                       /* version 2; ad_fb_convert then takes it to 3 */
+#else
     p[SP_VERSION] = SYN_PATCH_FM_VERSION;
+#endif
     wr32(b + TM_CRC_AT, tm_crc(b, TM_CRC_AT));
     return f;
 }
@@ -954,11 +1006,18 @@ __attribute__((noinline)) static void ad_preapply(uint32_t P)
                                                  and FM depth 96 */
             *(volatile uint8_t *)(s + SV_BASE_AT + A1_T) = (uint8_t)FM_DEF_BANK;
             pl_put(ch, 11, buf, AD_M6_NEW);
+#if FB_MACRO1
+            pl_put(ch, 6, buf, FB_P6_LO);     /* feedback 0 (stock: Tune 64) */
+#endif
         }
     } else if (why == TM_OK && syn_fm_v1(b + SYN_PATCH_AT)) {
         ad_fm_convert(b, s + SV_BASE_AT + A1_T);
 #endif
     }
+#if FB_MACRO1                                 /* a 0.2.0 or older slot (a v1 slot converted just above included) */
+    if (ad_fb_old(b, why))
+        pl_put(ch, 6, buf, ad_fb_convert(b, ad_p6(ch, buf)));
+#endif
     RESUME_ALL();
 }
 
@@ -982,7 +1041,10 @@ static void ad_boot_default(void)
     if (!t || !t->store || t->site != 0 || store_of(t->P) != t->store)
         return;
     volatile uint8_t *b = (volatile uint8_t *)(t->store + TM_EXT);
-#if FM_BANKVIEW                               /* also a codec-2 version-1 slot: converted once (ad_fm_convert) */
+#if FB_MACRO1                                 /* also any 0.2.0 or older slot (ad_fb_convert), v1 included */
+    if (!ad_slot_unset(b, t->why) && !ad_fb_old(b, t->why))
+        return;
+#elif FM_BANKVIEW                             /* also a codec-2 version-1 slot: converted once (ad_fm_convert) */
     if (!ad_slot_unset(b, t->why) && !(t->why == TM_OK && syn_fm_v1(b + SYN_PATCH_AT)))
         return;
 #else
@@ -995,6 +1057,9 @@ static void ad_boot_default(void)
     uint32_t def = (PL_GET(ch, 8) & 0x7Fu) == 127u && (PL_GET(ch, 15) & 0x7Fu) == 127u, done = 0;
 #if FM_BANKVIEW
     uint32_t fam = 0;
+#endif
+#if FB_MACRO1
+    uint32_t tune = PL_GET(ch, 6) & 0x7Fu, p6 = 0, fbd = 0;
 #endif
     SUSPEND_ALL();
     if (!(st->tok & TOK_CONTENT) && phase(t->P) == 0 && ad_slot_unset(b, t->why) &&
@@ -1010,7 +1075,18 @@ static void ad_boot_default(void)
         done = 2;
 #endif
     }
+#if FB_MACRO1                                 /* the block now; parameter 6 through the CC-21 path below */
+    if (!(st->tok & TOK_CONTENT) && phase(t->P) == 0 && ad_fb_old(b, t->why)) {
+        p6 = ad_fb_convert(b, tune);
+        t->writes++;
+        fbd = 1;
+    }
+#endif
     RESUME_ALL();
+#if FB_MACRO1
+    if (fbd)
+        ((pl_sink_fn)rw(rw(th)))(th, 16u * A1_T, p6);
+#endif
 #if FM_BANKVIEW
     if (done == 1 && def) {                   /* LSB first, then the MSB, as the macro page sends a 14-bit pair */
 #else
@@ -1127,6 +1203,569 @@ uint64_t hook_kb_new(uint32_t kb, uint32_t b, uint32_t c, uint32_t d)
     return r;
 }
 
+#if STEP_CHORDS
+/* The far blob (tools/farblob.py): table function i, only if the header is the one this build was made with. */
+#define FAR_AT          0x0801B000u
+#define FAR_MAGIC       0x31465243u                 /* 'CRF1' */
+enum { FAR_CHORD, FAR_COL,
+#if BOOT_PULSE
+       FAR_PULSE,
+#endif
+       FAR_N };
+__attribute__((noinline)) static uint32_t far_call(uint32_t i, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+{
+    volatile uint32_t *h = (volatile uint32_t *)FAR_AT;
+    return h[0] == FAR_MAGIC && h[1] == FAR_KEY && h[2] == FAR_N ? ((fn4_t)h[4 + i])(a, b, c, d) : 0;
+}
+#endif
+
+#if BOOT_PULSE
+/* ---- Startup pulse line (BOOT_PULSE, 0.2.1, issue #5; drawing in the far blob) ---------------------------------------
+ * During the boot pack load (called from the boot composition root: the progress object 0x20000A8C
+ * draws a 32-pad bar, +5 = 0 only at boot), the pads show the ECG pulse line of the logo over the load progress:
+ * loaded pads dim green (the stock bar's rule: pad k when i >= (k + 1) n / 32), the line in red. A head moves one
+ * column every BP_COL_MS and wraps; the 6 columns behind it fade by about 16 % per step, the 7th is off. The line is
+ * the beat shape (rows 2 2 1 2 0 3 2 2, row 0 at the top) with flat gaps of 3, 7, 2 and 6 columns (row 2) between
+ * beats; the pads between two consecutive rows of a column are lit. It starts at the first bar draw and ends at the
+ * bar's end (+0x10), where the stock removes the bar. The hooks only record progress (O(1), boot is not delayed);
+ * the UI task draws (hook_frame) into the module LED buffer, which is otherwise unused in mode 0. The power symbol
+ * (storage wait), SysEx transfers (+5 = 1) and the firmware update displays are never drawn over. */
+#define BP_ON           (1u << 31)
+#define BP_COL_MS       110u
+#define BP_DIM          24u
+static uint32_t bp_on(void)
+{
+    struct a1 *a = a1();
+    return a && (a->bp & BP_ON);
+}
+
+/* hook_frame (UI task, under the suspension): s->leds = the pulse frame; 0 if the far blob is absent */
+static uint32_t bp_leds(struct state *s)
+{
+    struct a1 *a = a1();
+    return a ? far_call(FAR_PULSE, (uint32_t)s, a->bp, TICK(), 0) : 0;
+}
+
+#if FAR_PART
+#define PB_DRAW         ((fn4_t)0x08054147u)        /* progress object vt (0x08068E70) +8: bar (obj, i, n) */
+#define PB_END          ((fn4_t)0x080541ABu)        /* +0x10: end */
+
+uint32_t hook_pb_draw(uint32_t o, uint32_t i, uint32_t n, uint32_t d)
+{
+    struct a1 *a = a1();
+    if (a && !*(volatile uint8_t *)(o + 5u) && (n >> 5)) {
+        uint32_t k = i / (n >> 5);
+        a->bp = (a->bp & BP_ON ? a->bp & 0xFFFFu : TICK() & 0xFFFFu) | (k < 32u ? k : 32u) << 16 | BP_ON;
+    }
+    return PB_DRAW(o, i, n, d);
+}
+
+uint32_t hook_pb_end(uint32_t o, uint32_t b, uint32_t c, uint32_t d)
+{
+    struct a1 *a = a1();
+    if (a && !*(volatile uint8_t *)(o + 5u))
+        a->bp = 0;
+    return PB_END(o, b, c, d);
+}
+
+/* The line's row at stream column c (cycle 50: 4 beats of 8 and the gaps 3, 7, 2, 6). */
+static uint32_t bp_row(uint32_t c)
+{
+    c %= 50u;
+    for (uint32_t g = 0x6273u;; g >>= 4) {
+        if (c < 8u)
+            return 0xAC9Au >> 2u * c & 3u;
+        c -= 8u;
+        if (c < (g & 15u))
+            return 2u;
+        c -= g & 15u;
+    }
+}
+
+/* far table FAR_PULSE: the frame for state bp at tick now into s->leds (all other lights dark) */
+uint32_t far_pulse(uint32_t sp, uint32_t bp, uint32_t now, uint32_t d)
+{
+    struct state *s = (struct state *)sp;
+    const uint8_t *t = pad_leds();
+    uint32_t c = ((now - bp) & 0xFFFFu) / BP_COL_MS, x = c & 7u, done = bp >> 16 & 0xFFu;
+    (void)d;
+    for (uint32_t i = 0; i < LEDS; i++)
+        s->leds[i] = 0;
+    for (uint32_t k = 0; k < done && k < 32u; k++)
+        pad_rgb(s, t, k, 0, BP_DIM, 0);
+    for (uint32_t a = 0; a < 7u && a <= c; a++) {
+        uint32_t lv = (uint32_t)(0x596A7E96B3D5FEull >> 8u * a) & 0xFFu;
+        uint32_t r1 = bp_row(c - a), r0 = c > a ? bp_row(c - a - 1u) : r1, col = (x - a) & 7u;
+        for (uint32_t r = r0 < r1 ? r0 : r1; r <= (r0 < r1 ? r1 : r0); r++)
+            pad_rgb(s, t, r * 8u + col, (uint8_t)lv, 0, 0);
+    }
+    return 1;
+}
+#endif
+#endif
+
+#if STEP_CHORDS && FAR_PART
+/* ---- Step chords (STEP_CHORDS, 0.2.1, issue #3; in the far blob) ---------------------------------------------------
+ * A track-8 step holds up to 4 notes: byte 0 = the lowest (stock), byte 6 bits 1..5 = key k (0 none) into the
+ * project's shape table at T1 block + CH_AT ('C' 'H' version count, then 31 x 3 ascending offsets above byte 0,
+ * 1..96, 0 = none). Bit 0 and bits 6..7 of byte 6 are never changed. Every stock step operation copies, swaps or
+ * zeroes byte 6 with the step; stock firmware plays byte 0 only.
+ *   playback  hook_seqstep (track 8's player, vtable word): the step's key is stashed for the press it causes; the
+ *             press plays the stored notes verbatim (track octave applies; NPP not applied), one shared gate.
+ *   entry     hook_se (Note view, step held, a key that is not the step's root): adds the key's note (up to 4) or
+ *             removes it if it is in the chord; the lowest note becomes byte 0; the press auditions the whole chord.
+ *   lights    ad_nv_col: with a step held, the chord's other notes take the held-root colour + 2.
+ * A table that is invalid or read-only plays the root only. When the table is full, unused shapes (no key in any
+ * step of the 8 tracks x 8 patterns) are reused; if none is free the note is not added. */
+#define CH_AT           0x298u          /* block offset of the shape table (T1 reserved area, after scales) */
+#define CH_N            31u
+#define CH_VER          1u
+#define CH_EL8          (0x2E4u + 7u * 0x5140u)     /* store offset of track 8's pattern elements */
+#define CH_GET          ((fn4_t)0x0803FC59u)        /* cell getter (cell, i) */
+#define CH_SETP         ((fn4_t)0x0803FD27u)        /* cell element i, writable */
+#define CH_NOTIFY       ((void (*)(uint32_t))0x0803FBEDu)
+#define CH_ON           ((fn4_t)0x08054AE1u)        /* (array, step): the step's on byte */
+#define CH_AUD          ((fn4_t)0x0805DA85u)        /* (view): the press auditions */
+#define SE_ORIG         ((fn4_t)0x0805DF1Bu)        /* (view, note): the held step's note (creates the step) */
+#define SEQ_ORIG        ((fn4l_t)0x0804AFBDu)       /* player: one microstep */
+
+/* struct tm with A1 up and a store, else 0. */
+__attribute__((noinline)) static struct tm *ch_tm(void)
+{
+    struct tm *t = tm();
+    return a1() && t && t->store ? t : 0;
+}
+#define CH_A1           ((struct a1 *)A1_AT)        /* after ch_tm() */
+
+/* The one validity rule of the shape table, for the reader (ch_notes) and the writer (ch_edit_cb): 'C' 'H' CH_VER,
+ * count <= 31, and each of the count shapes is 1 to 3 strictly ascending offsets in 1..96, then zeros. */
+__attribute__((noinline)) static uint32_t ch_valid(const volatile uint8_t *p)
+{
+    if (p[0] != 'C' || p[1] != 'H' || p[2] != CH_VER || p[3] > CH_N)
+        return 0;
+    for (const volatile uint8_t *e = p + 4, *z = e + 3u * p[3]; e < z; e += 3) {
+        if (!e[0] || e[0] > 96u || (e[1] && (e[1] <= e[0] || e[1] > 96u)) || (e[2] && (!e[1] || e[2] <= e[1]
+                                                                                       || e[2] > 96u)))
+            return 0;
+    }
+    return 1;
+}
+
+/* The notes of a chord step: x[0] = byte 0 r, then r + the offsets of key k in the live table (none if k = 0 or the
+ * table is invalid (ch_valid) or read-only). Returns the count. */
+__attribute__((noinline)) static uint32_t ch_notes(uint32_t r, uint32_t k, uint8_t *x)
+{
+    struct tm *t = ch_tm();
+    const volatile uint8_t *p = t && t->why == TM_OK ? (volatile uint8_t *)(t->store + TM_EXT + CH_AT) : 0;
+    uint32_t n = 0;
+    x[n++] = (uint8_t)r;
+    if (p && ch_valid(p) && k - 1u < p[3])
+        for (p += 1u + 3u * k; n < 4u && *p; p++)
+            x[n++] = (uint8_t)(r + *p);           /* ascending, 0 = none: the entry ends at its first 0 */
+    return n;
+}
+
+/* tm_edit callback: the key of shape arg (o0 | o1 << 8 | o2 << 16) into a1->sk, appended or reusing an unused one. */
+static uint32_t ch_edit_cb(volatile uint8_t *b, uint32_t arg)
+{
+    volatile uint8_t *p = b + CH_AT;
+    struct a1 *a = CH_A1;
+    if (!ch_valid(p)) {
+        if (!all_zero(p, 4u + 3u * CH_N))
+            return TS_READONLY;               /* invalid content (the reader plays the root only): never overwritten */
+        p[0] = 'C';
+        p[1] = 'H';
+        p[2] = CH_VER;
+    }
+    uint32_t n = p[3], k = 0, used = 0;
+    for (uint32_t i = 0; i < n; i++)
+        if ((p[4 + 3 * i] | p[5 + 3 * i] << 8 | p[6 + 3 * i] << 16) == arg) {
+            a->sk = (uint8_t)(i + 1u);
+            return TS_REFUSED;                /* present: nothing written */
+        }
+    if (n < CH_N) {
+        k = ++n;
+        p[3] = (uint8_t)n;
+    } else {                                  /* full: the first shape no step uses */
+        const volatile uint8_t *e = b - TM_EXT + 0x2E4u + 6u;
+        for (uint32_t i = 0; i < 64u; i++, e += i & 7u ? 0xA28u : 0x5140u - 7u * 0xA28u)
+            for (uint32_t s = 0; s < 256u; s += 8u)
+                used |= 1u << (e[s] >> 1 & 31u);
+        for (k = 1; k <= CH_N && (used >> k & 1u); k++)
+            ;
+        if (k > CH_N)
+            return TS_REFUSED;
+    }
+    p += 1u + 3u * k;
+    p[0] = (uint8_t)arg;
+    p[1] = (uint8_t)(arg >> 8);
+    p[2] = (uint8_t)(arg >> 16);
+    a->sk = (uint8_t)k;
+    return TS_OK;
+}
+
+/* The held step of track 8's Note view h: its on state, byte 0 (*r) and byte 6 cell element (*w6); 32 = none. */
+__attribute__((noinline)) static uint32_t ch_held(uint32_t h, uint32_t *r, volatile uint8_t **w6)
+{
+    uint32_t g = rw(0x20006E94u), s;          /* the controller: grid page + 0x54 + 4t = track t's Note view */
+    g = in_sram(g, 4) ? rw(g) : 0;
+    g = in_sram(g, 0x40) ? rw(g + 0x3C) : 0;
+    if (!ch_tm() || !in_sram(g, 0x74) || h != rw(g + 0x54u + 4u * A1_T)
+        || (s = *(volatile uint8_t *)CH_GET(rw(h + 0x2C), 1, 0, 0)) > 31u || !CH_ON(rw(h + 0x24), s, 0, 0))
+        return 32;
+    uint32_t B = rw(h + 0x28);
+    *r = *((volatile uint8_t *)CH_GET(B, s >> 2, 0, 0) + (s & 3u));
+    *w6 = (volatile uint8_t *)CH_GET(B, 0x10u + (s >> 2), 0, 0) + (s & 3u);
+    return s;
+}
+
+
+/* Element 0 of the cell at a = 1, notified (the two edit marks of the stock step setter at 0x0805DF1A, + 0x7C
+ * before and + 0x80 after). */
+static void ch_flag(uint32_t a)
+{
+    *(volatile uint8_t *)CH_SETP(rw(a), 0, 0, 0) = 1;
+    CH_NOTIFY(rw(a));
+}
+
+uint32_t hook_se(uint32_t h, uint32_t note, uint32_t c, uint32_t d)
+{
+    uint32_t r, s;
+    volatile uint8_t *w6;
+    struct a1 *a = CH_A1;
+    if ((s = ch_held(h, &r, &w6)) > 31u)
+        return SE_ORIG(h, note, c, d);        /* an empty step: stock creates it with this root */
+    uint8_t x[4];
+    uint32_t n = ch_notes(r, *w6 >> 1 & 31u, x), i = 1, arg = 0, key = 0;
+    while (i < n && x[i] != note)
+        i++;
+    if (i < n)
+        x[i] = x[--n];                        /* in the chord: removed */
+    else if (n < 4u)
+        x[n++] = (uint8_t)note;               /* added */
+    for (i = 1; i < n; i++)
+        for (uint32_t j = i; j && x[j - 1] > x[j]; j--) {
+            uint8_t t = x[j];
+            x[j] = x[j - 1];
+            x[j - 1] = t;
+        }
+    for (i = n; i-- > 1;) {
+        if (x[i] - x[0] > 96)
+            goto keep;                        /* beyond the stored range: no change */
+        arg = arg << 8 | (uint32_t)(x[i] - x[0]);
+    }
+    if (n > 1) {
+        a->sk = 0;
+        tm_edit(region(), ch_edit_cb, arg);
+        if (!(key = a->sk))
+            goto keep;                        /* busy, read-only or full: no change */
+    }
+    if (x[0] != r)
+        SE_ORIG(h, x[0], c, d);               /* the new lowest note into byte 0 */
+    ch_flag(h + 0x7Cu);                       /* the hold edited the step, as the stock setter marks it (else */
+    uint32_t B = rw(h + 0x28);                /* the step pad's release toggles the step off) */
+    volatile uint8_t *p = (volatile uint8_t *)CH_SETP(B, 0x10u + (s >> 2), 0, 0) + (s & 3u);
+    *p = (uint8_t)((*p & 0xC1u) | key << 1);
+    ch_flag(h + 0x80u);
+    CH_NOTIFY(B);
+    a->sk = (uint8_t)key;
+    a->sr = CH_AUD(h, 0, 0, 0) ? x[0] : 0;    /* the press that follows auditions the chord */
+    if (!a->sr)
+        a->sk = 0;
+    return 0;
+keep:                                         /* no change; the hold still counts as an edit (else the stock */
+    ch_flag(h + 0x7Cu);                       /* toggles the step off at the step pad's release) */
+    ch_flag(h + 0x80u);
+    return 0;
+}
+
+/* The Note view's pad press (vtable word): when it removes a chord step (the root's key: the stock clears the step
+ * without its edit marks), the marks are set, so the step pad's release does not re-create a plain step. A step
+ * without a chord (key 0) keeps the stock behaviour. */
+#define NP_ORIG         ((fn4_t)0x0805D7A1u)        /* (view, pad, velocity) */
+uint32_t hook_np(uint32_t h, uint32_t pad, uint32_t vel, uint32_t d)
+{
+    uint32_t r;
+    volatile uint8_t *w6;
+    uint32_t k = ch_held(h, &r, &w6) < 32u ? *w6 >> 1 & 31u : 0;
+    uint32_t x = NP_ORIG(h, pad, vel, d);
+    if (k && ch_held(h, &r, &w6) > 31u) {
+        ch_flag(h + 0x7Cu);
+        ch_flag(h + 0x80u);
+    }
+    return x;
+}
+
+/* The Note view's observer (both vtable words; this = the view, or the view + 8 for the observer interface). The
+ * stock observer repaints only the pads of the notes it changes, so the chord notes' colour (far_col) went stale:
+ * it stayed after the selected step or its note changed until each pad was repainted (#3, unit session 021), and
+ * a step held showed only its root. After the stock observer, if track 8's Note view has a chord step selected (the
+ * held step, ch_held) or still shows a chord-note colour, all 128 pads are repainted (the stock full repaint, which takes far_col through
+ * ad_nv_col). Every other view and event is unchanged. */
+#define NV_OBS_ORIG     ((fn4_t)0x0805E08Fu)        /* (view, cell, bits): the observer */
+#define NV_OBS_ORIG8    ((fn4_t)0x0805E08Du)        /* the same through the interface at view + 8 */
+#define NV_ALL          ((fn4_t)0x0805D9B5u)        /* (view): every pad's colour */
+#define NV_PAL          0x0805DC84u                 /* literal: the colour id -> pad colour table */
+static void nv_chord_repaint(uint32_t h)
+{
+    uint32_t r;
+    volatile uint8_t *w6;
+    if (!in_sram(h, 0x80) || !in_sram(rw(h + 4), 4) || !in_sram(rw(rw(h + 4)), 256))
+        return;
+    if (ch_held(h, &r, &w6) > 31u || !(*w6 >> 1 & 31u)) {   /* no chord step selected (or another view): repaint
+                                                               only if a chord colour remains */
+        uint32_t g = rw(0x20006E94u);
+        g = in_sram(g, 4) ? rw(g) : 0;
+        g = in_sram(g, 0x40) ? rw(g + 0x3C) : 0;
+        if (!in_sram(g, 0x74) || h != rw(g + 0x54u + 4u * A1_T))
+            return;
+        uint16_t amber = *((volatile uint16_t *)rw(NV_PAL) + (uint32_t)(*(volatile int16_t *)(h + 0x74) + 2));
+        volatile uint16_t *col = (volatile uint16_t *)rw(rw(h + 4));
+        uint32_t i = 0;
+        while (i < 128u && col[i] != amber)
+            i++;
+        if (i == 128u)
+            return;
+    }
+    NV_ALL(h, 0, 0, 0);
+}
+
+uint32_t hook_nv_obs(uint32_t h, uint32_t c, uint32_t bits, uint32_t d)
+{
+    uint32_t x = NV_OBS_ORIG(h, c, bits, d);
+    nv_chord_repaint(h);
+    return x;
+}
+
+uint32_t hook_nv_obs8(uint32_t h, uint32_t c, uint32_t bits, uint32_t d)
+{
+    uint32_t x = NV_OBS_ORIG8(h, c, bits, d);
+    nv_chord_repaint(h - 8u);
+    return x;
+}
+
+uint64_t hook_seqstep(uint32_t pl, uint32_t pat, uint32_t st, uint32_t ms)
+{
+    struct tm *t = ch_tm();
+    uint32_t e = t ? t->store + CH_EL8 : 0;
+    struct a1 *a = CH_A1;
+    if (e && rw(pl + 0x50) == e && st < 32u) {
+        a->sk = *(volatile uint8_t *)(e + (uint32_t)(int32_t)(int16_t)pat * 0xA28u + st * 8u + 6u) >> 1 & 31u;
+        a->sr = 0;
+        uint64_t r = SEQ_ORIG(pl, pat, st, ms);
+        a->sk = 0;
+        return r;
+    }
+    return SEQ_ORIG(pl, pat, st, ms);
+}
+
+static int32_t setting(uint32_t off);
+
+typedef uint64_t (*rec_on_fn)(uint32_t, uint32_t, uint32_t, int32_t, uint32_t, uint32_t, uint32_t);
+#define REC_ON          ((rec_on_fn)0x08048B79u)    /* recorder vt (0x08067870): note-on (rec, pat, step, off, t, note, vel) */
+#define REC_OFF         ((fn4l_t)0x08048E71u)       /* recorder: note-off writes the step (rec, note, t) */
+
+/* Live recording into track 8 (pads, MIDI): note-ons that land in the same step of one pass (start times less than a
+ * step, 6 microsteps, apart), or that come within 1 microstep of the first (then at its position, so record quantise
+ * does not split a chord), make one chord step: byte 0 = the lowest, the others into the table. The gate is the
+ * longest: from the first note-on to the release of the LAST chord note released. The stock writes the step once, at
+ * the release of the last note pressed (the stock's current note); while other chord notes are still held that
+ * write waits (CH_PEND, the stock entry stays active) and is made at the last release (hook_rec_rel), at the next
+ * note-on (its gate then ends at that note-on), or at the stock's flush of all notes (record off, stop). NPP 2..4
+ * presses record as the stock (root, key 0). The table full, BUSY or read-only: the stock single note.
+ * The accumulator is bound: a note joins only while a chord note is still held and the stock's current note is the
+ * accumulator's last note (an abandoned, released or replaced note ends the chord), within the time window, with
+ * NPP 1 (NPP 2..4 clears it), in the project it was started in
+ * (cg = tm()->gen: after a load, clear or pack apply it is dropped, a waiting step write with it, never into the new
+ * project). */
+struct chacc {
+    uint8_t pos;                              /* pattern << 5 | step */
+    uint8_t n;                                /* bits 0..2 notes (0 = empty), bit 3 CH_PEND, bits 4..7 microstep offset */
+    uint16_t t;                               /* bits 0..10 the first note-on's start time (recorder clock, microsteps),
+                                                 bits 11..14 note[i] still held */
+    uint8_t note[4];                          /* in press order; the last is the stock's current note */
+};
+_Static_assert(sizeof(struct chacc) == sizeof(((struct plx *)0)->pad), "the accumulator is struct plx's spare");
+#define CH_ACC          ((volatile struct chacc *)(PLX_AT + __builtin_offsetof(struct plx, pad)))
+#define CH_PEND         8u
+#define REC_REL         ((fn4l_t)0x08048C59u)       /* recorder vt (0x08067874): note-off (rec, t, note, d) */
+#if !AD_LIVE
+#error "STEP_CHORDS keeps the accumulator's project in struct a1 cg (AD_LIVE layout)"
+#endif
+
+/* 1 if rec is track 8's recorder and A1 is up. */
+static uint32_t ch_rec8(uint32_t rec)
+{
+    struct tm *t = ch_tm();
+    return t && in_sram(rec, 0x68) && rw(rec + 0x50) == t->store + CH_EL8;
+}
+
+/* The accumulator's notes (0 = none) for track 8's recorder rec; a stale one (another project) is dropped, and a
+ * waiting step write with it (its stock entry deactivated, nothing written). */
+__attribute__((noinline)) static uint32_t ch_acc(uint32_t rec)
+{
+    volatile struct chacc *c = CH_ACC;
+    uint32_t n = c->n & 7u;
+    if (n && CH_A1->cg != (uint8_t)ch_tm()->gen) {
+        if (c->n & CH_PEND)
+            *(volatile uint32_t *)(rec + 0x64u + 4u * c->note[n - 1]) &= ~1u;
+        c->n = 0;
+        n = 0;
+    }
+    return n;
+}
+
+/* The waiting chord step written now (gate to t): its held notes count as released, the stock note-off of the
+ * chord's last note writes it (hook_rec_off0). */
+static uint64_t ch_flush(uint32_t rec, uint32_t t, uint32_t d)
+{
+    volatile struct chacc *c = CH_ACC;
+    c->t &= 0x7FFu;
+    return REC_REL(rec, t, c->note[(c->n & 7u) - 1u], d);
+}
+
+uint64_t hook_rec_on(uint32_t rec, uint32_t pat, uint32_t step, int32_t off, uint32_t t, uint32_t note, uint32_t vel)
+{
+    volatile struct chacc *c = CH_ACC;
+    if (ch_rec8(rec)) {
+        uint32_t n = ch_acc(rec), i = 0, dt = (t - c->t) & 0x7FFu;
+        if (n && (c->n & CH_PEND)) {          /* a new note-on ends the waiting chord */
+            ch_flush(rec, t, 0);
+            n = 0;
+        }
+        while (i < n && c->note[i] != note)
+            i++;
+        if (note >= 0x8Cu || setting(SR_NPP) >= 2) {
+            c->n = 0;                         /* NPP 2..4 (or no note): no chord, nothing accumulated */
+        } else if (n && n < 4u && i == n && (c->t >> 11 & 15u) && *(volatile uint8_t *)(rec + 0x60) == c->note[n - 1]
+                   && (dt <= 1u || (c->pos == (pat << 5 | step) && dt < 6u))) {
+            pat = c->pos >> 5;                /* joins the chord at its first note's position */
+            step = c->pos & 31u;
+            off = (int32_t)(int8_t)c->n >> 4;
+            c->note[n] = (uint8_t)note;
+            c->n = (uint8_t)((c->n & 0xF0u) | (n + 1u));
+            c->t |= (uint16_t)(1u << (11u + n));
+        } else {
+            c->pos = (uint8_t)(pat << 5 | step);
+            c->n = (uint8_t)((uint32_t)off << 4 | 1u);
+            c->t = (uint16_t)((t & 0x7FFu) | 1u << 11);
+            c->note[0] = (uint8_t)note;
+            CH_A1->cg = (uint8_t)ch_tm()->gen;
+        }
+    }
+    return REC_ON(rec, pat, step, off, t, note, vel);
+}
+
+/* recorder note-off (vtable word): a chord note's release; the last one makes the waiting step write */
+uint64_t hook_rec_rel(uint32_t rec, uint32_t t, uint32_t note, uint32_t d)
+{
+    volatile struct chacc *c = CH_ACC;
+    uint32_t n = ch_rec8(rec) ? ch_acc(rec) : 0;
+    for (uint32_t i = 0; i < n; i++)
+        if (c->note[i] == note)
+            c->t &= (uint16_t)~(1u << (11u + i));
+    uint64_t r = REC_REL(rec, t, note, d);
+    if (n && (c->n & 7u) == n && (c->n & CH_PEND) && !(c->t >> 11 & 15u))
+        return ch_flush(rec, t, d);
+    return r;
+}
+
+static uint64_t ch_rec_off(uint32_t rec, uint32_t note, uint32_t now, uint32_t d, uint32_t all)
+{
+    volatile struct chacc *c = CH_ACC;
+    volatile uint32_t *w = (volatile uint32_t *)(rec + 0x64u + 4u * note);
+    if (!ch_rec8(rec) || note >= 0x8Cu || !(*w & 1u))
+        return REC_OFF(rec, note, now, d);    /* not track 8, or no step write */
+    uint32_t pos = (*w >> 6 & 7u) << 5 | (*w & 0x3Fu) >> 1, n = ch_acc(rec), key = 0, lo = note, arg = 0;
+    uint8_t x[4];
+    if (n >= 2u && c->pos == pos && c->note[n - 1] == note && setting(SR_NPP) < 2) {
+        if (!all && (c->t >> 11 & 15u)) {
+            c->n |= CH_PEND;                  /* other chord notes still held: the write waits, the entry stays */
+            return (uint64_t)d << 32;         /* as the stock note-off with nothing written */
+        }
+        *w = (*w & ~(0x7FFu << 16)) | (uint32_t)(c->t & 0x7FFu) << 16;   /* the gate from the first note-on */
+        for (uint32_t i = 0; i < n; i++) {
+            x[i] = c->note[i];
+            for (uint32_t j = i; j && x[j - 1] > x[j]; j--) {
+                uint8_t q = x[j];
+                x[j] = x[j - 1];
+                x[j - 1] = q;
+            }
+        }
+        for (uint32_t i = n; i-- > 1 && x[i] - x[0] <= 96;)
+            arg = arg << 8 | (uint32_t)(x[i] - x[0]);
+        if (x[n - 1] - x[0] <= 96) {
+            CH_A1->sk = 0;
+            tm_edit(region(), ch_edit_cb, arg);
+            if ((key = CH_A1->sk))
+                lo = x[0];
+            CH_A1->sk = 0;
+        }
+    }
+    c->n = 0;
+    uint64_t r = REC_OFF(rec, note, now, d);
+    uint32_t pat = pos >> 5, s = pos & 31u;
+    if (*(volatile uint8_t *)CH_GET(rw(rec + 0x14), 0, 0, 0) == pat) {   /* the edit pattern: its mirror (stock) */
+        uint32_t B = rw(rec + 0x58);
+        *((volatile uint8_t *)CH_SETP(B, s >> 2, 0, 0) + (s & 3u)) = (uint8_t)lo;
+        volatile uint8_t *p = (volatile uint8_t *)CH_SETP(B, 0x10u + (s >> 2), 0, 0) + (s & 3u);
+        *p = (uint8_t)((*p & 0xC1u) | key << 1);
+    } else {                                  /* another pattern: the store (stock clears bit 0 only) */
+        volatile uint8_t *e = (volatile uint8_t *)(rw(rec + 0x50) + pat * 0xA28u + s * 8u);
+        e[0] = (uint8_t)lo;
+        e[6] = (uint8_t)((e[6] & 0xC1u) | key << 1);
+    }
+    return r;
+}
+
+/* the three stock BL sites of the note-off step write; site 1 is the stock's flush of all notes (record off, stop):
+ * a waiting chord is written there */
+uint64_t hook_rec_off0(uint32_t rec, uint32_t note, uint32_t now, uint32_t d)
+{
+    return ch_rec_off(rec, note, now, d, 0);
+}
+uint64_t hook_rec_off1(uint32_t rec, uint32_t note, uint32_t now, uint32_t d)
+{
+    return ch_rec_off(rec, note, now, d, 1);
+}
+uint64_t hook_rec_off2(uint32_t rec, uint32_t note, uint32_t now, uint32_t d)
+{
+    return ch_rec_off(rec, note, now, d, 0);
+}
+
+/* far table FAR_CHORD, from chord(): the stashed chord of this press (playback, audition) into *note (the lowest)
+ * and t (offsets above it); the stash is consumed. 0 = none stashed (the live rule applies). */
+uint32_t far_chord(struct a1 *a, uint32_t src, int32_t *note, int32_t *t)
+{
+    if (!a->sr && !(a->sk && src == SRC_SEQ))
+        return 0;
+    uint8_t x[4];
+    uint32_t n = ch_notes(a->sr ? a->sr : (uint32_t)(*note + 12), a->sk, x);
+    *note = (int32_t)x[0] - 12;
+    for (uint32_t v = 1; v < n; v++)
+        t[v] = x[v] - x[0];
+    a->sk = a->sr = 0;
+    return n;
+}
+
+/* far table FAR_COL, from ad_nv_col: the colour of key note kn in track 8's Note view nv if it is a chord note of
+ * the held step (the held-root colour + 2), else 0. Only while the stock shows the held step's root (element 0 of
+ * the cell at view + 0x7C set: the stock Note view colour function (NV_COL) tests it at 0x0805DB14; it is set by the hold
+ * timer about 300 ms after the step press, or at once by a key press, and cleared on release), so the chord notes
+ * come and go with the red root (unit session 022: they came before it and stayed after the release). */
+uint32_t far_col(uint32_t nv, uint32_t kn)
+{
+    uint32_t r;
+    volatile uint8_t *w6;
+    uint8_t x[4];
+    if (kn && ch_held(nv, &r, &w6) < 32u && *(volatile uint8_t *)CH_GET(rw(nv + 0x7Cu), 0, 0, 0))
+        for (uint32_t i = 1, n = ch_notes(r, *w6 >> 1 & 31u, x); i < n; i++)
+            if (x[i] == kn)
+                return (uint32_t)*(volatile int16_t *)(nv + 0x74) + 2u;
+    return 0;
+}
+#endif
+
 /* 6: the Note view's pad colour (view, index, note) marks, with setting C = 1, only the pads at the slice
  * markers (+ 0x194 / + 0x195), with C = 0 the pads whose index has a partner (+ 0x114: the root pads). For track 8's
  * keyboard the markers are set for this one call to what C = 0 would mark (the index itself if it has a partner,
@@ -1138,6 +1777,11 @@ static uint32_t ad_nv_col(uint32_t nv, uint32_t idx, uint32_t note, uint32_t d)
     if (!a1() || idx > 127 || !in_sram(kb, 0x1A0) || *(volatile uint8_t *)(kb + KB_ROWS) == 0 || !(q8 = ad_qb8())
         || rw(kb + 0x198) != q8)
         return NV_COL(nv, idx, note, d);
+#if STEP_CHORDS
+    uint32_t c = far_call(FAR_COL, nv, *(volatile uint8_t *)(kb + 8 + idx), 0, 0);
+    if (c)
+        return c;                             /* a chord note of the held step */
+#endif
     volatile uint8_t *m = (volatile uint8_t *)(kb + 0x194);
     uint8_t m0 = m[0], m1 = m[1];
     m[0] = m[1] = *(volatile uint8_t *)(kb + KB_PAIR + idx) != 0xFF ? (uint8_t)idx : 0xFF;
@@ -1543,11 +2187,21 @@ static uint32_t scale_semi(uint32_t minor, uint32_t i)
 #endif
 
 /* Chord of the played note (modules/chord.c rules); returns the note count. */
+#if STEP_CHORDS
+static uint32_t chord(int32_t note, uint8_t *out, struct a1 *a, uint32_t src)
+#else
 static uint32_t chord(int32_t note, uint8_t *out)
+#endif
 {
     uint32_t n = (uint32_t)setting(SR_NPP), minor = CHORD_SCALE();
     int32_t oct = 12 * setting(SR_OCTAVE);
     int32_t t[4] = {0, 0, 0, 0};
+#if STEP_CHORDS                               /* a stashed step chord (playback, audition): its notes verbatim */
+    uint32_t k = far_call(FAR_CHORD, (uint32_t)a, src, (uint32_t)&note, (uint32_t)t);
+    if (k)
+        n = k;
+    else
+#endif
     if (n >= 2) {
         if (setting(SR_INKEY)) {
             uint32_t rel = (uint32_t)(((note - CHORD_ROOT()) % 12 + 12) % 12), d = 0;
@@ -1678,7 +2332,11 @@ static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
         return;
     }
     uint8_t out[4], notes[4] = {0, 0, 0, 0};
+#if STEP_CHORDS
+    uint32_t n = chord(note, out, a, src), now = TICK();
+#else
     uint32_t n = chord(note, out), now = TICK();
+#endif
 #if PAD_POLY                                  /* pads join MIDI: true pad chords with POLY on (master 2026-10-21) */
     uint32_t poly = (src == SRC_MIDI || src == SRC_PAD) && n == 1 && setting(SR_POLY);
 #else

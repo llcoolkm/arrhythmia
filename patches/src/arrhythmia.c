@@ -134,6 +134,36 @@
 #if CORE0_RECOVER && !(FM_207 && FM_PATCH && CORE0_BULK_EXCLUDE && CORE0_BENCH && CORE0_TONE)
 #error "CORE0_RECOVER=1 builds on the FM_207 configuration (0xC0 Q0 block, CORE0_BULK_EXCLUDE, CORE0_BENCH)"
 #endif
+#ifndef FB_MACRO1                       /* -DFB_MACRO1=1 (0.2.1 profiles *-021): track 8's main macro 1 (channel
+                                           parameter 6, CC 21, stored 4..124) is FM feedback 0..127 at note start; the
+                                           synth page's macro 1 is Tune (patch slot +4, codec 2 version 3, default 64);
+                                           older slots convert once at load or boot (notetap.c ad_fb_convert). 0
+                                           everywhere else: every existing profile keeps its bytes */
+#define FB_MACRO1 0
+#endif
+#if FB_MACRO1 && !(FM_207 && defined(AD_LIVE) && AD_LIVE)
+#error "FB_MACRO1=1 builds on the FM_207 configuration (AD_LIVE)"
+#endif
+#ifndef STEP_CHORDS                     /* -DSTEP_CHORDS=1 (0.2.1 profiles *-021): track-8 steps hold up to 4 notes (byte 6
+                                           key into the project's shape table; notetap.c). 0 everywhere else */
+#define STEP_CHORDS 0
+#endif
+#ifndef FAR_PART                        /* 1: the far-blob pass (tools/farblob.py) of a STEP_CHORDS build */
+#define FAR_PART 0
+#endif
+#ifndef FAR_KEY                         /* the far blob's key, from its pass (tools/build_lightshow.py) */
+#define FAR_KEY 0u
+#endif
+#ifndef BOOT_PULSE                      /* -DBOOT_PULSE=1 (0.2.1 profiles *-021, #5): the ECG pulse line over the boot pack-load
+                                           progress (notetap.c, in the far blob). 0 everywhere else */
+#define BOOT_PULSE 0
+#endif
+#if BOOT_PULSE && !STEP_CHORDS
+#error "BOOT_PULSE=1 needs the far blob (STEP_CHORDS)"
+#endif
+#if STEP_CHORDS && !(FM_BANKVIEW && SCALES)
+#error "STEP_CHORDS=1 builds on the FM_BANKVIEW configuration (SCALES: tm_edit)"
+#endif
 #ifndef CORE0_RECOVER_TIMING            /* -DCORE0_RECOVER_TIMING=1 (OPTIONAL, profile *-recover-timing only): ACK latency
                                            and reinit duration counters and c_init_late in struct q0 and the 0F tail
                                            (Q0 block 0xD0, heap limit 16 B lower, 0F reply 185 bytes) */

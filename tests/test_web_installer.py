@@ -307,6 +307,8 @@ class _Release:
     """A committed release: both builds reproduce their pins, no stock bytes, rebuild reproducible, JS equals Python.
     Subclasses set REL, NAME, LABELS, PINS, SPECS and EMBEDDED (only the current release is embedded in the page)."""
     EMBEDDED = False
+    # per build: the release name its description starts with, and the test-status phrase it must carry
+    DESC = {"firmware": (None, "fault containment not tested"), "devkit": (None, "not tested on hardware")}
 
     def setUp(self):
         self.stock = STOCK.read_bytes()
@@ -320,9 +322,9 @@ class _Release:
         self.assertEqual([(b["name"], b["output"]["label"]) for b in self.rel["builds"]], self.LABELS)
         self.assertEqual(crpatch.select(self.rel)["name"], "firmware")
         for b in self.rel["builds"]:
-            self.assertTrue(b["description"].startswith(self.NAME + "."))
-            self.assertIn({"firmware": "fault containment not tested", "devkit": "not tested on hardware"}[b["name"]],
-                          b["description"])
+            name, phrase = self.DESC[b["name"]]
+            self.assertTrue(b["description"].startswith((name or self.NAME) + "."))
+            self.assertIn(phrase, b["description"])
             out, _ = crpatch.apply(self.rel, self.stock, b["name"])
             self.assertEqual(hashlib.sha256(out).hexdigest(), self.PINS[b["name"]])
             self.assertEqual(b["output"]["syx_sha256"], self.PINS[b["name"]])
@@ -371,10 +373,45 @@ class _Release:
 
 
 @unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+class ReleaseV021(_Release, unittest.TestCase):
+    """release/v0.2.1.json, the release the page embeds: firmware 7329 (feedback on macro 1, step chords, card modules)
+    and devkit 7228, unchanged from 0.1.0 (same patches, same pin). Its rebuild check is tools/release_packet.py's (#10)."""
+    REL, NAME, EMBEDDED = ROOT / "release/v0.2.1.json", "Arrhythmia 0.2.1", True
+    LABELS = [("firmware", 7329), ("devkit", 7228)]
+    PINS = {"firmware": "f756c03a71039ba3edd248d53232f9bac24367a4cf800fe6ffd9b8d00fb15251", "devkit": PIN_7228}
+    SPECS = (ROOT / "build/arrhythmia-firmware-7329.json", ROOT / "build/arrhythmia-devkit-7228.json")
+    # packet 021i's derivation with the final firmware description; the devkit build is carried from 0.2.0 unchanged
+    DESC = {"firmware": (None, "Image 7329 was tested on one unit"), "devkit": ("Arrhythmia 0.1.1", "not tested on hardware")}
+
+    def test_devkit_unchanged_from_010(self):
+        old = crpatch.select(json.loads(REL_V010.read_text()), "devkit")
+        new = crpatch.select(self.rel, "devkit")
+        self.assertEqual(new["patches"], old["patches"])
+        self.assertEqual(new["output"], old["output"])
+
+
+@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+class ReleaseV020(_Release, unittest.TestCase):
+    """release/v0.2.0.json, kept as the 0.2.0 record: firmware 7323 (the FM synth on track 8) and devkit 7228,
+    unchanged from 0.1.0 (same patches, same pin). Its rebuild check is tools/release_packet.py's (#10)."""
+    REL, NAME = ROOT / "release/v0.2.0.json", "Arrhythmia 0.2.0"
+    LABELS = [("firmware", 7323), ("devkit", 7228)]
+    PINS = {"firmware": "f5f77f2902aa7934c0c5dd22bbb890ce4c5aaa8f683d4f55e10897df95178cd5", "devkit": PIN_7228}
+    SPECS = (ROOT / "build/arrhythmia-firmware-7323.json", ROOT / "build/arrhythmia-devkit-7228.json")
+    # the devkit build is carried from 0.1.1 unchanged, description included
+    DESC = {"firmware": (None, "Image 7323 was not run on the unit"), "devkit": ("Arrhythmia 0.1.1", "not tested on hardware")}
+
+    def test_devkit_unchanged_from_010(self):
+        old = crpatch.select(json.loads(REL_V010.read_text()), "devkit")
+        new = crpatch.select(self.rel, "devkit")
+        self.assertEqual(new["patches"], old["patches"])
+        self.assertEqual(new["output"], old["output"])
+
+
 class ReleaseV011(_Release, unittest.TestCase):
-    """release/v0.1.1.json, the release the page embeds: firmware 7261 (attack and decay; = development build 7255
+    """release/v0.1.1.json, kept as the 0.1.1 record: firmware 7261 (attack and decay; = development build 7255
     except the build number) and devkit 7228, unchanged from 0.1.0 (same patches, same pin)."""
-    REL, NAME, EMBEDDED = REL_V011, "Arrhythmia 0.1.1", True
+    REL, NAME = REL_V011, "Arrhythmia 0.1.1"
     LABELS = [("firmware", 7261), ("devkit", 7228)]
     PINS = {"firmware": PIN_7261, "devkit": PIN_7228}
     SPECS = (SPEC_7261, SPEC_7228)

@@ -98,6 +98,8 @@ With arrhythmia-firmware:
    (see [synth.md](synth.md#choosing-a-sound-the-sample-view)).
 3. Shift + Track 8 opens the synth page. Set notes per press to 3, play a pad: you hear a chord.
    Close the page, then turn macro 2 (attack) and macro 3 (decay) on track 8: the sound of new notes changes.
+   With macro 6 (FM depth) above 0, turn macro 1 (feedback): the tone of new notes changes. On the synth page,
+   turn macro 1 (tune): the pitch of new notes changes.
 4. Send MIDI notes on channel 8: up to 4 notes play together.
 5. Load one of the factory projects: tracks 1 to 7 sound as before.
 6. Switch to another pack and back, then play track 8: the synth plays again after the load (see
@@ -105,6 +107,10 @@ With arrhythmia-firmware:
 7. Turn on scales for track 1 (see [scales.md](scales.md)) and play its Note view: every pad that lights is in key.
 
 With arrhythmia-devkit, track 8 is a stock sample track; check steps 5 and 7 only (scales over SysEx, see [scales.md](scales.md)).
+
+To use modules from the card, copy `paint.mod` from the release files into the folder `Modules` at the card's root
+(see [developers.md](developers.md#loading)). Shift + Sample Rec opens the picker. Pad 1 is the first file. If
+`paint.mod` is the only file, pad 1 starts paint. From 0.2.1, the images have no built-in module.
 
 On both images, the fault report should be clean:
 

@@ -1,8 +1,8 @@
 # Arrhythmia modules for developers
 
-Applies to Arrhythmia 0.2 (arrhythmia-firmware build 7323 and arrhythmia-devkit build 7228,
-unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.2.0.md). For the 0.1.1
-image 7261, see the [0.1.1 release notes](../../RELEASE-NOTES-0.1.1.md). Items marked **TBD** are not confirmed yet. Modules are a developer feature: most users never
+Applies to Arrhythmia 0.2.1 (arrhythmia-firmware build 7329 and arrhythmia-devkit build 7228,
+unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.2.1.md). For the 0.1.1
+image 7261, see the [0.1.1 release notes](../../RELEASE-NOTES-0.1.1.md). Modules are a developer feature: most users never
 need them.
 
 A module is a small program in C that runs on the unit. It can take over the pads, buttons and lights, play notes,
@@ -27,25 +27,23 @@ Modules are why Arrhythmia has an interface at all: they let your own code work 
 
 Both images have the module loader, the SD card picker, the development SysEx commands and ABI 3 (below).
 
-| | arrhythmia-firmware (build 7261) | arrhythmia-devkit (build 7228) |
+| | arrhythmia-firmware (build 7329) | arrhythmia-devkit (build 7228) |
 |---|---|---|
 | Modules, picker, ABI 3 | yes | yes |
+| Picker layout | numbered pads (`NNname.mod` on pad NN), no built-in module | built-in paint on pad 1, card files on pads 2 to 32 |
+| Play while a module runs | always to the transport | to the module, if the module owns the controls |
 | DSP load meter (SysEx 08) | no: every request gets the refusal reply (status 0) | yes |
-| Track 8 chord synth (with attack and decay) and its page | yes | no: track 8 is a stock sample track |
+| Track 8 | 4-operator FM synth with its synth page ([synth.md](synth.md)) | stock sample track |
 | Scales on tracks 1 to 7 | yes, set on the synth page or with SysEx 0E | yes, set with SysEx 0E only |
 | P-lock fix, DSP fault report (SysEx 0D) | yes | yes |
 
 Install either with the same installer (see [install.md](install.md)). The two have different build numbers, so
-switching always installs. Both are released as 0.1.1 and pinned by their SHA-256 (install guide table).
-arrhythmia-devkit 7228 is unchanged from 0.1.0. arrhythmia-firmware 7261 is byte-identical to development build 7255
-except for the build number; development builds 7253 to 7255 were tested on one unit for attack and decay (see
-[RELEASE-NOTES-0.1.1.md](../../RELEASE-NOTES-0.1.1.md)). Its code for scales, modules and tracks 1 to 7 is the code of
-0.1.0 (build 7229): build 7229 was tested on one unit for scales, and the rest of that code in a development build
-that differs only in the scales code and the build number (listening, musical stress, save and power cycles, a 1 hour
-soak with the audio result inconclusive; see [RELEASE-NOTES-0.1.0.md](../../RELEASE-NOTES-0.1.0.md)). Deliberate DSP
-fault containment is not tested. arrhythmia-devkit 7228 was not tested on hardware; a development build that differs
-from it only in the scales code and the build number had a short hardware test (install, version reply, no DSP fault,
-SysEx 7D restriction, DSP load meter read), with no listening or stress test.
+switching always installs. Both are released in 0.2.1 and pinned by their SHA-256 (see the
+[release notes](../../RELEASE-NOTES-0.2.1.md#install)). The test status of arrhythmia-firmware 7329 is in the
+[release notes](../../RELEASE-NOTES-0.2.1.md#test-status). arrhythmia-devkit 7228 is unchanged from 0.1.0.
+It was not tested on hardware; a development build that differs from it only in the scales code and the build
+number had a short hardware test (install, version reply, no DSP fault, SysEx 7D restriction, DSP load meter read),
+with no listening or stress test. Deliberate DSP fault containment is not tested in either image.
 
 The DSP load meter gives per-core cycle counts of the DSP, read with SysEx 08. Read it only while the unit is idle
 (transport stopped, nothing loading). `tools/dspload.py` reads and prints it. arrhythmia-devkit answers only for the
@@ -125,8 +123,9 @@ arrhythmia-firmware every SysEx 08 gets that refusal.
   pass are not seen as STOP and START; resync from the pulse index.
 * Stopping, restarting or replacing the module, or `frame` returning 0, turns its clock off; the next start begins
   stopped. A module that ends gets no STOP.
-* A module that only follows Play and Stop needs no `input` entry. A module with `input` owns the buttons, Play
-  included, while it runs.
+* A module that only follows Play and Stop needs no `input` entry. In arrhythmia-firmware 7329, Play always reaches
+  the transport; a module with `input` also receives the Play events. It must not use Play as its own control.
+  In the unchanged devkit 7228, an owning module receives Play instead of the transport.
 
 ## Building
 
@@ -141,23 +140,48 @@ with `clock` gets a `CRM2` header, any other module a `CRM1` header. The file is
 
 From the microSD card:
 
+The picker layout and colours below apply to arrhythmia-firmware 7329. The unchanged devkit 7228 has built-in
+paint on pad 1 and up to 31 card files on pads 2 to 32, with its earlier picker layout.
+
 1. Power the unit off and take the card out. The unit's USB drive does not show the card, so use a card reader.
 2. Create a folder `Modules` (the name is not case-sensitive) at the card's root. Copy the module there with a short
-   name ending in `.MOD`, for example `STARS.MOD`.
-3. Put the card back and power the unit on. The card is read only at power-on.
-4. **Shift + Sample Rec** opens the picker. Pad 1 is the built-in module; pads 2 to 32 are the files on the card. A
-   red pad means the file failed its checks; nothing was started.
+   name ending in `.mod`, for example `stars.mod`. Case does not matter: the picker lists the 8.3 short name.
+3. Put the card back and power the unit on. The card must be present at power-on.
+4. **Shift + Sample Rec** opens the picker. The pads that have a file come on, each in its own colour. A red pad
+   means the file failed its checks; nothing was started. If there is no card or no module file, no pad comes on.
+   Push Shift + Sample Rec again to close the picker.
 5. **Shift + Sample Rec** again stops the running module.
+
+The modules of the release and their controls: [modules.md](modules.md).
 
 The loader only reads the card. It never writes to it and never touches the unit's own projects and samples.
 
 Naming: a file is listed when its 8.3 short name ends in `.MOD`; plain 8.3 names are best. A long name such as
-`My Paint.mod` also works and appears under its short name (for example `MYPAIN~1.MOD`). Up to 31 files are shown,
-the 31 smallest short names in byte order (digits before letters), so the layout does not depend on directory order.
+`My Paint.mod` also works and appears under its short name (for example `MYPAIN~1.MOD`).
+
+Numbered pads (arrhythmia-firmware 7329): a file `NNname.mod`, with NN = `01` to `32`, goes on pad NN. Pad 1 is top left, pads 1 to 8
+are the first row. The name part is at most 6 characters, so that the name stays 8.3. Pads that have no file stay
+dark. If two files have the same number, the one with the lowest name gets the pad. The other files with that number
+and every file without a number (`00`, `33` to `99` and one digit count as no number) go on the free pads, lowest pad first, in name order.
+So a card without numbers shows file 1 on pad 1, file 2 on pad 2, and so on. Up to 32 files are shown: the numbered
+files first, then the other files by name (byte order, digits before letters), so the layout does not depend on
+directory order.
+
+Colours: each pad has a colour from its name (a hash of the name part, without the number and `.mod`), one of 11:
+orange, yellow, lime, green, mint, cyan, sky, blue, violet, magenta, pink. If an earlier pad has that colour, the pad
+gets the next colour that is free, until all 11 are used. Red means a failed file; the pad that loads blinks white.
+
+In arrhythmia-firmware 7329, Play always goes to the unit's transport, in the picker and while a module runs.
+A module that owns the controls also gets the Play button event. While a module with a clock entry waits for
+START, the Play button blinks dim green.
+
+Before 0.2.1, arrhythmia-firmware had a built-in module (paint) on pad 1, and pads 2 to 32 showed up to 31 card files.
+In arrhythmia-firmware 7329, there is no built-in module. Paint is a card file, `01paint.mod`, in the release files.
+The unchanged devkit 7228 keeps its built-in paint.
 Folders, hidden and system files, and files outside 26 bytes to 15 KB are skipped. A module in fast RAM starts only
 if it was loaded since power-on.
 
-Over USB, for development: `tools/module.py` uploads a module, verifies it and starts it. Both 0.1 images keep the
+Over USB, for development: `tools/module.py` uploads a module, verifies it and starts it. Both images in the table keep the
 development commands it needs (SysEx 04, 05, 06, 0A, 0B, and 7D for the read-back).
 
 SysEx 7D (`F0 00 20 29 00 60 7D a4 a3 a2 a1 a0 F7`, 32 bytes per reply) reads only the module memory: ITCM
@@ -174,7 +198,7 @@ The host table sits at the fixed flash address `0x0806A570`. Check it before cal
 | 0 | magic `'CRH1'` (0x31485243) |
 | 1 | ABI version: 3 in Arrhythmia 0.1 |
 | 2 | `host_note` |
-| 3 | address of the built-in module |
+| 3 | address of the built-in module; 0 in arrhythmia-firmware 7329; devkit 7228 keeps built-in paint |
 | 4 | `host_note_port` |
 | 5 | `host_param` |
 | 6 | `host_ui` |
@@ -209,10 +233,12 @@ uint32_t host_midi(uint32_t msg);
 ## Examples
 
 `stars`, `paint`, `chase` (lights and pads), `clock_demo` (sequencer clock), `abi3_demo` (ABI 3 calls) and `chord`
-(chords spread over sample tracks 5 to 7). `modules/paint.c` is published: it is the built-in module compiled into
-both images, so the ARM part of both images and the whole arrhythmia-devkit image can be rebuilt from the published
-sources. The source of the DSP code of the 0.2 arrhythmia-firmware image 7323 is in `tools/dspvoice207rel/`, so the
-full arrhythmia-firmware image can be rebuilt from source too, on Linux (tested on Ubuntu x86-64 only). See
+(chords spread over sample tracks 5 to 7). `modules/paint.c` is the source of `01paint.mod`. To build it:
+`uv run python -I tools/build_module.py modules/paint.c build/01paint.mod`. In 0.2.0 and earlier, paint is also
+compiled into both images as the built-in module. The ARM part of both images and the whole arrhythmia-devkit image
+can be rebuilt from the published sources. The source of the DSP code of the 0.2 arrhythmia-firmware image 7323 is
+in `tools/dspvoice207rel/`, so the full arrhythmia-firmware image can be rebuilt from source too, on Linux (tested on
+Ubuntu x86-64 only). See
 [the rebuild steps](../README.md#rebuilding-the-images) and
 [tools/dspvoice207rel/README.md](../../tools/dspvoice207rel/README.md). `tools/dspvoice/` holds the DSP voice source of
 the 0.1.1 image 7261.
@@ -220,9 +246,9 @@ the 0.1.1 image 7261.
 `modules/stars.c` is published too. It is a light show with no sound: sparse stars that swell up and fade out slowly.
 Build it with
 
-    python3 -I tools/build_module.py modules/stars.c STARS.MOD
+    python3 -I tools/build_module.py modules/stars.c stars.mod
 
-or take the prebuilt `STARS.MOD` (164 bytes) from the release page. Its SHA-256 is
+or take the prebuilt `stars.mod` (164 bytes) from the release page. Its SHA-256 is
 `fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27`. Copy it to `Modules` on the card and pick it with
 **Shift + Sample Rec**, as in [Loading](#loading).
 

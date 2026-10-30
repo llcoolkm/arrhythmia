@@ -14,7 +14,8 @@
  *                                            no recording). A note on is refused when fewer than Q_OFF_RESERVE + 1
  *                                            slots are free, so note offs keep room; a note off that still does not
  *                                            fit raises a release of the track, ordered after its queued notes.
- *   +0x0C u32 builtin                        address of the built-in module blob in flash (0 = none)
+ *   +0x0C u32 builtin                        address of the built-in module blob in flash (0 = none; always 0
+ *                                            with BUILTIN_MODULE=0)
  *   +0x10 host_note_port(t, note, vel, rec)  rec != 0: the front-panel pad path (engine, MIDI out, recorder while Rec
  *                                            is armed and the transport runs); rec == 0: exactly host_note.
  *   +0x14 host_param(t, idx, val)            t 0..7, idx 0..24 (channel parameters), val 0..127; clamped to the
@@ -71,7 +72,13 @@
  * 1:/MODULES/<8.3 name>.MOD, the 31 smallest names in byte order, listed when the picker opens. Available pads are
  * dimly lit (pad 0 cyan, the others white, a failed one red); the pad being worked on blinks. Pressing an available
  * pad loads that module into ITCM, checks it and starts it; a failed load leaves the picker open. No card, no folder
- * or no matching file: pad 0 alone. The card is only ever read: no write, sync, unlink, mkdir, rename or mkfs call is
+ * or no matching file: pad 0 alone. BUILTIN_MODULE=0: there is no built-in, and no card, no folder or no matching
+ * file shows no pad (Sample Rec only). PICK_V2 (= BUILTIN_MODULE=0, 0.2.1): up to 32 files are listed (numbered
+ * NNname.MOD first, then the rest, each in byte order); a file with NN = 01..32 goes on pad NN - 1 (the first listed
+ * file with a number wins it), every other file takes the lowest free pad in listing order, pads without a file stay
+ * dark. Each pad shows a colour from an FNV-1a hash of the name part (no NN, no .MOD), stepped to the next unused one
+ * of the 11 while one is free. Play always reaches the stock transport (in the picker too; an owned module also gets
+ * the event), and the Play LED blinks dim green while a module with a clock entry waits for START. The card is only ever read: no write, sync, unlink, mkdir, rename or mkfs call is
  * ever made, files are opened read-only, and our file system calls never run concurrently with the firmware's own
  * file jobs (a token makes them exclusive; Main only tries, it never waits). Every opened file and folder is closed.
  *
@@ -245,6 +252,17 @@
 #define CTRL_VT         0x080672E4u     /* UI controller check */
 #define GRID_VT         0x080678DCu     /* grid page check */
 #define PADS            32u
+#ifndef BUILTIN_MODULE                  /* -DBUILTIN_MODULE=0 (0.2.1 profiles *-021): no built-in module; the picker
+                                           shows card files from pad 0. 1 everywhere else: every existing profile keeps
+                                           its bytes */
+#define BUILTIN_MODULE  1
+#endif
+#define FILE_PAD0       (BUILTIN_MODULE ? 1u : 0u)  /* the pad of the first card file */
+#define PICK_V2         (!BUILTIN_MODULE)   /* 0.2.1 picker: numbered pads, name colours, Play to the transport,
+                                               Play LED blink (docs/user/developers.md); 0 keeps every older profile */
+#define BTN_PLAY        0x11u
+#define PLAY_LED_G      179u                /* btn_Play G (docs/led-map.json; R 178, B 180) */
+#define MAX_FILES       (PADS - FILE_PAD0)          /* card files listed */
 #define MODE_PICK       4u              /* s->mode while the picker is open */
 #define SD_OBJ          0x2000033Cu     /* microSD card state */
 #define FATFS_1         0x20006328u     /* FatFs volume of drive 1: (microSD) */
@@ -367,7 +385,11 @@ struct pick {
     uint32_t size, off;                       /* file being loaded: size (<= MOD_MAX), bytes read */
     uint16_t seen;                            /* directory entries examined */
     uint8_t obj, count, pick, result, bad, restart;
-    char name[PADS - 1][NAME_LEN];            /* pads 1..count: 8.3 names, ascending */
+    char name[MAX_FILES][NAME_LEN];           /* pads FILE_PAD0..: 8.3 names, ascending */
+#if PICK_V2
+    uint8_t file[PADS];                       /* pad -> listed file + 1, 0 = dark (set when the scan ends) */
+    uint8_t col[PADS];                        /* pad -> palette index */
+#endif
 };
 _Static_assert(sizeof(struct pick) <= MOD_BASE - MOD_RAM, "picker data must fit MOD_RAM");
 #define PICK        ((volatile struct pick *)MOD_RAM)
@@ -547,6 +569,7 @@ static uint32_t run_module(struct state *s)
     return 0;
 }
 
+#if BUILTIN_MODULE
 /* Copy the built-in module (host table word 3) into ITCM if its header, size and CRC check out in flash. Only when
  * no module runs (never overwrite code that may be running). Caller holds the suspension. */
 static uint32_t builtin_copy(void)
@@ -566,6 +589,7 @@ static uint32_t builtin_copy(void)
         dst[i] = src[i];
     return 1;
 }
+#endif
 
 /* Stop whatever runs and start the module in ITCM (cmd 05 and the picker): a valid start always stops the old
  * instance, even if the new one fails. Ownership goes on for a module with an input entry. Callers make sure that
@@ -609,6 +633,20 @@ static const uint8_t *pad_leds(void)
     return t;
 }
 
+#if PICK_V2
+/* The picker's 11 pad colours (R, G, B at DIM; no red, which marks a failed pad, and no white, the blink of the pad
+ * being loaded): orange, yellow, lime, green, mint, cyan, sky, blue, violet, magenta, pink. In .text. */
+static const uint8_t *palette(void)
+{
+    const uint8_t *t;
+    __asm__("adr %0, 1f\n\tb 2f\n\t.p2align 2\n1:\n\t"
+            ".byte 16,6,0, 16,14,0, 8,16,0, 0,16,0, 0,16,6, 0,16,16, 0,8,16, 0,0,16, 8,0,16, 16,0,16, 16,0,6\n\t"
+            ".p2align 1\n2:" : "=r"(t));
+    return t;
+}
+#define COLOURS 11u
+#endif
+
 static void pad_rgb(struct state *s, const uint8_t *t, uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
 {
     s->leds[t[3 * pad]] = r;
@@ -616,7 +654,9 @@ static void pad_rgb(struct state *s, const uint8_t *t, uint32_t pad, uint8_t r, 
     s->leds[t[3 * pad + 2]] = b;
 }
 
-/* The picker's lights (UI task, caller holds the suspension): pad 0 cyan, pads 1..count white, a failed pad red, all
+/* The picker's lights (UI task, caller holds the suspension): pad 0 cyan, pads 1..count white (PICK_V2: the pads of
+ * the layout in their colours; BUILTIN_MODULE=0 without PICK_V2:
+ * pads 0..count - 1 white, no cyan pad), a failed pad red, all
  * dim; the pad being worked on blinks (pad 0 while the folder is read); Sample Rec dim white; everything else dark. */
 static void picker_leds(struct state *s)
 {
@@ -624,7 +664,7 @@ static void picker_leds(struct state *s)
     const uint8_t *t = pad_leds();
     uint32_t count = 0, busy = PADS, bad = 0;
     if (itcm_ok()) {
-        count = p->count < PADS - 1 ? p->count : PADS - 1;
+        count = p->count < MAX_FILES ? p->count : MAX_FILES;
         bad = p->bad;
         if (s->ld_phase == LD_SCAN)
             busy = 0;
@@ -633,11 +673,22 @@ static void picker_leds(struct state *s)
     }
     for (uint32_t i = 0; i < LEDS; i++)
         s->leds[i] = 0;
+#if BUILTIN_MODULE
     pad_rgb(s, t, 0, 0, DIM, DIM);
     for (uint32_t i = 1; i <= count; i++)
         pad_rgb(s, t, i, DIM, DIM, DIM);
     if (bad && bad <= count + 1)
         pad_rgb(s, t, bad - 1, DIM, 0, 0);
+#else
+    if (count) {
+        const uint8_t *c = palette();
+        for (uint32_t i = 0; i < PADS; i++)
+            if (p->file[i])
+                pad_rgb(s, t, i, c[3 * p->col[i]], c[3 * p->col[i] + 1], c[3 * p->col[i] + 2]);
+        if (bad && bad <= PADS && p->file[bad - 1])
+            pad_rgb(s, t, bad - 1, DIM, 0, 0);
+    }
+#endif
     if (busy < PADS) {
         uint8_t v = (s->frames & 16) ? BRIGHT : 0;
         pad_rgb(s, t, busy, v, v, v);
@@ -646,6 +697,12 @@ static void picker_leds(struct state *s)
     s->leds[49] = DIM;
     s->leds[50] = DIM;
 }
+
+#if BOOT_PULSE
+#define MODE_PULSE  6u                        /* hook_frame only: s->mode == 0, the boot pack load (notetap.c) */
+static uint32_t bp_on(void);
+static uint32_t bp_leds(struct state *s);
+#endif
 
 void hook_frame(void *frame, uint32_t *src, uint32_t flag)
 {
@@ -659,6 +716,10 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
 #ifdef SYNTHPAGE
     if (pg_live(s))                         /* also closes the page when anything else is in front */
         mode = MODE_PAGE;
+#endif
+#if BOOT_PULSE
+    if (!mode && bp_on())
+        mode = MODE_PULSE;
 #endif
     if (!mode) {
         uint8_t was_on = s->was_on;
@@ -698,13 +759,28 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
     s->frames++;
     if (mode == 1)
         glitter(s);
-    else if (mode == 3)
+    else if (mode == 3) {
         run_module(s);
+#if PICK_V2
+        if (s->mode == 3 && CLK->mod_clock && !CLK->running) {   /* a clocked module waits for Play */
+            s->leds[PLAY_LED_G - 1] = 0;
+            s->leds[PLAY_LED_G] = (s->frames & 32) ? DIM : 0;
+            s->leds[PLAY_LED_G + 1] = 0;
+        }
+#endif
+    }
     else if (mode == MODE_PICK)
         picker_leds(s);
 #ifdef SYNTHPAGE
     else if (mode == MODE_PAGE)
         pg_leds(s);
+#endif
+#if BOOT_PULSE
+    else if (mode == MODE_PULSE && !bp_leds(s)) {
+        RESUME_ALL();                         /* no far blob: the stock frame */
+        ORIG_FRAME(frame, src, flag);
+        return;
+    }
 #endif
     s->fake_src[0] = 1;
     s->fake_src[4] = (uint32_t)s->leds;
@@ -896,17 +972,22 @@ static void picker_open(struct state *s)
     p->pick = 0;
     p->result = R_NONE;
     p->bad = 0;
+#if PICK_V2
+    for (uint32_t i = 0; i < PADS; i++)
+        p->file[i] = 0;
+#endif
     s->ld_phase = LD_SCAN;
     s->mode = MODE_PICK;
 }
 
 /* A pad in the picker (pad press, cmd 06 01): pad 0 copies the built-in and starts it at once (flash, no FatFs);
- * pad 1..count asks the loader for that file. Only while choosing. Caller holds the suspension. */
+ * pad 1..count asks the loader for that file (BUILTIN_MODULE=0: a pad of the layout, p->file). Only while choosing. Caller holds the suspension. */
 static void picker_pad(struct state *s, uint32_t pad)
 {
     volatile struct pick *p = PICK;
     if (s->mode != MODE_PICK || s->ld_phase != LD_PICK || !itcm_ok())
         return;
+#if BUILTIN_MODULE
     if (pad == 0) {
         if (builtin_copy()) {
             s->ld_fresh = 1;
@@ -919,6 +1000,10 @@ static void picker_pad(struct state *s, uint32_t pad)
     }
     if (pad > p->count)
         return;
+#else
+    if (pad >= PADS || !p->file[pad])       /* dark pad */
+        return;
+#endif
     s->ld_fresh = 0;                        /* the module area is about to be overwritten */
     p->pick = (uint8_t)pad;
     p->result = R_NONE;
@@ -982,6 +1067,13 @@ static uint32_t route(struct state *s, uint32_t kind, uint32_t index, uint32_t v
             s->shift = (uint8_t)down;
             return 0;                       /* Shift always reaches the stock UI, so it can never stick there */
         }
+#if PICK_V2
+        if (index == BTN_PLAY) {            /* Play always reaches the transport; an owned module also sees it */
+            if (owns(s))
+                deliver(s, kind, index, value);
+            return 0;
+        }
+#endif
         if (!down)
             return follow(s, &s->btn_mod, &s->btn_eat, bit, 0, kind, index, value);
 #ifdef SYNTHPAGE
@@ -1134,7 +1226,7 @@ static void loader_reply(struct state *s)
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }
 
-/* cmd 06 03 i: the 8.3 name of pad i + 1, only while choosing. */
+/* cmd 06 03 i: the 8.3 name of file i + 1 (on pad i + FILE_PAD0), only while choosing. */
 static void name_reply(struct state *s, uint32_t i)
 {
     volatile uint8_t r[9 + NAME_LEN - 1 + 1];
@@ -1160,7 +1252,7 @@ static void loader_cmd(struct state *s, const uint8_t *m, uint32_t len)
 {
     uint32_t sub = len >= 9 ? m[7] : 0xFF;
     if (sub == 0x03) {
-        if (len == 10 && m[8] < PADS - 1)
+        if (len == 10 && m[8] < MAX_FILES)
             name_reply(s, m[8]);
         return;
     }
@@ -1663,27 +1755,90 @@ static int name_cmp(const volatile char *a, const volatile char *b)
     return 0;
 }
 
-/* Keep the 31 smallest names, ascending. */
+#if PICK_V2
+/* NN of an 8.3 name NNname.MOD: 1..32, 0 = unnumbered (no two leading digits, 00, 33..99). */
+static uint32_t name_num(const volatile char *n)
+{
+    uint32_t a = (uint8_t)n[0] - '0', b = (uint8_t)n[1] - '0';
+    if (a > 9 || b > 9)
+        return 0;
+    a = a * 10 + b;
+    return a >= 1 && a <= PADS ? a : 0;
+}
+
+/* Listing order: numbered names first, then unnumbered names, each in byte order. */
+static int list_cmp(const volatile char *a, const volatile char *b)
+{
+    uint32_t na = name_num(a) != 0, nb = name_num(b) != 0;
+    return na != nb ? (int)nb - (int)na : name_cmp(a, b);
+}
+
+/* After the scan: a numbered file goes on pad NN - 1 (the first listed file with that number wins); every other file
+ * takes the lowest free pad, in listing order. Then the colours, in pad order: FNV-1a of the name part (no NN, no
+ * .MOD) mod COLOURS, stepped to the next unused colour while one is free. Caller holds the suspension. */
+static void layout(volatile struct pick *p)
+{
+    uint32_t n = p->count < MAX_FILES ? p->count : MAX_FILES, placed = 0, pad = 0, used = 0;
+    for (uint32_t i = 0; i < PADS; i++)
+        p->file[i] = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t k = name_num(p->name[i]);
+        if (k && !p->file[k - 1]) {
+            p->file[k - 1] = (uint8_t)(i + 1);
+            placed |= 1u << i;
+        }
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        if (placed >> i & 1)
+            continue;
+        while (p->file[pad])
+            pad++;                          /* n <= PADS: a free pad is left for every unplaced file */
+        p->file[pad] = (uint8_t)(i + 1);
+    }
+    for (uint32_t i = 0; i < PADS; i++) {
+        if (!p->file[i])
+            continue;
+        const volatile char *nm = p->name[p->file[i] - 1];
+        uint32_t h = 2166136261u;
+        for (uint32_t j = name_num(nm) ? 2 : 0; j < NAME_LEN && nm[j] && nm[j] != '.'; j++)
+            h = (h ^ (uint8_t)nm[j]) * 16777619u;
+        uint32_t c = h % COLOURS;
+        if (used != (1u << COLOURS) - 1)
+            while (used >> c & 1)
+                c = c + 1 < COLOURS ? c + 1 : 0;
+        used |= 1u << c;
+        p->col[i] = (uint8_t)c;
+    }
+}
+#define LIST_CMP list_cmp
+#else
+#define LIST_CMP name_cmp
+#endif
+
+/* Keep the MAX_FILES (31, or 32 without the built-in) smallest names in listing order, ascending. */
 static void name_insert(volatile struct pick *p, const volatile char *nm)
 {
     uint32_t n = p->count, i = n;
-    while (i > 0 && name_cmp(nm, p->name[i - 1]) < 0)
+    while (i > 0 && LIST_CMP(nm, p->name[i - 1]) < 0)
         i--;
-    if (i >= PADS - 1)
+    if (i >= MAX_FILES)
         return;
-    uint32_t last = n < PADS - 1 ? n : PADS - 2;
+    uint32_t last = n < MAX_FILES ? n : MAX_FILES - 1;
     for (uint32_t k = last; k > i; k--)
         for (uint32_t j = 0; j < NAME_LEN; j++)
             p->name[k][j] = p->name[k - 1][j];
     for (uint32_t j = 0; j < NAME_LEN; j++)
         p->name[i][j] = nm[j];
-    if (n < PADS - 1)
+    if (n < MAX_FILES)
         p->count = (uint8_t)(n + 1);
 }
 
 static void scan_done(struct state *s, volatile struct pick *p, uint32_t result)
 {
     SUSPEND_ALL();
+#if PICK_V2
+    layout(p);
+#endif
     p->result = (uint8_t)result;
     if (s->ld_phase == LD_SCAN)
         s->ld_phase = LD_PICK;
@@ -1743,8 +1898,13 @@ static void load_step(struct state *s, volatile struct pick *p)
     if (st == 2)
         return;
     if (p->obj == OBJ_NONE) {
+#if BUILTIN_MODULE
         uint32_t fil = file_b(0), k = p->pick;
         if (!st || !fil || k < 1 || k > p->count) {
+#else
+        uint32_t fil = file_b(0), k = p->pick < PADS ? p->file[p->pick] : 0;   /* listed file k on this pad */
+        if (!st || !fil || !k || k > p->count) {
+#endif
             load_fail(s, p, !st ? R_NOCARD : !fil ? R_BUSY : R_OPEN);
             return;
         }

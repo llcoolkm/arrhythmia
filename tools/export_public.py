@@ -45,13 +45,16 @@ every file passes these checks; if any file fails, nothing is written and the fi
   reverse-engineering tool in its deny lists, and its test uses synthetic paths; both are exempt from private-path
   and decompilation only.
 
-The deny file (default export-deny.json at the repo root) is private: it holds the serial and host names, so it is
-outside the allow-list and in DENY_PATHS. Firmware images are looked up in this checkout, then in the main checkout of
+The deny file is private: it holds the serial and host names, so it is outside the allow-list and in DENY_PATHS. The
+canonical copy is the export-deny.json COMMITTED at --ref (#13), never a working-tree file, so the reviewed exceptions
+travel with the commit and no checkout or worktree can hold a diverging copy. --deny-file is still accepted, but only
+if it is byte-identical to the committed one (refusal names the two SHA-256 prefixes, never the contents). Firmware images are looked up in this checkout, then in the main checkout of
 the same repository (worktrees share no ignored files).
 
 OUTDIR must not exist or be empty, and must not lie inside this repository or any of its worktrees.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -69,8 +72,8 @@ import syx  # noqa: E402
 # the DSP meter's own program listing, which tools/dspmeter.py builds arrhythmia-devkit's DSP layer from.
 # modules/stars.c is the one published example module (master, 2026-10-19); the other examples stay private.
 PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
-               "docs/user/synth.md", "docs/user/principles.md",
-               "docs/user/scales.md", "docs/user/developers.md", "docs/led-map.md", "docs/led-map.json",
+               "docs/user/synth.md",
+               "docs/user/scales.md", "docs/user/developers.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
                "docs/user/img/synth-macros.png")
@@ -87,7 +90,7 @@ PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py",
                 "tests/test_module_readback.py")
 PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
                 "tools/crpatch.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
-                "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/flash.py", "tools/inputlog.py",
+                "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
                 "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
 PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
@@ -96,7 +99,9 @@ PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/de
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
               # 0.2 ARM sources compiled by arrhythmia-firmware-arm-fm.
               "patches/src/core0feed.c", "patches/src/core0feed.h", "patches/src/fm_patch.h", "patches/src/tune_pitch.h",
-              "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c")
+              "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c", "modules/module_common.h",
+              "modules/snake.c", "modules/life.c", "modules/balls.c", "modules/euclid.c", "modules/rain.c",
+              "modules/mole.c", "modules/lights.c", "modules/pulse.c")
 # DSP voice source of arrhythmia-firmware 0.1.1 (build 7261): our assembly, generators, adapter, builder, the line
 # assembler frontend and its licence notices, and the test; exactly the files that tools/dspvoice/source-manifest.json
 # names, plus the manifest itself.
@@ -128,8 +133,8 @@ PUBLIC_DSPVOICE207 = ('tests/test_dspvoice207_source.py',
                     'tools/dspvoice207/source-manifest.json')
 PUBLIC_DSPVOICE207RC = ('tests/test_dspvoice207rc_source.py', 'tools/dspvoice207rc/README.md', 'tools/dspvoice207rc/NOTICE.md', 'tools/dspvoice207rc/build.py', 'tools/dspvoice207rc/instrument.asm', 'tools/dspvoice207rc/source-manifest.json')
 PUBLIC_DSPVOICE207REL = ('tests/test_dspvoice207rel_source.py', 'tools/dspvoice207rel/README.md', 'tools/dspvoice207rel/NOTICE.md', 'tools/dspvoice207rel/build.py', 'tools/dspvoice207rel/instrument.asm', 'tools/dspvoice207rel/source-manifest.json')
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "web/index.html")
-ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "web/index.html")
+ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
          + PUBLIC_DSPVOICE207REL)
 # Allow-listed files published under another name (source path -> published path). The public README is
@@ -188,7 +193,13 @@ PRIVATE_TESTS = ("tests/test_core0_telem.py", "tests/test_a1_notetap.py", "tests
                  "tests/test_voicestack.py", "tests/test_core0_bench.py", "tests/test_core0_joined.py",
                  "tests/test_core0_feed.py", "tests/test_core0_only.py", "tests/test_core0_fmpatch.py",
                  "tests/test_core0_joined206.py", "tests/test_core0_bench7303.py", "tests/test_core0_bankview.py",
-                 "tests/test_core0_meter_read.py", "tests/test_core0_public02.py")
+                 "tests/test_core0_meter_read.py", "tests/test_core0_public02.py", "tests/test_core0_join207.py",
+                 "tests/test_core0_rc02.py", "tests/test_core0_rc02m7.py",
+                 "tests/test_core0_fb02diag.py", "tests/test_core0_rel02.py")
+# 0.2 release preparation (PRIVATE): the checklist, the release JSON draft with placeholders (the published
+# release/v0.2.0.json is generated by tools/crpatch.py at release) and the spec note rewriter.
+PRIVATE_DOCS += ("docs/release-0.2-checklist.md",)
+EXCLUDE += ("release/v0.2.0.draft.json", "tools/release_spec.py")
 DENY_PATHS = EXCLUDE + PRIVATE_DOCS + PRIVATE_TESTS + ("README.md", "ghidra_scripts/", "export-deny.json", "firmware/",
                                                        "build/")
 SKIP_PARTS = ("__pycache__",)
@@ -355,9 +366,39 @@ def load_images(firmware_dirs, bootloader_paths, log):
 
 # ---- text rules ----------------------------------------------------------------------------------------------------
 
-def load_deny(path):
+DENY_FILE = "export-deny.json"
+
+
+def committed_deny(repo, ref, label=None):
+    """The canonical deny file: the one committed at REF (#13). Returns its bytes; never printed. LABEL names the ref
+    in messages (export() passes the requested ref while reading the resolved commit)."""
     try:
-        cfg = json.loads(Path(path).read_text())
+        return git(repo, "cat-file", "blob", f"{ref}:{DENY_FILE}", data=True)
+    except subprocess.CalledProcessError:
+        raise Refused(f"no {DENY_FILE} committed at {label or ref}: the deny file must travel with the exported "
+                      "commit")
+
+
+def canonical_deny(repo, ref, deny_file=None, label=None):
+    """The committed deny file at REF. A --deny-file copy is admitted only if it is byte-identical (hashes only in
+    the refusal; the contents are never printed)."""
+    data = committed_deny(repo, ref, label)
+    ref = label or ref
+    if deny_file is not None:
+        try:
+            given = Path(deny_file).read_bytes()
+        except FileNotFoundError:
+            raise Refused(f"deny file {deny_file} not found")
+        if given != data:
+            raise Refused(f"deny file {deny_file} (sha256 {hashlib.sha256(given).hexdigest()[:8]}) is not the "
+                          f"{DENY_FILE} committed at {ref} (sha256 {hashlib.sha256(data).hexdigest()[:8]}); "
+                          f"omit --deny-file to use the committed copy")
+    return data
+
+
+def load_deny(path, data=None):
+    try:
+        cfg = json.loads(data if data is not None else Path(path).read_text())
     except FileNotFoundError:
         raise Refused(f"deny file {path} not found")
     for key in ("serials", "serial_patterns", "markers", "hostnames", "strings", "allowed_emails"):
@@ -609,7 +650,13 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
            allow_emails=(), dry_run=False, log=print, exclude=EXCLUDE, publish_as=None):
     repo = Path(git(repo, "rev-parse", "--show-toplevel").strip())
     t = check_target(repo, target)
-    cfg = load_deny(deny_file or repo / "export-deny.json")
+    # #13: resolve --ref ONCE to a full commit id; policy, tree and provenance all read that commit (a branch or HEAD
+    # moving during the export cannot pair one commit's deny policy with another commit's files)
+    try:
+        commit = git(repo, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").strip()
+    except subprocess.CalledProcessError:
+        raise Refused(f"--ref {ref!r} is not a commit") from None
+    cfg = load_deny(f"{commit}:{DENY_FILE}", canonical_deny(repo, commit, deny_file, label=ref))
     main = main_checkout(repo)
     if firmware_dirs is None:
         firmware_dirs = [repo / "firmware"] + ([main / "firmware"] if main else [])
@@ -619,7 +666,7 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
     index = ImageIndex(images)
 
     entries = []
-    for line in git(repo, "ls-tree", "-r", "-z", ref, data=True).split(b"\0"):
+    for line in git(repo, "ls-tree", "-r", "-z", commit, data=True).split(b"\0"):
         if not line:
             continue
         meta, path = line.split(b"\t", 1)
@@ -628,7 +675,7 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
         if kind == b"blob" and allowed(path, allow, exclude):
             entries.append((path, mode.decode(), obj.decode()))
     if not entries:
-        raise Refused(f"no allow-listed files at {ref}")
+        raise Refused(f"no allow-listed files at {ref} ({commit[:12]})")
 
     findings, files = [], []
     for path, mode, obj in entries:
@@ -657,7 +704,7 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
         os.chmod(out, 0o755 if mode == "100755" else 0o644)
-    log(f"exported {len(files)} files from {ref} ({git(repo, 'rev-parse', '--short', ref).strip()}) to {t}")
+    log(f"exported {len(files)} files from {ref} ({commit[:12]}) to {t}")
     return sorted(published(f[0], publish_as) for f in files)
 
 

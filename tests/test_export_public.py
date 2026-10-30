@@ -296,7 +296,9 @@ def test_opt_in():
     assert not any(a.endswith("/") for a in ep.ALLOW)
     assert not any(a.startswith("ghidra_scripts") for a in ep.ALLOW)
     assert ep.allowed("RELEASE-NOTES-0.1.0.md") and ep.allowed("LICENSE")
-    assert ep.allowed("modules/paint.c") and ep.allowed("modules/stars.c")      # the only published modules
+    for name in ("paint", "stars", "snake", "life", "balls", "euclid", "rain", "mole", "lights", "pulse"):
+        assert ep.allowed(f"modules/{name}.c"), name
+    assert ep.allowed("modules/module_common.h")
     for name in ("chase", "clock_demo", "abi3_demo", "chord"):
         assert not ep.allowed(f"modules/{name}.c"), name
     for path in ep.ALLOW:                                   # nothing allow-listed by name is also denied

@@ -519,7 +519,12 @@ static void q0_fm_read(void)
     uint32_t ch = pl_channel(rw(PL_R_CELL), A1_T), slot = ch ? PL_GET(ch, 0) : 0;
     if (slot >= FM_SLOTS)
         slot = 0;
+#if FB_MACRO1                                 /* feedback = main macro 1 (channel parameter 6) at the press */
+    (void)p;
+    q->fm_want = (uint16_t)fm_patch_w1(slot >> 4, slot & 15u, ch ? syn_fb_of_p6(PL_GET(ch, 6) & 0x7Fu) : FM_DEF_FB);
+#else
     q->fm_want = (uint16_t)fm_patch_w1(slot >> 4, slot & 15u, (uint32_t)syn_fm_get(p, SF_FB));
+#endif
 #else
     q->fm_want = (uint16_t)fm_patch_w1((uint32_t)syn_fm_get(p, SF_ALGO), (uint32_t)syn_fm_get(p, SF_BANK),
                                        (uint32_t)syn_fm_get(p, SF_FB));
@@ -529,11 +534,21 @@ static void q0_fm_read(void)
 }
 #endif
 
+#if FB_MACRO1
+static uint32_t q0_tune(void)                   /* the synth page's macro 1 (patch slot +4), else 64 */
+{
+    struct tm *t = tm();
+    const volatile uint8_t *p = t && t->why == TM_OK && t->store ? (const volatile uint8_t *)(t->store + TM_EXT +
+                                                                                            SYN_PATCH_AT) : 0;
+    return (uint32_t)syn_fm_get(p, SF_TUNE);
+}
+#else
 static uint32_t q0_tune(void)
 {
     uint32_t ch = pl_channel(rw(PL_R_CELL), A1_T);
     return ch ? PL_GET(ch, 6) & 0x7Fu : 64u;
 }
+#endif
 
 #if CORE0_TONE
 /* ---- live tone (the proposed A08000 packet; engine lock held) --------------------------------------------------

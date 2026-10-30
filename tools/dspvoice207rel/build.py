@@ -2,7 +2,8 @@
 """Rebuild fixed VERSION 207 DSP streams from own source and local official input.
 
 Combined outputs contain the user's firmware material and must remain local.
-The optional join reproduces only the public 0.2 release image 7323 (-7 dB output gain, FM feedback x4);
+The optional join reproduces only the listed public images (JOINS): the 0.2 release image 7323 and the 0.2.1
+image 7329, each from its exact ARM part, with the same DSP streams (-7 dB output gain, FM feedback x4);
 this is no flasher.
 """
 import argparse
@@ -29,6 +30,17 @@ IMAGE_SHA = 'ee083547dc850a627a987ec15dbbc592d932b3254f8c84f657f1c70410ab73e5'
 SYX_SHA = 'f5f77f2902aa7934c0c5dd22bbb890ce4c5aaa8f683d4f55e10897df95178cd5'
 RELEASE_LABEL = 7323
 RELEASE_VERSION = (0, 0, 0, 8, 2, 3)
+# Every supported join: ARM part SHA-256 -> (image label, version, image SHA-256, .syx SHA-256, far blob). The ARM
+# part selects the image; any other ARM part is refused. 7329: the 0.2.1 ARM part (arrhythmia-firmware-arm-021,
+# label 7304), whose far blob [0x0801B000, 0x0801C718) lies in the old core-0 stream after core 1's end (the only
+# ARM bytes allowed there).
+FAR_CAP = 0x0801B000
+JOINS = {
+    ARM_SHA: (RELEASE_LABEL, RELEASE_VERSION, IMAGE_SHA, SYX_SHA, None),
+    'd3ab9200c857eb6abb070ebf9424c26611ddd117c70beba77325cfd84166eb24': (
+        7329, (0, 0, 0, 8, 2, 9), '10939096414b70a25d2e5bdc6d593df4e56563b9abdc9d9870c88d3542fb3619',
+        'f756c03a71039ba3edd248d53232f9bac24367a4cf800fe6ffd9b8d00fb15251', (0x0801B000, 0x0801C718)),
+}
 ENTRY = 0x2200
 CORE0_AT, DATA_AT = 0x080768C0, 0x2DA0
 COMPONENTS = {
@@ -54,7 +66,7 @@ SOURCE_FILES = (
 def verify_sources(root=None):
     root = ROOT if root is None else Path(root)
     manifest = json.loads((root / 'tools/dspvoice207rel/source-manifest.json').read_text())
-    if manifest.get('format') != 'arrhythmia-dsp207rel-own-source/1' or set(manifest.get('files', {})) != set(SOURCE_FILES):
+    if manifest.get('format') != 'arrhythmia-dsp207rel-own-source/2' or set(manifest.get('files', {})) != set(SOURCE_FILES):
         raise ValueError('source manifest has an unexpected file closure')
     for name, digest in manifest['files'].items():
         if a.sha((root / name).read_bytes()) != digest:
@@ -65,6 +77,8 @@ def verify_sources(root=None):
     if (manifest.get('arm_sha256'), manifest.get('release_label'), manifest.get('release_version')) != (
             ARM_SHA, RELEASE_LABEL, None if RELEASE_VERSION is None else list(RELEASE_VERSION)):
         raise ValueError('source manifest release binding differs')
+    if manifest.get('joins') != {k: [v[0], list(v[1]), v[2], v[3], v[4] and list(v[4])] for k, v in JOINS.items()}:
+        raise ValueError('source manifest join bindings differ')
     return manifest
 
 
@@ -168,12 +182,22 @@ def build_streams(image, executable):
 def final_firmware(arm, core0, core1, stock_ref):
     if not all((ARM_SHA, IMAGE_SHA, SYX_SHA, RELEASE_VERSION)):
         raise ValueError('public 7323 join pins are not bound')
-    if a.sha(arm) != ARM_SHA or a.sha(core0) != CORE0_SHA or a.sha(core1) != CORE1_SHA:
+    if a.sha(arm) not in JOINS or a.sha(core0) != CORE0_SHA or a.sha(core1) != CORE1_SHA:
         raise ValueError('join requires the exact public ARM and supported DSP streams')
     stock = stock_ref['image']
-    for address, data in ((a.STREAM0, a.pinned_streams(stock)[0]), (a.STREAM1, a.pinned_streams(stock)[1])):
+    label, release_version, image_sha, syx_sha, far = JOINS[a.sha(arm)]
+    old0 = a.pinned_streams(stock)[0]
+    if far and not (a.STREAM1 + len(core1) <= FAR_CAP <= far[0] < far[1] <= a.STREAM0 + len(old0)):
+        raise ValueError('far blob outside the old core-0 stream after the core-1 cap')
+    for address, data in ((a.STREAM0, old0), (a.STREAM1, a.pinned_streams(stock)[1])):
         off = address - a.BASE
-        if arm[off:off + len(data)] != data:
+        got = bytearray(arm[off:off + len(data)])
+        if far and address == a.STREAM0:      # the far blob's bytes are the ARM's own; the rest stays the input's
+            lo, hi = far[0] - address, far[1] - address
+            if got[lo:hi] == data[lo:hi]:
+                raise ValueError('far blob missing from the ARM input')
+            got[lo:hi] = data[lo:hi]
+        if bytes(got) != data:
             raise ValueError('ARM input changed a local input stream')
     for pointer in (a.PTR_CORE0, a.PTR_CORE1):
         off = pointer - a.BASE
@@ -187,12 +211,12 @@ def final_firmware(arm, core0, core1, stock_ref):
     image[a.STREAM1 - a.BASE:a.STREAM1 - a.BASE + len(core1)] = core1
     image[at:at + len(core0)] = core0
     struct.pack_into('<I', image, a.PTR_CORE0 - a.BASE, CORE0_AT)
-    struct.pack_into('<H', image, 0x1CA, RELEASE_LABEL)
+    struct.pack_into('<H', image, 0x1CA, label)
     image.extend(b'\xff' * (-len(image) % 4))
-    version = bytes(RELEASE_VERSION)
+    version = bytes(release_version)
     stream = syx.build(bytes(image), stock_ref['init'][:2] + version + stock_ref['init'][8:],
                        stock_ref['header_prefix'][:1] + version)
-    if a.sha(image) != IMAGE_SHA or a.sha(stream) != SYX_SHA:
+    if a.sha(image) != image_sha or a.sha(stream) != syx_sha:
         raise ValueError('source-built final image differs from the supported pin')
     return bytes(image), stream
 
@@ -234,7 +258,8 @@ def main():
              'build.json': (json.dumps(metadata, indent=2, sort_keys=True) + '\n').encode()}
     if args.arm_image:
         image, stream = final_firmware(args.arm_image.read_bytes(), core0, core1, ref)
-        files.update({'arrhythmia-firmware-7323.bin': image, 'arrhythmia-firmware-7323.syx': stream})
+        label = JOINS[a.sha(args.arm_image.read_bytes())][0]
+        files.update({f'arrhythmia-firmware-{label}.bin': image, f'arrhythmia-firmware-{label}.syx': stream})
     files['SHA256SUMS'] = ''.join(f'{a.sha(data)}  {name}\n' for name, data in sorted(files.items())).encode()
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.dspvoice207rel-', dir=args.out.parent) as directory:

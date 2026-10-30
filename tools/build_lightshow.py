@@ -2,6 +2,8 @@
 
     uv run python -I tools/build_lightshow.py [lightshow-glitter|heapdiag|flashdump|devkit|devkit-dsp|devkit-input|devkit-mode|devkit-play|devkit-load|devkit-clock|devkit-abi3|devkit-tm|devkit-plock|devkit-a2|devkit-o1|arrhythmia-devkit-arm|arrhythmia-firmware-arm|...]
 
+--spec-dir DIR writes the patch set to DIR/<target>.json instead of patches/ (tests use a folder under build/).
+
 The code is placed in the free flash right after the stock image and reached through two rewritten BL instructions.
 The object file must contain no relocations in .text; everything it calls is an absolute firmware address.
 """
@@ -16,6 +18,9 @@ import tempfile
 BASE = 0x08010000
 CODE_AT = 0x0806A570                      # end of the stock 5706 image (word aligned)
 FREE_END = 0x08080000                     # image size cap (0x70000 bytes)
+# The far blob (targets with "far", tools/farblob.py): in the old core-0 window, from the core-1 cap (Codex, #9) to
+# the end of the old stock core-0 stream. Only joined images (core 0 moved, pointer 0x08031658 rewritten) may run it.
+FAR_AT, FAR_END = 0x0801B000, 0x08020805
 # Host table (targets with "host_table"): at CODE_AT, the hook code follows. u32 magic 'CRH1', u32 abi, u32 note()
 # Thumb address, u32 built-in module address (0 none); abi 3: then note_port(), param(), ui(), midi().
 HOST_TABLE_SIZE = 16
@@ -73,7 +78,11 @@ SITES = {"hook_frame": 0x0802596E,
          # FM_BANKVIEW: the stock store reset inside the project operations that create a project (fresh creation):
          # an empty slot selected, a loaded file that is not a project, clear, a pack switch without a file (notetap.c)
          "hook_rst_absent": 0x08037C8A, "hook_rst_tail": 0x08037E74, "hook_rst_clear": 0x0803868A,
-         "hook_rst_pack": 0x08038742}
+         "hook_rst_pack": 0x08038742,
+         # STEP_CHORDS (0.2.1): the Note view's step entry (a key pressed with a step held)
+         "hook_se": 0x0805D838,
+         # STEP_CHORDS (0.2.1): the recorder's note-off step write (0x08048E70), its three call sites
+         "hook_rec_off0": 0x08048CB2, "hook_rec_off1": 0x08048D52, "hook_rec_off2": 0x08048E52}
 # input event sites: Thumb-2 B.W tail calls, retargeted to our hooks
 BW_SITES = {"hook_fo_eng": 0x08031A34,
             "hook_pad": 0x080295CA, "hook_button": 0x080295D8, "hook_pot": 0x080295E4,
@@ -96,7 +105,8 @@ STOCK_BL = {0x0802596E: 0x0802960C, 0x08026E42: 0x0802CF90, 0x080256DE: 0x080261
             0x08043C40: 0x080536D2, 0x08043C98: 0x08053690, 0x0802964E: 0x08029684, 0x080536C0: 0x08031430,
             0x0804679E: 0x08040874, 0x080278E2: 0x08031700,
             0x080278CC: 0x08031110, 0x080278A8: 0x08031110,
-            0x08037C8A: 0x08032DB2, 0x08037E74: 0x08032DB2, 0x0803868A: 0x08032DB2, 0x08038742: 0x08032DB2}
+            0x08037C8A: 0x08032DB2, 0x08037E74: 0x08032DB2, 0x0803868A: 0x08032DB2, 0x08038742: 0x08032DB2,
+            0x0805D838: 0x0805DF1A, 0x08048CB2: 0x08048E70, 0x08048D52: 0x08048E70, 0x08048E52: 0x08048E70}
 # vtable words retargeted to a hook (stock word = Thumb address)
 VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x08058161),
             "hook_fx": (0x0806834C, 0x0805F2F9),
@@ -117,7 +127,17 @@ VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x
             "hook_fs_start": (0x08066E80, 0x0806446F), "hook_fs_preview": (0x08066E84, 0x080644E5),
             "hook_fs_trim": (0x08066E88, 0x08064513), "hook_fs_stop": (0x08066E94, 0x08064481),
             # scales
-            "hook_kb_obs": (0x080696F4, 0x08055F69)}
+            "hook_kb_obs": (0x080696F4, 0x08055F69),
+            # STEP_CHORDS (0.2.1): the step player's microstep entry (vtable 0x08068D24, shared by the 8 players)
+            "hook_seqstep": (0x08068D2C, 0x0804AFBD),
+            # STEP_CHORDS (0.2.1): the recorder's note-on (vtable 0x08067864, shared by the 8 recorders)
+            "hook_rec_on": (0x08067870, 0x08048B79),
+            # STEP_CHORDS: the recorder's note-off (same vtable) and the Note view's pad press (vtable 0x08067248)
+            "hook_rec_rel": (0x08067874, 0x08048C59), "hook_np": (0x08067248, 0x0805D7A1),
+            # STEP_CHORDS: the Note view's observer, both vtable words (the view; its observer interface at + 8)
+            "hook_nv_obs": (0x08067268, 0x0805E08F), "hook_nv_obs8": (0x08067278, 0x0805E08D),
+            # BOOT_PULSE: the pack-load progress object's vtable (0x08068E70) +8 bar draw and +0x10 end
+            "hook_pb_draw": (0x08068E78, 0x08054147), "hook_pb_end": (0x08068E80, 0x080541AB)}
 # function tails replaced by a B.W to a naked hook (stock bytes checked)
 TAIL_SITES = {"hook_pack_done": (0x08053E88, "012070bd")}
 # Arrhythmia 0.1 profiles: one switch per profile selects the ARM routing/UI (SYNTH), its hook sites and cmd 08;
@@ -211,10 +231,10 @@ OR_PROFILES = {
     "arrhythmia-firmware-arm-fm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                        version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7308)),
     # the timing bench's ARM: 7304 plus BENCH_METER_READ=1 (meter_read=1): cmd 08 is the restricted core-0 meter
-    # readout; BENCH ONLY, ARM-only label 7305, never a
-    # public or release build; EMULATION ONLY, never an image from here
+    # readout; BENCH ONLY, ARM-only label 7305, never a public or release build; EMULATION ONLY, never an image from
+    # here. FM_207 as 7304 (fm207=1), so 7305 stays exactly 7304 + the readout.
     "arrhythmia-core0-bankview-meter-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7305, bankview=1,
-                                                meter_read=1, version=[0, 0, 0, 7, 9, 0]),
+                                                fm207=1, meter_read=1, version=[0, 0, 0, 7, 9, 0]),
     # 0.2.1 candidate (not released): the two FM_207 profiles above plus CORE0_RECOVER=1 (recover=1; runtime
     # content-transfer recovery, patches/src/core0feed.c). New profiles, so that
     # 7304 and arrhythmia-firmware-arm-fm keep rebuilding the pinned 0.2 bytes; the same ARM-only base label 7304 and
@@ -225,6 +245,30 @@ OR_PROFILES = {
     "arrhythmia-firmware-arm-fm-recover": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
                                                fm207=1, recover=1, version=[0, 0, 0, 7, 9, 0],
                                                image=("arrhythmia-firmware", 7316)),
+    # Earlier public recovery profile naming image arrhythmia-firmware 7319, kept so that its pin still rebuilds;
+    # the ARM bytes are the same. EMULATION ONLY, never an image from here.
+    "arrhythmia-firmware-arm-fm-recover-m7": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                                  fm207=1, recover=1, version=[0, 0, 0, 7, 9, 0],
+                                                  image=("arrhythmia-firmware", 7319)),
+    # Release 0.2 public ARM profile: the same recovery defines, naming image arrhythmia-firmware 7323. Its own
+    # profile so that the earlier profiles keep their pins; the ARM bytes are the same. EMULATION ONLY, never an
+    # image from here.
+    "arrhythmia-firmware-arm-fm-recover-x4": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                                  fm207=1, recover=1, version=[0, 0, 0, 7, 9, 0],
+                                                  image=("arrhythmia-firmware", 7323)),
+    # 0.2.1 development line (not released): the 7323 / 7324 ARM profiles with BUILTIN_MODULE=0 (builtin=0, #4) and
+    # FB_MACRO1=1 (fb_macro1=1, #2: main macro 1 = feedback, synth page macro 1 = Tune): no
+    # built-in module in flash (host table word 3 is 0); paint ships as a card file (build/paint.mod from
+    # tools/build_module.py) and the picker shows card files from pad 0. New profiles, so that the 0.2 profiles keep
+    # their pins; ARM-only base label 7304. The public profile names image arrhythmia-firmware 7329; the gated twin
+    # (7330) gets the DEV_NOPLAY gate from the private bench profile tool (--dev021). EMULATION ONLY, never an image
+    # from here.
+    "arrhythmia-firmware-arm-021": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                        recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
+                                        version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7329)),
+    "arrhythmia-core0-bankview-arm-021": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                              fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1,
+                                              boot_pulse=1, version=[0, 0, 0, 7, 9, 0]),
     # OPTIONAL (separate commit, may be dropped): the recover profile plus CORE0_RECOVER_TIMING=1 (timing=1): ACK
     # latency and reinit duration counters, c_init_late (struct q0 block 0xD0, 0F reply 185 bytes); the rig
     # only; excluded from the public candidate source build.
@@ -247,9 +291,15 @@ OR_PROFILES = {
 }
 
 
+# BOOT_PULSE (0.2.1, #5): the pack-load progress object's (0x20000A8C) bar draw (+8) and end (+0x10), vtable 0x08068E70
+BP_HOOKS = ["hook_pb_draw", "hook_pb_end"]
+FAR_HOOKS = ["hook_se", "hook_seqstep", "hook_rec_on", "hook_rec_off0", "hook_rec_off1", "hook_rec_off2",
+             "hook_rec_rel", "hook_np", "hook_nv_obs", "hook_nv_obs8"]
+
+
 def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="none", scales=0, ad_blocks=None,
               dump_open=0, ad=0, core0=0, pad_poly=0, fm_patch=0, bankview=0, meter_read=0, fm207=0, legacy_fm206=0,
-              recover=0, timing=0):
+              recover=0, timing=0, builtin=1, fb_macro1=0, step_chords=0, boot_pulse=0):
     q0 = {0: 0, 1: 0x80, 2: 0xA0, 3: 0xA0, 4: 0xA0, 5: 0xA0}[core0]   # struct q0 block (devkit_abi3.c Q0_SIZE)
     fm = fm_patch or bankview                                          # FM_BANKVIEW implies FM_PATCH (arrhythmia.c)
     assert not legacy_fm206 or (bankview and not fm207), name
@@ -310,6 +360,21 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      + ("185 bytes with the OPTIONAL timing counters t_ack_max, t_init_max, t_init_last (ticks, "
                         "0xFFFE saturated, 0xFFFF incomplete) and c_init_late (CORE0_RECOVER_TIMING; struct q0 block "
                         "0xD0)" if timing else "173 bytes"))
+    if not builtin:
+        parts.append("no built-in module (BUILTIN_MODULE=0, 0.2.1): host table word 3 is 0; paint ships as a card "
+                     "file; numbered picker pads (NNname.MOD on pad NN, 01..32; the rest on the free pads), name-hash pad "
+                     "colours, Play always to the transport, Play LED blink while a clocked module waits (PICK_V2)")
+    if step_chords:
+        parts.append("track 8 step chords (STEP_CHORDS, 0.2.1): byte 6 key into the project's 31-shape table at T1 "
+                     "block + 0x298; Note view step entry adds / removes notes; one shared gate")
+    assert not boot_pulse or step_chords, name                        # the pulse line lives in the far blob
+    if boot_pulse:
+        parts.append("startup pulse line (BOOT_PULSE, 0.2.1, #5): during the boot pack load the pads show the ECG "
+                     "pulse line over the load progress (loaded pads dim green); stock otherwise")
+    if fb_macro1:
+        parts.append("track 8 main macro 1 is FM feedback at note start (FB_MACRO1, 0.2.1: channel parameter 6, "
+                     "stored 4..124, read as 0..127); the synth page's macro 1 is Tune (patch slot +4, codec 2 "
+                     "version 3, default 64); older slots convert once; new projects and Clear + macro 1: feedback 0")
     if meter_read:
         parts.append("BENCH ONLY: cmd 08 is the restricted core-0 meter readout (X:$5C00..$5E5F, 1..16 words, a 14-bit "
                      "nonce, the 0F idle rule and a deadline before every DSP word, no write; the general cmd 08 read is "
@@ -319,7 +384,10 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      "internal flash included, gets the refusal (13 bytes, no data)")
     floor = (0x2004F0E0 if synth else 0x2004F400) - (0x20 if scales else 0) - q0
     return {"src": "arrhythmia.c", "hooks": OR_HOOKS + (OR_A1_HOOKS if synth else []) + (OR_SCALES_HOOKS if scales else [])
-                      + (OR_AD_HOOKS if ad else []) + (OR_BANKVIEW_HOOKS if bankview else []),
+                      + (OR_AD_HOOKS if ad else []) + (OR_BANKVIEW_HOOKS if bankview else [])
+                      + (FAR_HOOKS if step_chords else []) + (BP_HOOKS if boot_pulse else []),
+            "far": dict(roots=FAR_HOOKS + (BP_HOOKS if boot_pulse else []),
+                        table=["far_chord", "far_col"] + (["far_pulse"] if boot_pulse else [])) if step_chords else None,
             "defines": [f"SYNTH={synth}", f"CMD08={cmd08}"] + (["A1_PATCH=1"] if a1_patch else [])
                        + (["SCALES=1"] if scales else []) + ([f"AD_BLOCKS={ad_blocks}u"] if ad_blocks else [])
                        + (["DUMP_ALLOW=0"] if dump_open else []) + (["AD_LIVE=1"] if ad else [])
@@ -330,7 +398,10 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                        + (["FM_BANKVIEW=1"] if bankview else []) + (["BENCH_METER_READ=1"] if meter_read else [])
                        + (["FM_207=1"] if fm207 else []) + (["CORE0_RECOVER=1"] if recover else [])
                        + (["CORE0_RECOVER_TIMING=1"] if timing else [])
-                       + (["LEGACY_FM206_ARM=1"] if legacy_fm206 else []),
+                       + (["LEGACY_FM206_ARM=1"] if legacy_fm206 else [])
+                       + ([] if builtin else ["BUILTIN_MODULE=0"])
+                       + (["FB_MACRO1=1"] if fb_macro1 else [])
+                       + (["STEP_CHORDS=1"] if step_chords else []) + (["BOOT_PULSE=1"] if boot_pulse else []),
             "profile": dict({"synth": synth, "cmd08": "meter windows" if cmd08 else "refused", "a1_patch": a1_patch,
                              "image": f"{image[0]} {image[1]}" if image else "none (emulation only)",
                              "dsp_layer": dsp}, **({"scales": 1} if scales else {}),
@@ -363,15 +434,31 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                             **({"core0_timing": "OPTIONAL: t_ack_max, t_init_max, t_init_last (ticks; 0xFFFE "
                                                 "saturated, 0xFFFF incomplete) and c_init_late in the 0F tail"}
                                if timing else {}),
-                            **({"meter_read": "bench only: cmd 08 = restricted core-0 meter readout X:$5C00..$5E5F"} if meter_read else {})),
+                            **({"meter_read": "bench only: cmd 08 = restricted core-0 meter readout X:$5C00..$5E5F"} if meter_read else {}),
+                            **({} if builtin else {"modules": "card only: no built-in module (host table word 3 = 0); "
+                                                              "numbered picker pads: NNname.MOD on pad NN - 1 (01..32), "
+                                                              "the other files on the free pads"}),
+                            **({"macro1": "track 8 main macro 1 = FM feedback (parameter 6, 4..124 -> 0..127); "
+                                          "synth page macro 1 = Tune (patch slot +4, codec 2 version 3)"}
+                               if fb_macro1 else {})),
             "version": version, "abi": 3, "heap_floor": f"0x{floor:08X}",
             "host_table": {"note": "host_note", "note_port": "host_note_port", "param": "host_param",
                            "ui": "host_ui", "midi": "host_midi"},
-            "module": "modules/paint.c",
+            **({"module": "modules/paint.c"} if builtin else {}),
             **({"probes": ["vc_tune_pitch"]} if core0 else {}),
             "extra": [{"addr": "0x080101CA", "expect": "4a16", "new": struct.pack("<H", label).hex(),
                        "note": f"build-info block: build number 5706 -> {label} (Arrhythmia 0.1 ARM-only base"
-                               + (f" of {image[0]} {image[1]}" if image else "") + "; emulation only, never flashed)"}],
+                               + (f" of {image[0]} {image[1]}" if image else "") + "; emulation only, never flashed)"}]
+                     # FB_MACRO1 (unit session 021): track 8's main macros 1 (feedback) and 4 (sustain) are levels,
+                     # unipolar. The stock knob light shows colours 0x121 (track 8 knob 1) and 0x124 (knob 4)
+                     # centred; both compares are pointed at track 7's centred knobs 0x119 / 0x11C, which the
+                     # compares just before already test, so only track 8's knobs 1 and 4 change (Tune stays centred
+                     # on the synth page, our own frame)
+                     + ([{"addr": "0x0803E9F4", "expect": "21", "new": "19",
+                          "note": "knob light: track 8 knob 1 (colour 0x121) unipolar (movw r2, #0x121 -> #0x119)"},
+                         {"addr": "0x0803E9FC", "expect": "92", "new": "8e",
+                          "note": "knob light: track 8 knob 4 (colour 0x124) unipolar (cmp.w r6, #0x124 -> #0x11c)"}]
+                        if fb_macro1 else []),
             "description": "; ".join(parts) + "."}
 
 
@@ -565,7 +652,7 @@ def bl(at, to):
     return hi.to_bytes(2, "little") + lo.to_bytes(2, "little")
 
 
-def main(target):
+def main(target, spec_dir="patches"):
     cfg = TARGETS[target]
     HOOKS = {h: SITES[h] for h in cfg["hooks"] if h in SITES}
     BWS = {h: BW_SITES[h] for h in cfg["hooks"] if h in BW_SITES}
@@ -579,9 +666,19 @@ def main(target):
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     os.chdir(root)
     image = open("build/circuit-rhythm-5706.bin", "rb").read()
+    far, far_abs = cfg.get("far"), {}
     with tempfile.TemporaryDirectory() as tmp:
         obj, text = os.path.join(tmp, "l.o"), os.path.join(tmp, "l.text")
         defs = [f"-D{d}" for d in cfg.get("defines", [])]
+        if far:                               # pass 1: the far blob; the main blob is compiled with its key
+            sys.path.insert(0, os.path.join(root, "tools"))
+            import farblob
+            fobj = os.path.join(tmp, "far.o")
+            subprocess.run(["clang", *CFLAGS, *defs, "-DFAR_PART=1", "-ffunction-sections", "-fdata-sections", "-c",
+                            "patches/src/" + cfg["src"], "-o", fobj], check=True)
+            far_blob, far_abs, far_key = farblob.link(open(fobj, "rb").read(), far["roots"], far["table"], FAR_AT)
+            assert FAR_AT + len(far_blob) <= FAR_END, f"far blob ends {FAR_AT + len(far_blob):#x}, past {FAR_END:#x}"
+            defs.append(f"-DFAR_KEY=0x{far_key:08X}u")
         subprocess.run(["clang", *CFLAGS, *defs, "-c", "patches/src/" + cfg["src"], "-o", obj], check=True)
         rel = subprocess.run(["llvm-readelf-21", "-r", obj], capture_output=True, text=True, check=True).stdout
         if ".rel.text" in rel:
@@ -606,6 +703,9 @@ def main(target):
         f = line.split()
         if len(f) >= 8 and f[7] in VTS | TAILS and f[3] == "FUNC":
             entry[f[7]] = int(f[1], 16) & ~1
+    for k in far["roots"] if far else ():      # far entries, as offsets from code_at like the others
+        assert k not in entry, f"{k} is in both blobs"
+        entry[k] = far_abs[k] - code_at
     assert set(entry) == set(HOOKS) | set(BWS) | set(VTS) | set(TAILS), entry
     probes = {}                               # emulator test entry points (internal functions; only profiles that ask)
     for line in syms.splitlines():
@@ -652,6 +752,10 @@ def main(target):
         assert image[at - BASE:at - BASE + 4] == bytes.fromhex(stock_hex), f"stock tail at {at:#x} not as expected"
         patches.append({"addr": f"0x{at:08X}", "expect": stock_hex,
                         "new": bw(at, code_at + entry[name]).hex(), "note": f"tail B.W -> {name}"})
+    if far:
+        patches.append({"addr": f"0x{FAR_AT:08X}", "expect": image[FAR_AT - BASE:FAR_AT - BASE + len(far_blob)].hex(),
+                        "new": far_blob.hex(), "note": f"far blob, {len(far_blob)} bytes (old core-0 window; key "
+                        f"0x{far_key:08X}; joined images only)"})
     patches += cfg.get("extra", [])
     spec = {
         "description": cfg["description"],
@@ -666,6 +770,11 @@ def main(target):
         spec["profile"] = cfg["profile"]
     if cfg.get("heap_floor"):
         spec["heap_floor"] = cfg["heap_floor"]
+    if far:
+        spec["far"] = {"addr": f"0x{FAR_AT:08X}", "end": f"0x{FAR_AT + len(far_blob):08X}", "limit": f"0x{FAR_END:08X}",
+                       "key": f"0x{far_key:08X}", "sha256": hashlib.sha256(far_blob).hexdigest(),
+                       "main_sha256": hashlib.sha256(code).hexdigest(),
+                       "entries": {k: f"0x{v:08X}" for k, v in far_abs.items()}}
     if probes:
         spec["probes"] = {k: f"0x{code_at + v:08X}" for k, v in probes.items()}        # heap limit after hook_boot (tests read it)
     if table:
@@ -673,13 +782,19 @@ def main(target):
         spec["exports"] = {k: f"0x{code_at + v:08X}" for k, v in exports.items()}
         if blob:
             spec["builtin_module"] = {"addr": f"0x{builtin:08X}", "size": len(blob), "src": cfg["module"]}
-    json.dump(spec, open(f"patches/{target}.json", "w"), indent=2)
+    json.dump(spec, open(os.path.join(spec_dir, f"{target}.json"), "w"), indent=2)   # --spec-dir: tests write under build/
     print(f"code {len(code)} bytes at 0x{CODE_AT:08X}; entries " +
           ", ".join(f"{k}=0x{code_at + v:08X}" for k, v in entry.items()))
     if table:
         print(f"patch area 0x{CODE_AT:08X}-0x{CODE_AT + len(code):08X}: {len(code)} of {FREE_END - CODE_AT} free "
               f"bytes used" + (f"; built-in module at 0x{builtin:08X} ({len(blob)} bytes)" if blob else ""))
+    if far:
+        print(f"far blob 0x{FAR_AT:08X}-0x{FAR_AT + len(far_blob):08X}: {len(far_blob)} of {FAR_END - FAR_AT} bytes")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "lightshow-glitter")
+    av = sys.argv[1:]
+    sd = av[av.index("--spec-dir") + 1] if "--spec-dir" in av else "patches"   # where the spec goes (default: patches/)
+    av = [a for i, a in enumerate(av) if a != "--spec-dir" and (i == 0 or av[i - 1] != "--spec-dir")]
+    os.makedirs(sd, exist_ok=True)
+    main(av[0] if av else "lightshow-glitter", sd)

@@ -182,7 +182,13 @@ static inline int32_t syn_patch_get(const volatile uint8_t *p, uint32_t off)
 #if FM_BANKVIEW                         /* version 2 (label 7304): bytes +2 and +3 reserved (family and algorithm are track
                                            8's sample slot, channel parameter 0); version 1 is converted once at load or
                                            boot (notetap.c ad_preapply / ad_boot_default) and reads as unknown until then */
+#if defined(FB_MACRO1) && FB_MACRO1      /* version 3 (0.2.1): +4 is Tune (default 64); feedback is channel
+                                           parameter 6 (main macro 1). Codec 1 and versions 1 and 2 convert once
+                                           (notetap.c ad_fb_convert) and read as unknown until then */
+#define SYN_PATCH_FM_VERSION 3u
+#else
 #define SYN_PATCH_FM_VERSION 2u
+#endif
 #define FM_SLOTS   (FM_BANKS * FM_ALGOS)   /* valid slots 0..31: page 0 serial4 families, page 1 dual_stack families */
 #else
 #define SYN_PATCH_FM_VERSION 1u
@@ -193,6 +199,7 @@ static inline int32_t syn_patch_get(const volatile uint8_t *p, uint32_t off)
 #define SF_MA      5u
 #define SF_MD      6u
 #define SF_MF      7u
+#define SF_TUNE    SF_FB                /* FB_MACRO1 (version 3): the field holds Tune */
 #define SF_FIELDS  6u                   /* fields SF_ALGO .. SF_MF */
 enum { SYN_FM_SUB = SYN_UNKNOWN + 1 };  /* codec 1 in the slot: FM defaults; the first FM edit converts it */
 
@@ -213,6 +220,28 @@ static inline uint32_t syn_fm_v1(const volatile uint8_t *p)
 }
 #endif
 
+#if defined(FB_MACRO1) && FB_MACRO1
+/* A slot of 0.2.0 or older that FB_MACRO1 converts once: codec 1, or codec 2 version 1 or 2. */
+static inline uint32_t syn_fm_old(const volatile uint8_t *p)
+{
+    return (p[SP_CODEC] == SYN_PATCH_SUB && p[SP_VERSION] == SYN_PATCH_VERSION)
+        || (p[SP_CODEC] == SYN_PATCH_FM && (p[SP_VERSION] == 1u || p[SP_VERSION] == 2u));
+}
+
+/* Main macro 1 (channel parameter 6, stored 4..124) <-> feedback 0..127; 0 <-> 4 and 127 <-> 124 exactly. */
+#define FB_P6_LO   4u
+static inline uint32_t syn_fb_of_p6(uint32_t v)
+{
+    v = v < FB_P6_LO ? FB_P6_LO : v > 124u ? 124u : v;
+    return ((v - FB_P6_LO) * 127u + 60u) / 120u;
+}
+
+static inline uint32_t syn_p6_of_fb(uint32_t fb)
+{
+    return FB_P6_LO + ((fb > 127u ? 127u : fb) * 120u + 63u) / 127u;
+}
+#endif
+
 /* {max, default} of an FM field (the minimum is 0 for all) */
 static inline int32_t syn_fm_lim(uint32_t off, uint32_t which)
 {
@@ -220,7 +249,11 @@ static inline int32_t syn_fm_lim(uint32_t off, uint32_t which)
     switch (off) {
     case SF_ALGO: hi = (int32_t)FM_ALGOS - 1; def = FM_DEF_ALGO; break;
     case SF_BANK: hi = (int32_t)FM_BANKS - 1; def = FM_DEF_BANK; break;
+#if defined(FB_MACRO1) && FB_MACRO1
+    case SF_FB:   def = 64; break;        /* Tune: 64 = no offset */
+#else
     case SF_FB:   def = FM_DEF_FB; break;
+#endif
     case SF_MA:   def = FM_DEF_MA; break;
     case SF_MD:   def = FM_DEF_MD; break;
     default:      def = FM_DEF_MF; break;

@@ -503,7 +503,15 @@ static void pg_leds(struct state *s)
     volatile struct pg *g = PG;
 #if FM_BANKVIEW                             /* the single view: knob lights 1, 4, 57, 60 (macros 1..4, green); Up and
                                                Down dark (no other view) */
+#if FB_MACRO1                               /* macro 1 is Tune: centred like the stock tune light (dim at 64, full
+                                               at 0 and 127) */
+    {
+        int32_t tu = syn_fm_get(pat, SF_TUNE);
+        s->leds[1] = (uint8_t)(((tu < 64 ? 63 - tu : tu - 64) << 1) & 0x7E);
+    }
+#else
     s->leds[1] = (uint8_t)(syn_fm_get(pat, SF_FB) & 0x7E);
+#endif
     s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
     s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
     s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);

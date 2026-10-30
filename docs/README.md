@@ -11,6 +11,7 @@ firmware file on your own computer. No Novation code or firmware is included in 
   checking, switching images, going back to stock and troubleshooting.
 * [user/synth.md](user/synth.md): the track 8 FM synth, its settings and its known issues.
 * [user/scales.md](user/scales.md): scales on tracks 1 to 7.
+* [user/modules.md](user/modules.md): the modules on the microSD card: copy, start, stop, and the controls of each.
 * [../RELEASE-NOTES-0.2.0.md](../RELEASE-NOTES-0.2.0.md): the 0.2 release notes: changes since 0.1.1, test status, known issues.
 * [../RELEASE-NOTES-0.1.1.md](../RELEASE-NOTES-0.1.1.md): the 0.1.1 release notes: the two builds, what was tested, known limitations.
 * [../RELEASE-NOTES-0.1.0.md](../RELEASE-NOTES-0.1.0.md): the 0.1.0 release notes.
@@ -27,8 +28,9 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## Rebuilding the images
 
-`release/v0.2.0.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
-installer and embeds it. `release/v0.1.1.json` and `release/v0.1.0.json` are the earlier releases.
+`release/v0.2.1.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
+installer and embeds it. `release/v0.2.0.json`, `release/v0.1.1.json` and `release/v0.1.0.json` are the earlier
+releases.
 
 The 0.2 ARM source and the FM DSP source are published. With the official firmware 5706 file as the only firmware input, the complete 0.2 firmware image 7323
 rebuilds from this tree on the checked Linux toolchain. The ARM part builds from `patches/src/`. The DSP part (the FM
@@ -75,6 +77,23 @@ Everything below needs the official firmware 5706 `.syx` file (see [user/install
    [line assembler build instructions](../tools/dspvoice/toolchain/README.md#dsp-line-assembler). This needs Git,
    CMake and a C++17 compiler; obtaining the pinned dependencies uses the network. Generated streams and images
    contain material derived from the official file and must stay local.
+
+6. arrhythmia-firmware 0.2.1 image 7329. After step 1, build
+   the 0.2.1 ARM part (label 7304, without its DSP code, no built-in module), then join it with the same DSP streams
+   as 7323:
+
+   ```sh
+   python3 -I tools/build_lightshow.py arrhythmia-firmware-arm-021 --spec-dir build
+   python3 -I tools/patch.py build/arrhythmia-firmware-arm-021.json build/arrhythmia-firmware-arm-021-7304
+   python3 -I tools/dspvoice207rel/build.py --stock firmware/circuit-rhythm-5706.syx --assembler build/dspvoice-toolchain/dspasm --arm-image build/arrhythmia-firmware-arm-021-7304.bin --out build/arrhythmia-7329-source
+   ```
+
+   `build/arrhythmia-firmware-arm-021-7304.bin` must have the SHA-256
+   `d3ab9200c857eb6abb070ebf9424c26611ddd117c70beba77325cfd84166eb24`. The `.syx` must have the SHA-256
+   `f756c03a71039ba3edd248d53232f9bac24367a4cf800fe6ffd9b8d00fb15251` and the decoded image
+   `10939096414b70a25d2e5bdc6d593df4e56563b9abdc9d9870c88d3542fb3619`. The DSP streams are the streams of step 5.
+   The 0.2.1 ARM part puts part of its code (the far blob, 0x0801B000 to 0x0801C718) in flash that the old stock
+   core-0 stream used. The join accepts ARM changes in that range only.
 
 ### Rebuild the 0.1.1 firmware image 7261
 

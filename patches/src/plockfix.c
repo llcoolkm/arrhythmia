@@ -82,7 +82,7 @@ struct plx {
     uint8_t raw0[8];                          /* while lane 0 is held: the page's raw position for the base,
                                                  0xFF unset (the page then reads the value) */
     uint32_t page[8];                         /* track t's macro page, as last seen by hook_macro (0 = not yet) */
-    uint8_t pad[8];
+    uint8_t pad[8];                           /* STEP_CHORDS: the far blob's record accumulator (notetap.c) */
 };
 _Static_assert(sizeof(struct plx) <= PLX_SIZE && PLX_AT + PLX_SIZE == TM_AT, "struct plx: the block below struct tm");
 #define PLX ((struct plx *)PLX_AT)
@@ -254,7 +254,11 @@ static void pl_capture(struct plk *p, uint32_t E, uint32_t t, uint32_t k, uint32
 #define AD_CLR_T        7u              /* track 8 */
 #if defined(FM_BANKVIEW) && FM_BANKVIEW && !LEGACY_FM206_ARM
 #define AD_CLR_M6       96u             /* track 8 macro 6 (FM depth) default: matches AD_M6_NEW (notetap.c) */
+#if FB_MACRO1
+#define AD_CLR_KNOB(k)  ((k) == 0 || (k) == 2 || (k) == 5)
+#else
 #define AD_CLR_KNOB(k)  ((k) == 2 || (k) == 5)
+#endif
 static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
 {
     uint32_t E;
@@ -264,6 +268,10 @@ static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
         return id == 16u * AD_CLR_T + 2u ? 64u : 0u;
     if (v == 0u && id == 16u * AD_CLR_T + 5u)
         return AD_CLR_M6;
+#if FB_MACRO1                                 /* macro 1 is feedback: Clear gives feedback 0 (stored 4), not Tune 64 */
+    if (v == 64u && id == 16u * AD_CLR_T)
+        return 4u;
+#endif
     return v;
 }
 #else
@@ -386,6 +394,10 @@ uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
     uint32_t r = pl_macro(page, k, delta, d);
     if (arm)
         p->ad_clr = 0;
+#if FB_MACRO1
+    if (arm && k == 0)                        /* the page's cached raw position follows the cleared value */
+        *(volatile uint8_t *)(page + 0x4E) = 4u;
+#endif
     return r;
 }
 #endif
