@@ -33,6 +33,7 @@ Conventions:
 | `0D` | `0D` | `<fault> <last site> <timeouts 3x7> <site mask 2x7> <refused 3x7> <late 3x7> <pack failed>` (22 bytes) | DSP fault report | HW |
 | `0E` | `0E 00` status, `0E 01 scale root bits` set | `<sub> <status> <why> <sc> <scale> <root> <bits> <applied>` (16 bytes) | scales for tracks 1 to 7 | HW |
 | `0F` | `0F` followed by a required nonce; format not published | counters; format not published | diagnostic report, read-only (arrhythmia-firmware 0.2). A request without a valid nonce gets no reply | HW |
+| `10` | `10 sub ...` (see the header of `patches/src/cardwrite.c`) | `sub <answer> <state> <job> <result> <fr> <got 3x7> <size 3x7> <info 5x7> <count>` (26 bytes); `10 06 i`: `06 i <12 ASCII bytes> <size 3x7>` | module files on the microSD card: write (staged, CRC- and header-checked, written in Main-loop steps through a temporary file, read back), delete, verify, list. Development profile `arrhythmia-firmware-arm-cardwrite` only (CARD_WRITE) | DESIGN |
 | `7D` | `7D a4 a3 a2 a1 a0` | `<addr 5x7> <64 nibbles>`, or `<addr 5x7>` alone when refused | read 32 bytes of module ITCM | HW |
 | `7E` | `7E` | `<limit 5x7> <cursor 5x7>` | heap limit and cursor | DESIGN |
 | `7F` | `7F` | `<mode> <ok> <cursor 5x7> <frames 4x7> <module>` (20 bytes) | status | HW |

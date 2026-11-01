@@ -531,6 +531,71 @@ def test_dspvoice207_named_closure():
                'private-path', 'tools/dspvoice207/build.py')
 
 
+def module_blob(size, seed):
+    """A synthetic module that passes tools/build_module.py check."""
+    import struct
+    import zlib
+    r = random.Random(seed)                                        # not 1: IMAGE uses Random(1)
+    b = bytearray(r.randrange(256) for _ in range(size))
+    struct.pack_into("<6I", b, 0, 0x314D5243, size, 0, 0, 24 | 1, 0)
+    struct.pack_into("<I", b, 8, zlib.crc32(bytes(b)))
+    return bytes(b)
+
+
+def test_web_modules():
+    page = b"<script>const PUBLISHED = ['01aa.mod', '02bb.mod'];</script>\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = make_repo(tmp, {"web/modules.html": page})
+        mods = Path(tmp) / "assets"
+        mods.mkdir()
+        want = {"01aa.mod": module_blob(300, 101), "02bb.mod": module_blob(1000, 102)}
+        for n, b in want.items():
+            (mods / n).write_bytes(b)
+        (mods / "03cc.mod").write_bytes(module_blob(100, 103))       # not on the page: left out
+        (mods / "v9.json").write_text("{}")
+        files, _ = run(tmp, repo, web_modules=mods)
+        out = Path(tmp) / "out"
+        got = sorted(p for p in files if p.startswith("web/modules/"))
+        assert got == ["web/modules/01aa.mod", "web/modules/02bb.mod"], got
+        assert sorted(p.name for p in (out / "web/modules").iterdir()) == ["01aa.mod", "02bb.mod"]
+        for n, b in want.items():
+            assert (out / "web/modules" / n).read_bytes() == b
+        _, logs = run(tmp, repo, Path(tmp) / "out1")                # without --web-modules: a note, no folder
+        assert any("without --web-modules" in line for line in logs), logs
+        assert not (Path(tmp) / "out1/web/modules").exists()
+        (mods / "02bb.mod").unlink()                                # a listed file is missing: nothing written
+        try:
+            run(tmp, repo, Path(tmp) / "out2", web_modules=mods)
+        except ep.Refused:
+            pass
+        else:
+            raise AssertionError("accepted a missing module")
+        assert not (Path(tmp) / "out2").exists()
+        (mods / "02bb.mod").write_bytes(b"CRM1 not a module")      # not a valid module: refused
+        try:
+            run(tmp, repo, Path(tmp) / "out3", web_modules=mods)
+        except ep.Refused:
+            pass
+        else:
+            raise AssertionError("accepted an invalid module")
+        (mods / "02bb.mod").write_bytes(IMAGE[0x600:0x600 + 64])   # Novation bytes: refused by the byte scan
+        logs = []
+        try:
+            ep.export(repo, Path(tmp) / "out4", firmware_dirs=[Path(tmp) / "fw"],
+                      bootloader_paths=[Path(tmp) / "boot.bin"], allow=SCAN_ALLOW, log=logs.append, web_modules=mods)
+        except ep.Refused:
+            pass
+        assert any("web/modules/02bb.mod: novation-bytes" in line for line in logs), logs
+    assert ep.page_modules(page.decode()) == ["01aa.mod", "02bb.mod"]
+    for bad in ("no list", "const PUBLISHED = ['A.MOD'];", "const PUBLISHED = ['a.mod', 'a.mod'];",
+                "const PUBLISHED = [];"):
+        try:
+            ep.page_modules(bad)
+        except ep.Refused:
+            continue
+        raise AssertionError(bad)
+
+
 def main():
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

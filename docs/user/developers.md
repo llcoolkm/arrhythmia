@@ -1,7 +1,7 @@
-# Arrhythmia modules for developers
+# Circus Arrhythmia FM modules for developers
 
-Applies to Arrhythmia 0.2.1 (arrhythmia-firmware build 7329 and arrhythmia-devkit build 7228,
-unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.2.1.md). For the 0.1.1
+Applies to Circus Arrhythmia FM 0.2.2 (firmware build 7339 and arrhythmia-devkit build 7228,
+unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.2.2.md). For the 0.1.1
 image 7261, see the [0.1.1 release notes](../../RELEASE-NOTES-0.1.1.md). Modules are a developer feature: most users never
 need them.
 
@@ -27,7 +27,7 @@ Modules are why Arrhythmia has an interface at all: they let your own code work 
 
 Both images have the module loader, the SD card picker, the development SysEx commands and ABI 3 (below).
 
-| | arrhythmia-firmware (build 7329) | arrhythmia-devkit (build 7228) |
+| | arrhythmia-firmware (build 7339) | arrhythmia-devkit (build 7228) |
 |---|---|---|
 | Modules, picker, ABI 3 | yes | yes |
 | Picker layout | numbered pads (`NNname.mod` on pad NN), no built-in module | built-in paint on pad 1, card files on pads 2 to 32 |
@@ -38,9 +38,9 @@ Both images have the module loader, the SD card picker, the development SysEx co
 | P-lock fix, DSP fault report (SysEx 0D) | yes | yes |
 
 Install either with the same installer (see [install.md](install.md)). The two have different build numbers, so
-switching always installs. Both are released in 0.2.1 and pinned by their SHA-256 (see the
-[release notes](../../RELEASE-NOTES-0.2.1.md#install)). The test status of arrhythmia-firmware 7329 is in the
-[release notes](../../RELEASE-NOTES-0.2.1.md#test-status). arrhythmia-devkit 7228 is unchanged from 0.1.0.
+switching always installs. Both are released in 0.2.2 and pinned by their SHA-256 (see the
+[release notes](../../RELEASE-NOTES-0.2.2.md#install)). The test status of arrhythmia-firmware 7339 is in the
+[release notes](../../RELEASE-NOTES-0.2.2.md#test-status). arrhythmia-devkit 7228 is unchanged from 0.1.0.
 It was not tested on hardware; a development build that differs from it only in the scales code and the build
 number had a short hardware test (install, version reply, no DSP fault, SysEx 7D restriction, DSP load meter read),
 with no listening or stress test. Deliberate DSP fault containment is not tested in either image.
@@ -123,7 +123,7 @@ arrhythmia-firmware every SysEx 08 gets that refusal.
   pass are not seen as STOP and START; resync from the pulse index.
 * Stopping, restarting or replacing the module, or `frame` returning 0, turns its clock off; the next start begins
   stopped. A module that ends gets no STOP.
-* A module that only follows Play and Stop needs no `input` entry. In arrhythmia-firmware 7329, Play always reaches
+* A module that only follows Play and Stop needs no `input` entry. In arrhythmia-firmware 7339, Play always reaches
   the transport; a module with `input` also receives the Play events. It must not use Play as its own control.
   In the unchanged devkit 7228, an owning module receives Play instead of the transport.
 
@@ -140,7 +140,7 @@ with `clock` gets a `CRM2` header, any other module a `CRM1` header. The file is
 
 From the microSD card:
 
-The picker layout and colours below apply to arrhythmia-firmware 7329. The unchanged devkit 7228 has built-in
+The picker layout and colours below apply to arrhythmia-firmware 7339. The unchanged devkit 7228 has built-in
 paint on pad 1 and up to 31 card files on pads 2 to 32, with its earlier picker layout.
 
 1. Power the unit off and take the card out. The unit's USB drive does not show the card, so use a card reader.
@@ -159,7 +159,7 @@ The loader only reads the card. It never writes to it and never touches the unit
 Naming: a file is listed when its 8.3 short name ends in `.MOD`; plain 8.3 names are best. A long name such as
 `My Paint.mod` also works and appears under its short name (for example `MYPAIN~1.MOD`).
 
-Numbered pads (arrhythmia-firmware 7329): a file `NNname.mod`, with NN = `01` to `32`, goes on pad NN. Pad 1 is top left, pads 1 to 8
+Numbered pads (arrhythmia-firmware 7339): a file `NNname.mod`, with NN = `01` to `32`, goes on pad NN. Pad 1 is top left, pads 1 to 8
 are the first row. The name part is at most 6 characters, so that the name stays 8.3. Pads that have no file stay
 dark. If two files have the same number, the one with the lowest name gets the pad. The other files with that number
 and every file without a number (`00`, `33` to `99` and one digit count as no number) go on the free pads, lowest pad first, in name order.
@@ -171,12 +171,12 @@ Colours: each pad has a colour from its name (a hash of the name part, without t
 orange, yellow, lime, green, mint, cyan, sky, blue, violet, magenta, pink. If an earlier pad has that colour, the pad
 gets the next colour that is free, until all 11 are used. Red means a failed file; the pad that loads blinks white.
 
-In arrhythmia-firmware 7329, Play always goes to the unit's transport, in the picker and while a module runs.
+In arrhythmia-firmware 7339, Play always goes to the unit's transport, in the picker and while a module runs.
 A module that owns the controls also gets the Play button event. While a module with a clock entry waits for
 START, the Play button blinks dim green.
 
 Before 0.2.1, arrhythmia-firmware had a built-in module (paint) on pad 1, and pads 2 to 32 showed up to 31 card files.
-In arrhythmia-firmware 7329, there is no built-in module. Paint is a card file, `01paint.mod`, in the release files.
+In arrhythmia-firmware 7339, there is no built-in module. Paint is a card file, `01paint.mod`, in the release files.
 The unchanged devkit 7228 keeps its built-in paint.
 Folders, hidden and system files, and files outside 26 bytes to 15 KB are skipped. A module in fast RAM starts only
 if it was loaded since power-on.
@@ -198,7 +198,7 @@ The host table sits at the fixed flash address `0x0806A570`. Check it before cal
 | 0 | magic `'CRH1'` (0x31485243) |
 | 1 | ABI version: 3 in Arrhythmia 0.1 |
 | 2 | `host_note` |
-| 3 | address of the built-in module; 0 in arrhythmia-firmware 7329; devkit 7228 keeps built-in paint |
+| 3 | address of the built-in module; 0 in arrhythmia-firmware 7339; devkit 7228 keeps built-in paint |
 | 4 | `host_note_port` |
 | 5 | `host_param` |
 | 6 | `host_ui` |

@@ -1211,11 +1211,28 @@ enum { FAR_CHORD, FAR_COL,
 #if BOOT_PULSE
        FAR_PULSE,
 #endif
+#if CARD_WRITE
+       FAR_CW_SYSEX, FAR_CW_MAIN,
+#endif
+#if PG_NAV
+       FAR_PGLEDS,
+#endif
        FAR_N };
 __attribute__((noinline)) static uint32_t far_call(uint32_t i, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
     volatile uint32_t *h = (volatile uint32_t *)FAR_AT;
     return h[0] == FAR_MAGIC && h[1] == FAR_KEY && h[2] == FAR_N ? ((fn4_t)h[4 + i])(a, b, c, d) : 0;
+}
+#endif
+
+#if PG_NAV
+/* hook_frame (UI task, under the suspension), the synth page open: its lights from the far blob (synthpage.c
+ * far_pgleds); without the far blob (an ARM-only image) a dark frame. */
+static void pg_frame(struct state *s, uint32_t *src, uint32_t flag)
+{
+    if (!far_call(FAR_PGLEDS, (uint32_t)s, (uint32_t)src, flag, 0))
+        for (uint32_t i = 0; i < LEDS; i++)
+            s->leds[i] = 0;
 }
 #endif
 

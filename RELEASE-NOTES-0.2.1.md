@@ -1,6 +1,6 @@
-# Arrhythmia 0.2.1 release notes
+# Circus Arrhythmia FM 0.2.1 release notes
 
-Arrhythmia is custom firmware for the Novation Circuit Rhythm. It ships as a patcher: you apply it to your own copy of
+Circus Arrhythmia FM is custom firmware for the Novation Circuit Rhythm. It ships as a patcher: you apply it to your own copy of
 the official firmware file on your own computer, then send the result to the unit. No Novation firmware is included.
 
 Arrhythmia is not affiliated with or endorsed by Novation or Focusrite. The device name says only which hardware this

@@ -1,10 +1,10 @@
-<p align="center"><img src="docs/img/arrhythmia-logo.png" alt="Arrhythmia FM logo: an anatomical heart beside the word Arrhythmia under a red, irregular heartbeat line, over a pink sunset, a neon grid and palm trees, with chrome letters FM" width="700"></p>
+<p align="center"><img src="docs/img/arrhythmia-logo.png" alt="Circus Arrhythmia FM logo" width="700"></p>
 
-# Arrhythmia
+# Circus Arrhythmia FM
 
-Arrhythmia is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds new functions.
+Circus Arrhythmia FM is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds new functions.
 
-Current release: **0.2.1**. The changes are in the [release notes](RELEASE-NOTES-0.2.1.md).
+Current release: **0.2.2**. The changes are in the [release notes](RELEASE-NOTES-0.2.2.md).
 The [principles](docs/user/principles.md) give the objectives of the project.
 
 Arrhythmia is not affiliated with Novation or Focusrite. Novation and Focusrite do not endorse Arrhythmia.
@@ -49,15 +49,20 @@ The synthesizer functions are in arrhythmia-firmware only.
 * **Full envelope and tone controls (new in 0.2).** On track 8, macros 1 to 8 set tune, attack, decay, sustain,
   release, FM depth, filter cutoff and resonance. MIDI CC 21 to 28 and parameter locks operate on all eight
   ([macros](docs/user/synth.md#macros-on-track-8)).
-* **FM feedback and modulator envelope (new in 0.2).** On the synth page, macros 1 to 4 set feedback, modulator
-  attack, modulator decay and modulator floor.
+* **FM feedback and modulator envelope (new in 0.2).** On the synth page, macros 1 to 4 set tune, modulator
+  attack, modulator decay and modulator floor. Feedback is macro 1 of track 8 (since 0.2.1).
+* **Synth page as a view (new in 0.2.2).** Shift + Track 8 opens the synth page. Up and Down show its two pages:
+  chords, and scales with their tracks and key. A view or track button closes the page and does its normal
+  function. Clear + macro sets the default of that macro ([synth page](docs/user/synth.md#the-synth-page)).
 * **Chords on track 8.** Each pad and each sequencer step plays 1 to 4 notes. With 1 note per press and poly on,
   held pads sound together (new in 0.2).
 * **MIDI polyphony on track 8.** MIDI notes on the channel of track 8 play on the synthesizer.
-* **Scales on tracks 1 to 7.** The Note view can use one of ten scales ([scales](docs/user/scales.md)).
+* **Scales on tracks 1 to 7.** The Note view can use one of eight scales (ten in arrhythmia-devkit) ([scales](docs/user/scales.md)).
 * **Modules.** Small programs on the microSD card can control the pads, lights, notes and MIDI. The release has 10 modules:
   paint, games, a light show and modules that play notes ([modules](docs/user/modules.md)). To write your own, see
   [developers](docs/user/developers.md).
+* **Module files over USB (new in 0.2.2).** The module files web page writes, replaces and deletes module files on
+  the microSD card. You do not need a card reader ([add modules with the web page](docs/user/modules.md#add-modules-with-the-web-page)).
 
 ## Limits
 
@@ -80,7 +85,7 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 | Image | For | Contents |
 |---|---|---|
-| **arrhythmia-firmware** (build 7329) | users | FM synthesizer, scales, bug fixes, modules |
+| **arrhythmia-firmware** (build 7339) | users | FM synthesizer, scales, bug fixes, modules |
 | **arrhythmia-devkit** (build 7228, unchanged from 0.1.0) | developers | DSP load meter, module tools, scales, bug fixes. No synthesizer. |
 
 If you are not sure, install **arrhythmia-firmware**.

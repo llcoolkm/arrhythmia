@@ -516,6 +516,9 @@ void hook_encode(void *frame, uint32_t *src)
         leds[LED_FAULT + 1] = v;
         leds[LED_FAULT + 2] = v;
     }
+#if PG_NAV
+    pg_shift_light(region(), src);            /* synthpage.c: Track 8 lit while Shift is held (issue #29) */
+#endif
     STOCK_ENCODE(frame, src);
 }
 

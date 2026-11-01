@@ -266,9 +266,34 @@ OR_PROFILES = {
     "arrhythmia-firmware-arm-021": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                         recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
                                         version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7329)),
+    # Synth page navigation (PG_NAV, not released): the 0.2.1 public ARM profile plus synthnav=1 (the page as a
+    # stock-like view: Up / Down pages, other buttons leave, Clear + macro defaults, eight scales and the per-track
+    # scale toggles on the scale page). A new profile, so that arrhythmia-firmware-arm-021 keeps its bytes; ARM-only base label 7304;
+    # no image. EMULATION ONLY, never an image from here.
+    "arrhythmia-firmware-arm-synthnav": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                             fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
+                                             synthnav=1, version=[0, 0, 0, 7, 9, 0]),
     "arrhythmia-core0-bankview-arm-021": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
                                               fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1,
                                               boot_pulse=1, version=[0, 0, 0, 7, 9, 0]),
+    # Development (not released): the public 0.2.1 profile plus CARD_WRITE=1 (card_write=1): SysEx cmd 10 writes,
+    # deletes, verifies and lists module files in 1:/MODULES (patches/src/cardwrite.c, in the far blob). New profile,
+    # so that the 0.2.1 profiles keep their pins; ARM-only base label 7304, no image. EMULATION ONLY, never an image
+    # from here.
+    "arrhythmia-firmware-arm-cardwrite": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                              fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1,
+                                              boot_pulse=1, card_write=1, version=[0, 0, 0, 7, 9, 0]),
+    # Release candidate after 0.2.1 (not released): the 0.2.1 public ARM profile plus both the card writer
+    # (card_write=1, CARD_WRITE) and the synth page navigation (synthnav=1, PG_NAV): 0.2.2. The public profile names
+    # image arrhythmia-firmware 7339 (0.2.2; the rc pair 7337 / 7338 named 7337 at its registration commit); the gated
+    # twin arrhythmia-core0-rc-arm (7340) gets the DEV_NOPLAY gate from the private bench profile tool (--rc). Both join
+    # the -4 dB core-0 stream (core0_benchstack.py TRIM_207_REL022).
+    "arrhythmia-firmware-arm-rc": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                       recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
+                                       synthnav=1, version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7339)),
+    "arrhythmia-core0-rc-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                    recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
+                                    synthnav=1, version=[0, 0, 0, 7, 9, 0]),
     # OPTIONAL (separate commit, may be dropped): the recover profile plus CORE0_RECOVER_TIMING=1 (timing=1): ACK
     # latency and reinit duration counters, c_init_late (struct q0 block 0xD0, 0F reply 185 bytes); the rig
     # only; excluded from the public candidate source build.
@@ -299,7 +324,7 @@ FAR_HOOKS = ["hook_se", "hook_seqstep", "hook_rec_on", "hook_rec_off0", "hook_re
 
 def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="none", scales=0, ad_blocks=None,
               dump_open=0, ad=0, core0=0, pad_poly=0, fm_patch=0, bankview=0, meter_read=0, fm207=0, legacy_fm206=0,
-              recover=0, timing=0, builtin=1, fb_macro1=0, step_chords=0, boot_pulse=0):
+              recover=0, timing=0, builtin=1, fb_macro1=0, step_chords=0, boot_pulse=0, card_write=0, synthnav=0):
     q0 = {0: 0, 1: 0x80, 2: 0xA0, 3: 0xA0, 4: 0xA0, 5: 0xA0}[core0]   # struct q0 block (devkit_abi3.c Q0_SIZE)
     fm = fm_patch or bankview                                          # FM_BANKVIEW implies FM_PATCH (arrhythmia.c)
     assert not legacy_fm206 or (bankview and not fm207), name
@@ -371,10 +396,22 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
     if boot_pulse:
         parts.append("startup pulse line (BOOT_PULSE, 0.2.1, #5): during the boot pack load the pads show the ECG "
                      "pulse line over the load progress (loaded pads dim green); stock otherwise")
+    assert not card_write or step_chords, name                        # the writer lives in the far blob
+    if card_write:
+        parts.append("module files on the microSD card over SysEx (CARD_WRITE, development, emulation only): cmd 10 "
+                     "stages a module in ITCM (CRC and header checked), then the Content task writes 1:/MODULES/"
+                     "_UPLOAD.TMP, reads it back, and renames it to NAME.MOD; delete, verify and list too "
+                     "(patches/src/cardwrite.c, far blob)")
     if fb_macro1:
         parts.append("track 8 main macro 1 is FM feedback at note start (FB_MACRO1, 0.2.1: channel parameter 6, "
                      "stored 4..124, read as 0..127); the synth page's macro 1 is Tune (patch slot +4, codec 2 "
                      "version 3, default 64); older slots convert once; new projects and Clear + macro 1: feedback 0")
+    assert not synthnav or (fb_macro1 and bankview and scales and synth and step_chords), name   # PG_NAV (arrhythmia.c)
+    if synthnav:
+        parts.append("synth page as a stock-like view (PG_NAV): Up / Down page between chord and scale (row 1 eight "
+                     "scales, row 2 Track 1..7 scaled, rows 3-4 key); stored Phrygian / Lydian play as natural minor / "
+                     "major; every other button but Play, Rec, Shift and Clear leaves the page and reaches the stock "
+                     "UI; Clear + page macro 1..4 sets its default")
     if meter_read:
         parts.append("BENCH ONLY: cmd 08 is the restricted core-0 meter readout (X:$5C00..$5E5F, 1..16 words, a 14-bit "
                      "nonce, the 0F idle rule and a deadline before every DSP word, no write; the general cmd 08 read is "
@@ -387,7 +424,9 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                       + (OR_AD_HOOKS if ad else []) + (OR_BANKVIEW_HOOKS if bankview else [])
                       + (FAR_HOOKS if step_chords else []) + (BP_HOOKS if boot_pulse else []),
             "far": dict(roots=FAR_HOOKS + (BP_HOOKS if boot_pulse else []),
-                        table=["far_chord", "far_col"] + (["far_pulse"] if boot_pulse else [])) if step_chords else None,
+                        table=["far_chord", "far_col"] + (["far_pulse"] if boot_pulse else [])
+                        + (["far_cw_sysex", "far_cw_main"] if card_write else [])
+                        + (["far_pgleds"] if synthnav else [])) if step_chords else None,
             "defines": [f"SYNTH={synth}", f"CMD08={cmd08}"] + (["A1_PATCH=1"] if a1_patch else [])
                        + (["SCALES=1"] if scales else []) + ([f"AD_BLOCKS={ad_blocks}u"] if ad_blocks else [])
                        + (["DUMP_ALLOW=0"] if dump_open else []) + (["AD_LIVE=1"] if ad else [])
@@ -401,7 +440,8 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                        + (["LEGACY_FM206_ARM=1"] if legacy_fm206 else [])
                        + ([] if builtin else ["BUILTIN_MODULE=0"])
                        + (["FB_MACRO1=1"] if fb_macro1 else [])
-                       + (["STEP_CHORDS=1"] if step_chords else []) + (["BOOT_PULSE=1"] if boot_pulse else []),
+                       + (["STEP_CHORDS=1"] if step_chords else []) + (["BOOT_PULSE=1"] if boot_pulse else [])
+                       + (["CARD_WRITE=1"] if card_write else []) + (["PG_NAV=1"] if synthnav else []),
             "profile": dict({"synth": synth, "cmd08": "meter windows" if cmd08 else "refused", "a1_patch": a1_patch,
                              "image": f"{image[0]} {image[1]}" if image else "none (emulation only)",
                              "dsp_layer": dsp}, **({"scales": 1} if scales else {}),
@@ -440,7 +480,11 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                                                               "the other files on the free pads"}),
                             **({"macro1": "track 8 main macro 1 = FM feedback (parameter 6, 4..124 -> 0..127); "
                                           "synth page macro 1 = Tune (patch slot +4, codec 2 version 3)"}
-                               if fb_macro1 else {})),
+                               if fb_macro1 else {}),
+                            **({"synth_page": "stock-like view: Up / Down pages chord and scale (eight scales, "
+                                              "tracks, key); other buttons leave; Clear + macro 1..4 = default "
+                                              "(PG_NAV)"}
+                               if synthnav else {})),
             "version": version, "abi": 3, "heap_floor": f"0x{floor:08X}",
             "host_table": {"note": "host_note", "note_port": "host_note_port", "param": "host_param",
                            "ui": "host_ui", "midi": "host_midi"},

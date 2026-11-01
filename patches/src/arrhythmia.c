@@ -161,6 +161,16 @@
 #if BOOT_PULSE && !STEP_CHORDS
 #error "BOOT_PULSE=1 needs the far blob (STEP_CHORDS)"
 #endif
+#ifndef PG_NAV                          /* -DPG_NAV=1 (profile arrhythmia-firmware-arm-synthnav only): the synth page as
+                                           a stock-like view (synthpage.c): Up / Down page between the chord, scale and
+                                           tracks pages, any other view or track button leaves the page and reaches
+                                           the stock UI, Clear + macro 1..4 sets the default. 0 everywhere else: every
+                                           existing profile keeps its bytes */
+#define PG_NAV 0
+#endif
+#if PG_NAV && !(FB_MACRO1 && FM_BANKVIEW && SCALES && SYNTH)
+#error "PG_NAV=1 builds on the 0.2.1 configuration (FB_MACRO1, FM_BANKVIEW, SCALES, SYNTH)"
+#endif
 #if STEP_CHORDS && !(FM_BANKVIEW && SCALES)
 #error "STEP_CHORDS=1 builds on the FM_BANKVIEW configuration (SCALES: tm_edit)"
 #endif
@@ -196,3 +206,6 @@
 #include "notetap.c"
 #endif
 #include "o1wait.c"
+#if CARD_WRITE
+#include "cardwrite.c"
+#endif

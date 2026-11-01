@@ -53,6 +53,23 @@
  *   Sample view (notetap.c); macros 1..4 above act on the single (chord) view, whose own macros are compiled out
  *   (PG_TRIM), with the same coalescing, owner and save rules and knob lights; Up and Down are consumed and do
  *   nothing, their lights dark; pg.view stays 0.
+ * PG_NAV (profile arrhythmia-firmware-arm-synthnav): the page is a stock-like view, not a mode.
+ *   Shift + Track 8 opens it (and closes it, as before). Up and Down page between two pages (pg.view, kept while
+ *   the unit is on): 0 chord (the single view above), 1 scale: tracks (row 1 pads 0..6, under Track 1..7: that
+ *   track scaled, green, bright = scaled; pad 7 dark and inert), scales (row 2 pads 8..15: the eight scales major,
+ *   natural minor, dorian, mixolydian, harmonic minor, major and minor pentatonic, blues; Phrygian and Lydian are not
+ *   offered, scales.c sc_map) and key (rows 3-4, the keyboard of the old Shift layer). Up light dim on page 1, Down
+ *   light dim on page 0. Every button that leaves the page keeps its stock light (pg_stock_leds); the page draws
+ *   only its own lights: pads, macro 1..8 knob lights, Track 8, Up, Down, held Clear. Both in the far blob
+ *   (far_pgleds, called by notetap.c pg_frame): they do not fit below the core-0 stream of the gated image.
+ *   Note over a Note view already in front (host_ui snapshot: grid page in front, view 1 or 7 expanded) only closes
+ *   the page, both edges swallowed: passed on, it would toggle the stock view normal / expanded. Shift + Note passes.
+ *   Shift has no layer: Shift + pad = pad. Play and Rec pass through; Up, Down and Clear are consumed; every other
+ *   button (Track 1..8 without Shift, the view buttons, Save, Sample Rec, ...) closes the page and reaches the stock
+ *   UI, press and release, so the stock UI goes there (Shift + Sample Rec then opens the picker, Save saves).
+ *   Clear (both edges tracked in route(): pg.clear) + macro 1..4 sets that macro's default (Tune 64, modulator attack
+ *   0, decay 64, floor 127) in one edit, which also drops that macro's pending delta; no edit when it is already the
+ *   default. Clear light on the page: stock (dim red if dark), red while held. Shift held in the normal UI: Track 8 lit.
  * Every edit is one tm_edit() call (T1 path: BUSY first, live-tail check, CRC), made at once from the input hook
  * (Main task, inside event()'s suspension; tm_edit nests its own). The read-modify-write of the field happens inside
  * tm_edit's gate, on the live block, so a load or save in flight is never written and a refused edit changes nothing.
@@ -60,10 +77,14 @@
  * State: struct pg (PG_SIZE bytes at PG_AT, below the track-modes block; hook_boot lowers the heap limit to PG_AT).
  */
 #include "synth_settings.h"
+#ifndef PG_NAV                          /* arrhythmia.c: 1 only in profile arrhythmia-firmware-arm-synthnav */
+#define PG_NAV 0
+#endif
 
 #define BTN_TRACK8      0x07u
 #define BTN_REC         0x10u
 #define BTN_PLAY        0x11u
+#define BTN_NOTE        0x09u           /* docs/input-map.json */
 #define PG_FB_FRAMES    24u             /* LED frames of the refused-edit blink */
 #define PG_SET          0u              /* edit ops (arg bits 16..23) */
 #define PG_TOGGLE       1u
@@ -77,6 +98,11 @@
 #define BTN_UP          0x14u
 #define PG_TICK         ((uint32_t (*)(void))0x08024069u)   /* RTOS tick (ms), as notetap.c's TICK */
 #endif
+#if PG_NAV
+#define PG_FMDEF        5u              /* op: FM field (codec 2 byte offset SF_FB..SF_MF) = its default */
+#define PG_PAGES        2u              /* pg.view: 0 chord, 1 scale, tracks and key */
+#define PG_SCALE_ID(i)  ((i) < 3u ? (i) : (i) + 2u)   /* row 2 pad 8 + i (i 0..7) -> scale 0 1 2 5 6 7 8 9 (no 3, 4) */
+#endif
 
 struct pg {
     uint8_t open;                       /* the page is shown and takes input (only while s->mode == 0) */
@@ -86,8 +112,13 @@ struct pg {
     uint32_t edits, refused;            /* edits made / refused since boot */
     uint8_t hide_patch;                 /* 1: waveform pads and macros 1..3 hidden and inert (one fixed DSP patch) */
 #if FM_PATCH
-    uint8_t view;                       /* 0 the chord view, 1 the FM view */
+    uint8_t view;                       /* 0 the chord view, 1 the FM view (PG_NAV: the page 0..PG_PAGES-1) */
+#if PG_NAV
+    uint8_t clear;                      /* Clear is held (route(), both edges) */
+    uint8_t sh;                         /* Track 8 lit for Shift in the normal UI at the last frame (pg_shift_frame) */
+#else
     uint8_t pad[2];
+#endif
     int8_t acc[4];                      /* summed deltas of macros 1..4 not yet written (feedback, mod A, D, floor) */
     uint32_t fm_t;                      /* tick of the last coalesced write */
     uint32_t acc_gen;                   /* tm()->gen (project applies) the pending acc[] belongs to: a load, clear or
@@ -131,6 +162,13 @@ static void pg_boot(void)               /* from hook_boot, block already zeroed 
     PG->hide_patch = PG_HIDE_PATCH;
 }
 
+#if PG_NAV
+static void pg_clr(uint32_t down)       /* route(): every Clear edge, under the suspension */
+{
+    PG->clear = (uint8_t)down;
+}
+#endif
+
 /* The page is open and allowed: anything else in front (s->mode != 0) closes it. Caller holds the suspension. */
 static uint32_t pg_live(struct state *s)
 {
@@ -167,9 +205,17 @@ static uint32_t pg_edit_cb(volatile uint8_t *b, uint32_t arg)
         if (st != SYN_V1)
             syn_fm_create(p);
 #if FM_BANKVIEW                             /* no FMSET op: +2 and +3 are reserved, never edited */
+#if PG_NAV
+        (void)v;
+        if (op == PG_FMDEF) {                 /* Clear + macro: the default; that macro's pending delta is dropped */
+            p[off] = (uint8_t)syn_fm_lim(off, 1);
+            g->acc[off - SF_FB] = 0;
+        } else {
+#else
         (void)off;
         (void)v;
         {
+#endif
 #else
         if (op == PG_FMSET) {
             p[off] = syn_fm_byte(off, v);
@@ -254,8 +300,22 @@ static int32_t pg_key(uint32_t pad)
 /* A pad press on the page. Caller holds the suspension. */
 static void pg_pad(struct state *s, uint32_t pad)
 {
+#if PG_NAV
+    if (PG->view) {                         /* row 1 tracks 1..7 on / off (pad 7 inert), row 2 scale, rows 3-4 key */
+        if (pad < SC_TRACKS) {
+            pg_sc(s, SC_OP_TOGGLE | pad << 8);
+        } else if (pad >= 8 && pad < 16) {
+            pg_sc(s, SC_OP_SCALE | PG_SCALE_ID(pad - 8) << 8);
+        } else if (pad >= 16) {
+            int32_t k = pg_key(pad);
+            if (k >= 0)
+                pg_sc(s, SC_OP_ROOT | (uint32_t)k << 8);
+        }
+        return;
+    }
+#endif
 #if SCALES
-    if (s->shift) {                         /* rows 1-2: scale picker (pads 0..9), rows 3-4: key root keyboard */
+    if (!PG_NAV && s->shift) {                         /* rows 1-2: scale picker (pads 0..9), rows 3-4: key root keyboard */
         int32_t k = pad >= 16 ? pg_key(pad) : pad < SYN_SCALES ? (int32_t)pad : -1;
         if (k >= 0)
             pg_sc(s, (pad >= 16 ? SC_OP_ROOT : SC_OP_SCALE) | (uint32_t)k << 8);
@@ -275,7 +335,7 @@ static void pg_pad(struct state *s, uint32_t pad)
         return;
     }
 #endif
-    if (s->shift && pad >= 16) {
+    if (!PG_NAV && s->shift && pad >= 16) {
         int32_t k = pg_key(pad);
         if (k >= 0)
             pg_edit(s, SR_ROOT, k, PG_SET);
@@ -314,6 +374,25 @@ static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit)
     }
     if (!open || index == BTN_PLAY || index == BTN_REC)
         return 0;                           /* Play and Rec pass through; their releases follow */
+#if PG_NAV
+    if (index != BTN_UP && index != BTN_DOWN && index != PG_BTN_CLEAR) {
+        g->open = 0;                        /* any other button leaves the page: the stock UI gets it, press and */
+        uint32_t ui = s->ui, gv = ui >> 8 & 0xFF;   /* release (route() goes on: Shift + Sample Rec opens the picker) */
+        if (index == BTN_NOTE && !s->shift && (ui & 0x80010000u) == 0x80010000u && (gv == 1 || gv == 7)) {
+            s->btn_eat |= bit;              /* except Note while the grid page in front shows a Note view (1, or 7
+                                               expanded): the stock UI would toggle normal / expanded, so the page
+                                               only closes and both edges are swallowed (host_ui snapshot) */
+            return 1;
+        }
+        return 0;
+    }
+    s->btn_eat |= bit;
+    if (index == BTN_UP && g->view)
+        g->view--;
+    else if (index == BTN_DOWN && g->view < PG_PAGES - 1)
+        g->view++;
+    return 1;
+#endif
     s->btn_eat |= bit;                      /* consumed: the release is swallowed, also after the page closed */
 #if FM_PATCH && !FM_BANKVIEW
     if (index == BTN_DOWN || index == BTN_UP)
@@ -336,6 +415,21 @@ static uint32_t pg_pad_press(struct state *s, uint32_t index, uint32_t bit)
     return 1;
 }
 
+#if PG_NAV
+/* Clear + macro `knob` (0..3): its default, one edit; none when the stored value is already the default and no delta
+ * is pending (Clear held over several detents writes once). Caller holds the suspension. */
+static void pg_default(struct state *s, uint32_t knob)
+{
+    struct tm *m = tm();
+    uint32_t off = SF_FB + knob;
+    const volatile uint8_t *pat = m && m->why == TM_OK && m->store ? (const volatile uint8_t *)(m->store + TM_EXT +
+                                                                                               SYN_PATCH_AT) : 0;
+    if (!PG->acc[knob] && syn_fm_get(pat, off) == syn_fm_lim(off, 1))
+        return;
+    pg_edit(s, off, 0, PG_FMDEF);
+}
+#endif
+
 /* Encoder event for the page. Returns 1 if consumed. Caller holds the suspension. */
 static uint32_t pg_encoder(struct state *s, uint32_t knob, uint32_t delta)
 {
@@ -345,6 +439,12 @@ static uint32_t pg_encoder(struct state *s, uint32_t knob, uint32_t delta)
 #if FM_PATCH
     if (FM_BANKVIEW || PG->view) {          /* summed here, written by pg_fm_tick (one CRC per PG_FM_PACE_MS) */
         if (knob < 4) {
+#if PG_NAV
+            if (PG->clear) {
+                pg_default(s, knob);
+                return 1;
+            }
+#endif
             uint32_t gen = pg_gen();
             if (PG->acc_gen != gen) {           /* deltas left from an earlier project: dropped */
                 for (uint32_t i = 0; i < 4; i++)
@@ -429,6 +529,178 @@ __attribute__((noinline)) static void pg_fm_save(uint32_t store)
 }
 #endif
 
+#if PG_NAV
+#define PG_IN_SRAM(a, n) ((a) >= SRAM_START && (a) <= SRAM_END - (n))
+/* Shift held in the normal UI (nothing else in front, page closed): Shift + Track 8 would open the page. */
+#define PG_SHIFT_UI(s)  ((s)->shift && !(s)->mode && !PG->open)
+
+/* hook_frame, normal-display branch (UI task): when Track 8's Shift light turns on or off, the stock source is marked
+ * dirty, so the frame is rendered and encoded again (hook_encode -> pg_shift_light), as o1_frame does. */
+static void pg_shift_frame(struct state *s, uint32_t *src)
+{
+    volatile struct pg *g = PG;
+    uint8_t on = (uint8_t)PG_SHIFT_UI(s);
+    if (on != g->sh) {
+        g->sh = on;
+        __atomic_fetch_or(src, 1u, __ATOMIC_SEQ_CST);
+    }
+}
+
+/* hook_encode (o1wait.c), the stock frame rendered, before its encoding (UI task): while Shift is held in the normal
+ * UI, Track 8 shows the Shift button's own stock light (dim white if that is dark), so the way into the synth page is
+ * lit like the other buttons that have a Shift function (issue #29). The page's and modules' frames are untouched. */
+static void pg_shift_light(struct state *s, uint32_t *src)
+{
+    if (!s || src == s->fake_src || !PG_SHIFT_UI(s) || !PG_IN_SRAM(src[4], LEDS))
+        return;
+    volatile uint8_t *l = (volatile uint8_t *)src[4];
+    uint8_t r = l[222], g = l[223], b = l[208];   /* btn_Shift R, G, B -> btn_8 212, 213, 214 */
+    if (!(r | g | b))
+        r = g = b = DIM;
+    l[212] = r;
+    l[213] = g;
+    l[214] = b;
+}
+#endif
+
+#if PG_NAV && FAR_PART                  /* the page's lights live in the far blob (far_pgleds; flash, 7333) */
+#define PG_RENDER_RGB   ((void (*)(uint32_t *))0x0802A769u)   /* the frame encoder's view render (src): RGB elements */
+#define PG_RENDER_MONO  ((void (*)(uint32_t *))0x0802A7EDu)   /* and single channels, into src[4] (pure stores) */
+
+/* The stock frame under the page into s->leds: hook_frame's source `src` rendered as the stock frame encoder renders
+ * it when `flag` is set (src[3] the colours, in SRAM; src[5] the channel map, in flash; src[4] the 224 LED bytes; the
+ * stock UI keeps the colours whether shown or not), then copied. The dirty bit is left for the stock encoder. An LED
+ * buffer outside SRAM gives a dark frame, as before; other bad pointers skip the render (the last stock frame is
+ * copied). UI task, LED frame, under the suspension. */
+static void pg_stock_leds(struct state *s, uint32_t *src, uint32_t flag)
+{
+    uint32_t b = src[4];
+    if (!PG_IN_SRAM(b, LEDS)) {
+        for (uint32_t i = 0; i < LEDS; i++)
+            s->leds[i] = 0;
+        return;
+    }
+    if (flag && PG_IN_SRAM(src[3], 4) && src[5] >= 0x08010000u && src[5] < 0x08080000u) {   /* map: in flash */
+        PG_RENDER_RGB(src);
+        PG_RENDER_MONO(src);
+    }
+    for (uint32_t i = 0; i < LEDS; i++)
+        s->leds[i] = ((const volatile uint8_t *)b)[i];
+}
+
+/* The PG_OWN LED bytes the page draws over the stock frame (docs/led-map.json): macro 1..8 knob lights, btn_8, Up,
+ * Down; the 32 pads are drawn in full by pg_leds. Shift keeps its stock light; Clear is the stock one unless held (or
+ * dark: pg_nav_leds). In .text, as pad_leds(). */
+#define PG_OWN 33u
+static const uint8_t *pg_own(void)
+{
+    const uint8_t *t;
+    __asm__("adr %0, 1f\n\tb 2f\n\t.p2align 2\n1:\n\t"
+            ".byte 0,1,2, 3,4,5, 56,57,58, 59,60,61, 112,113,114, 115,116,117, 168,169,170, 171,172,173\n\t"
+            ".byte 212,213,214, 54,55,40, 51,52,53\n\t"
+            ".p2align 1\n2:" : "=r"(t));
+    return t;
+}
+
+/* The page's lights (PG_NAV) over the stock frame (pg_stock_leds): the page in front, the macro 1..4 lights on every
+ * page, macros 5..8 dark, Up / Down dim where another page is, Track 8 magenta (red blink after a refused edit),
+ * Clear bright red while held, else its stock light (dim red if that is dark). Every other light (Shift, the buttons
+ * that leave the page, Play, Rec) is the stock one. UI task, LED frame, caller holds the suspension; s->mode == 0. */
+static void pg_nav_leds(struct state *s)
+{
+    const uint8_t *t = pad_leds();
+    struct tm *m = tm();
+    volatile struct pg *g = PG;
+    const volatile uint8_t *rec = m && m->why == TM_OK ? m->rec[7] : 0;
+    const volatile uint8_t *pat = m && m->why == TM_OK && m->store ? (const volatile uint8_t *)(m->store + TM_EXT +
+                                                                                               SYN_PATCH_AT) : 0;
+    uint32_t view = g->view;
+    uint8_t v;
+    const uint8_t *own = pg_own();
+    for (uint32_t i = 0; i < PG_OWN; i++)
+        s->leds[own[i]] = 0;
+    for (uint32_t i = 0; i < 32; i++)
+        pad_rgb(s, t, i, 0, 0, 0);
+    if (view == 0) {                        /* chord: as the single view */
+        int32_t npp = syn_rec_get(rec, SR_NPP), type = syn_rec_get(rec, SR_TYPE), inkey = syn_rec_get(rec, SR_INKEY);
+        int32_t voicing = syn_rec_get(rec, SR_VOICING), oct = syn_rec_get(rec, SR_OCTAVE);
+        for (uint32_t i = 0; i < 4; i++) {
+            v = (int32_t)i + 1 == npp ? BRIGHT : DIM;
+            pad_rgb(s, t, i, v, v, v);
+        }
+        for (uint32_t i = 0; i < 6; i++) {
+            v = (int32_t)i == type ? (inkey ? 0x30 : BRIGHT) : (inkey ? 0x04 : DIM);
+            pad_rgb(s, t, 8 + i, v, v >> 2, 0);
+        }
+        v = inkey ? BRIGHT : DIM;
+        pad_rgb(s, t, 14, 0, v, 0);
+        v = sc_scale() == SYN_MINOR ? BRIGHT : DIM;
+        pad_rgb(s, t, 15, v >> 1, 0, v);
+        for (uint32_t i = 0; i < 4; i++) {
+            v = (int32_t)i == voicing ? BRIGHT : DIM;
+            pad_rgb(s, t, 16 + i, 0, v, v);
+        }
+        v = syn_rec_get(rec, SR_POLY) ? BRIGHT : DIM;
+        pad_rgb(s, t, 23, v, 0, 0);
+        for (uint32_t i = 0; i < 5; i++) {
+            v = (int32_t)i - 2 == oct ? BRIGHT : DIM;
+            pad_rgb(s, t, 24 + i, 0, 0, v);
+        }
+    } else {                                /* tracks (green, bright = scaled), scales (violet), key (yellow) */
+        uint32_t sc = sc_scale(), bits = sc_bits();
+        for (uint32_t i = 0; i < SC_TRACKS; i++) {
+            v = (bits >> i & 1) ? BRIGHT : DIM;
+            pad_rgb(s, t, i, 0, v, 0);
+        }
+        for (uint32_t i = 0; i < 8; i++) {
+            v = PG_SCALE_ID(i) == sc ? BRIGHT : DIM;
+            pad_rgb(s, t, 8 + i, v >> 1, 0, v);
+        }
+        int32_t root = (int32_t)sc_root();
+        for (uint32_t pad = 16; pad < 32; pad++) {
+            int32_t k = pg_key(pad);
+            if (k >= 0)
+                pad_rgb(s, t, pad, k == root ? BRIGHT : DIM, k == root ? BRIGHT : DIM, k == root ? 0 : DIM);
+        }
+    }
+    {                                       /* knob lights 1, 4, 57, 60 (macros 1..4, green); Tune centred */
+        int32_t tu = syn_fm_get(pat, SF_TUNE);
+        s->leds[1] = (uint8_t)(((tu < 64 ? 63 - tu : tu - 64) << 1) & 0x7E);
+    }
+    s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
+    s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
+    s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);
+    if (view)                               /* btn_Up G 55, btn_Down G 52 */
+        s->leds[55] = DIM;
+    if (view < PG_PAGES - 1)
+        s->leds[52] = DIM;
+    if (g->fb) {                            /* btn_8: 212, 213, 214 */
+        g->fb--;
+        s->leds[212] = (g->fb & 4) ? BRIGHT : 0;
+    } else {
+        s->leds[212] = BRIGHT;
+        s->leds[214] = BRIGHT;
+    }
+    if (g->clear) {                         /* btn_Clear R, G, B 160, 161, 162: held red, as the stock held Clear (the
+                                               page takes the press, so the stock UI never sees it held) */
+        s->leds[160] = BRIGHT;
+        s->leds[161] = 0;
+        s->leds[162] = 0;
+    } else if (!(s->leds[160] | s->leds[161] | s->leds[162])) {
+        s->leds[160] = DIM;                 /* stock Clear dark: dim red, Clear + macro is available (#29) */
+    }
+}
+
+/* far table FAR_PGLEDS (hook_frame via pg_frame, notetap.c): the stock frame of source `src` and the page over it into
+ * s->leds. Returns 1 (0 means the far blob is absent: far_call). */
+uint32_t far_pgleds(uint32_t sp, uint32_t src, uint32_t flag, uint32_t d)
+{
+    (void)d;
+    pg_stock_leds((struct state *)sp, (uint32_t *)src, flag);
+    pg_nav_leds((struct state *)sp);
+    return 1;
+}
+#elif !PG_NAV
 /* The page's lights into s->leds (UI task, LED frame, caller holds the suspension; s->mode == 0, so the buffer is
  * not a module's). Reads the runtime copy of record 7 and the live patch slot. */
 static void pg_leds(struct state *s)
@@ -557,3 +829,4 @@ static void pg_leds(struct state *s)
         s->leds[208] = DIM;
     }
 }
+#endif

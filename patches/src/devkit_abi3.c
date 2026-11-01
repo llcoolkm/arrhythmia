@@ -258,6 +258,12 @@
 #define BUILTIN_MODULE  1
 #endif
 #define FILE_PAD0       (BUILTIN_MODULE ? 1u : 0u)  /* the pad of the first card file */
+#ifndef CARD_WRITE                      /* -DCARD_WRITE=1 (development profile *-cardwrite only): SysEx cmd 10 writes,
+                                           deletes, verifies and lists module files in 1:/MODULES from the Content
+                                           task (patches/src/cardwrite.c). 0 everywhere else: every existing profile
+                                           keeps its bytes */
+#define CARD_WRITE      0
+#endif
 #define PICK_V2         (!BUILTIN_MODULE)   /* 0.2.1 picker: numbered pads, name colours, Play to the transport,
                                                Play LED blink (docs/user/developers.md); 0 keeps every older profile */
 #define BTN_PLAY        0x11u
@@ -372,6 +378,11 @@ _Static_assert(sizeof(struct state) <= REGION_SIZE, "state must fit the reserved
 #define LD_SCAN     1u                        /* reading 1:/MODULES */
 #define LD_PICK     2u                        /* choosing; no FatFs object open */
 #define LD_LOAD     3u                        /* loading name[pick - 1] into ITCM */
+#if CARD_WRITE                                /* card writer session (patches/src/cardwrite.c): MOD_RAM = struct cw */
+#define LD_STAGE    4u                        /* staging a file in the module area */
+#define LD_JOB      5u                        /* a job runs, one step per Main pass */
+#define LD_DONE     6u                        /* the job is done; its result is readable */
+#endif
 #define OBJ_NONE    0u
 #define OBJ_DIR     1u
 #define OBJ_FILE    2u
@@ -424,6 +435,10 @@ static uint32_t owns(const struct state *s);
 static void retire(struct state *s);
 static uint32_t run_module(struct state *s);
 static void clock_reply(void);
+#if CARD_WRITE
+static void cw_sysex(struct state *s, const uint8_t *m, uint32_t len);
+static void cw_main(struct state *s);
+#endif
 #ifdef TRACKMODES
 static void tm_boot(void);
 static void tm_sysex(struct state *s, const uint8_t *m, uint32_t len);
@@ -439,6 +454,12 @@ static uint32_t pg_pad_press(struct state *s, uint32_t index, uint32_t bit);
 static uint32_t pg_encoder(struct state *s, uint32_t knob, uint32_t delta);
 static void pg_leds(struct state *s);
 static void pg_boot(void);
+#if PG_NAV
+#define PG_BTN_CLEAR 0x17u
+static void pg_clr(uint32_t down);
+static void pg_frame(struct state *s, uint32_t *src, uint32_t flag);   /* notetap.c: the page's lights, far blob */
+static void pg_shift_frame(struct state *s, uint32_t *src);
+#endif
 #endif
 #if SCALES
 static void sc_boot(void);
@@ -727,6 +748,9 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
         RESUME_ALL();
         if (was_on)
             __atomic_fetch_or(src, 1u, __ATOMIC_SEQ_CST);
+#if PG_NAV
+        pg_shift_frame(s, src);
+#endif
 #ifdef O1WAIT
         o1_frame(src);
 #endif
@@ -772,8 +796,13 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
     else if (mode == MODE_PICK)
         picker_leds(s);
 #ifdef SYNTHPAGE
-    else if (mode == MODE_PAGE)
+    else if (mode == MODE_PAGE) {
+#if PG_NAV
+        pg_frame(s, src, flag);             /* the stock frame under the page, the page's lights over it */
+#else
         pg_leds(s);
+#endif
+    }
 #endif
 #if BOOT_PULSE
     else if (mode == MODE_PULSE && !bp_leds(s)) {
@@ -951,7 +980,11 @@ static void retire(struct state *s)
 /* The loader is reading the folder or loading a file: a FatFs object of ours may be open, MOD_RAM is in use. */
 static uint32_t ld_busy(const struct state *s)
 {
+#if CARD_WRITE
+    return s->ld_phase == LD_SCAN || s->ld_phase == LD_LOAD || s->ld_phase == LD_JOB;
+#else
     return s->ld_phase == LD_SCAN || s->ld_phase == LD_LOAD;
+#endif
 }
 
 /* Open the picker (gesture with nothing running, cmd 06 00): mode 4, folder read requested. From idle the picker
@@ -961,6 +994,12 @@ static uint32_t ld_busy(const struct state *s)
 static void picker_open(struct state *s)
 {
     volatile struct pick *p = PICK;
+#if CARD_WRITE
+    if (s->ld_phase == LD_JOB)
+        return;                             /* the Content task is using the card: the picker stays shut */
+    if (s->ld_phase >= LD_STAGE)
+        s->ld_phase = LD_IDLE;              /* a staging or finished writer session ends; MOD_RAM is the picker's */
+#endif
     retire(s);
     s->mod_frame = 0;
     if (s->ld_phase == LD_IDLE) {
@@ -1067,6 +1106,10 @@ static uint32_t route(struct state *s, uint32_t kind, uint32_t index, uint32_t v
             s->shift = (uint8_t)down;
             return 0;                       /* Shift always reaches the stock UI, so it can never stick there */
         }
+#if PG_NAV
+        if (index == PG_BTN_CLEAR)          /* both edges, whoever gets them: Clear + macro on the synth page */
+            pg_clr(down);
+#endif
 #if PICK_V2
         if (index == BTN_PLAY) {            /* Play always reaches the transport; an owned module also sees it */
             if (owns(s))
@@ -1211,7 +1254,11 @@ static void loader_reply(struct state *s)
     volatile uint8_t r[15];
     header(r, 0x06);
     SUSPEND_ALL();
+#if CARD_WRITE
+    uint32_t phase = s->ld_phase, ok = phase != LD_IDLE && phase < LD_STAGE && itcm_ok();
+#else
     uint32_t phase = s->ld_phase, ok = phase != LD_IDLE && itcm_ok();
+#endif
     const volatile struct pick *p = PICK;
     r[7] = (uint8_t)phase;
     r[8] = s->mode;
@@ -1326,6 +1373,12 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
             clock_reply();
         return;
     }
+#if CARD_WRITE
+    if (cmd == 0x10) {
+        cw_sysex(s, m, len);
+        return;
+    }
+#endif
 #ifdef TRACKMODES
     if (cmd == 0x0C) {
         tm_sysex(s, m, len);
@@ -1385,6 +1438,10 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
         uint32_t off = ((uint32_t)(m[7] & 0x7F) << 14) | ((uint32_t)(m[8] & 0x7F) << 7) | (m[9] & 0x7F);
         uint32_t n = (len - 11) / 2;
         if (off + n <= MOD_MAX && itcm_ok() && !ld_busy(s)) {
+#if CARD_WRITE
+            if (s->ld_phase >= LD_STAGE)
+                s->ld_phase = LD_IDLE;      /* the upload overwrites a staged file: the writer session ends */
+#endif
             retire(s);
             if (s->mode == 3 || s->mode == MODE_PICK)
                 s->mode = 0;                /* never write code that may be running; a choosing picker closes */
@@ -1993,6 +2050,13 @@ static void loader(struct state *s)
     uint32_t phase = s->ld_phase;           /* unlocked peek: Main task is the only writer of ld_phase */
     if (phase == LD_IDLE || (phase == LD_PICK && s->mode == MODE_PICK))
         return;
+#if CARD_WRITE
+    if (phase >= LD_STAGE) {
+        if (phase == LD_JOB)
+            cw_main(s);                     /* writer session: one step of its job */
+        return;
+    }
+#endif
     if (!itcm_ok()) {
         SUSPEND_ALL();
         s->ld_phase = LD_IDLE;              /* cannot happen (ITCMCR is set once at boot); the data is out of reach */
@@ -2051,6 +2115,10 @@ uint32_t hook_pulse(uint32_t obj, uint32_t b, uint32_t c, uint32_t d)
 {
     uint32_t r = ORIG_PULSE(obj, b, c, d);
     struct state *s = region();
+#if CARD_WRITE
+    if (s)
+        CLK->transport = obj;               /* the writer's steps wait while this transport runs */
+#endif
     if (!s || !CLK->mod_clock)
         return r;
     uint32_t seq = link(obj, 0) == TRANSPORT_VT ? link(obj, 8) : 0;

@@ -282,13 +282,13 @@ class Release6013(unittest.TestCase):
     def test_page_naming(self):
         """Arrhythmia in title, heading and filenames; the maker's name only in the descriptive line."""
         html = (ROOT / "web/index.html").read_text()
-        self.assertIn("<title>Arrhythmia Installer</title>", html)
-        self.assertIn("<h1>Arrhythmia</h1>", html)
+        self.assertIn("<title>Circus Arrhythmia FM Installer</title>", html)
+        self.assertIn("<h1>Circus Arrhythmia FM</h1>", html)
         self.assertIn("Custom firmware for the Novation Circuit Rhythm", html)
         body = html[html.index("<body>"):html.index("<script")]
         self.assertEqual(body.count("Novation"), 1)
         self.assertEqual(body.count("Circuit Rhythm"), 1)
-        self.assertIn("`${PRODUCT}-${b.name}-${b.output.label}.syx`", html)
+        self.assertIn("`${FILE_PRODUCT}-${b.name}-${b.output.label}.syx`", html)
         self.assertNotIn("logo", html.lower())
 
     @unittest.skipUnless(NODE, "node not installed")
@@ -373,10 +373,29 @@ class _Release:
 
 
 @unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
-class ReleaseV021(_Release, unittest.TestCase):
-    """release/v0.2.1.json, the release the page embeds: firmware 7329 (feedback on macro 1, step chords, card modules)
+class ReleaseV022(_Release, unittest.TestCase):
+    """release/v0.2.2.json, the release the page embeds: firmware 7339 (synth page view, -4 dB output, card writer)
     and devkit 7228, unchanged from 0.1.0 (same patches, same pin). Its rebuild check is tools/release_packet.py's (#10)."""
-    REL, NAME, EMBEDDED = ROOT / "release/v0.2.1.json", "Arrhythmia 0.2.1", True
+    REL, NAME, EMBEDDED = ROOT / "release/v0.2.2.json", "Circus Arrhythmia FM 0.2.2", True
+    LABELS = [("firmware", 7339), ("devkit", 7228)]
+    PINS = {"firmware": "7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822", "devkit": PIN_7228}
+    SPECS = (ROOT / "build/arrhythmia-firmware-7339.json", ROOT / "build/arrhythmia-devkit-7228.json")
+    # derived like packet 021i's (tools/release_packet.py build_release); the devkit build is carried from 0.2.1
+    DESC = {"firmware": (None, "The final light changes were tested in emulation only"),
+            "devkit": ("Arrhythmia 0.1.1", "not tested on hardware")}
+
+    def test_devkit_unchanged_from_010(self):
+        old = crpatch.select(json.loads(REL_V010.read_text()), "devkit")
+        new = crpatch.select(self.rel, "devkit")
+        self.assertEqual(new["patches"], old["patches"])
+        self.assertEqual(new["output"], old["output"])
+
+
+@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+class ReleaseV021(_Release, unittest.TestCase):
+    """release/v0.2.1.json, kept as the 0.2.1 record: firmware 7329 (feedback on macro 1, step chords, card modules)
+    and devkit 7228, unchanged from 0.1.0 (same patches, same pin). Its rebuild check is tools/release_packet.py's (#10)."""
+    REL, NAME, EMBEDDED = ROOT / "release/v0.2.1.json", "Arrhythmia 0.2.1", False
     LABELS = [("firmware", 7329), ("devkit", 7228)]
     PINS = {"firmware": "f756c03a71039ba3edd248d53232f9bac24367a4cf800fe6ffd9b8d00fb15251", "devkit": PIN_7228}
     SPECS = (ROOT / "build/arrhythmia-firmware-7329.json", ROOT / "build/arrhythmia-devkit-7228.json")

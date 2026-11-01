@@ -1,7 +1,7 @@
-# Arrhythmia: the track 8 FM synth
+# Circus Arrhythmia FM: the track 8 FM synth
 
-Applies to Arrhythmia 0.2.1, arrhythmia-firmware build 7329. Test status and full known issues: see the
-[release notes](../../RELEASE-NOTES-0.2.1.md).
+Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339. Test status and full known issues: see the
+[release notes](../../RELEASE-NOTES-0.2.2.md).
 
 * Track 8 is a 4-operator FM synth. It replaces the saw synth of 0.1.x. Tracks 1 to 7 are sample tracks.
 * arrhythmia-devkit has no synth. Track 8 is a stock sample track there.
@@ -59,20 +59,46 @@ Applies to Arrhythmia 0.2.1, arrhythmia-firmware build 7329. Test status and ful
 
 ## Output level
 
-* The synth output is decreased by a fixed **7 dB**, before track 8's mixer level, pan, sends and FX.
+* The synth output is decreased by a fixed **4 dB**, before track 8's mixer level, pan, sends and FX.
 * No setting changes this value. Only this page gives the value.
+* Up to 0.2.1, the decrease was 7 dB. The synth is now approx. 3 dB louder.
 * Set the balance with track 8's mixer level. A higher level increases the risk of crackle on loud chords.
 
-Loudness test (one test only): a development build with output 2 dB lower than this release; the loaded project's
+Loudness test of 0.2.0 (one test only): a development build with output 2 dB lower than 0.2.0; the loaded project's
 sound; median of seven samples played on the unit; loudness over 9.5 s. Results: single note approx. 3 dB quieter,
 four-note chord approx. 3 dB louder, four-note chord with hot settings approx. 15 dB louder. Other conditions give
 other results.
 
-## The synth page: Shift + Track 8
+## The synth page
 
-![The synth page, without and with Shift held, and its macros 1 to 4](img/synth-page.png)
+![The two pages of the synth page and its macros 1 to 4](img/synth-page.png)
 
-| Synth page macro | New project |
+Open the synth page with **Shift + Track 8**. While you hold Shift, the Track 8 light is on.
+
+![While Shift is held, the Track 8 light comes on in the colour of the Shift light](img/shift-track8.png)
+
+The page has two pages:
+
+| Page | Pads |
+|---|---|
+| 1 chords | notes per press, chord type, In key, minor or major, voicing, poly, octave |
+| 2 scale | row 1, pads 1 to 7: scales on or off for track 1 to 7; row 2: scale (eight scales); rows 3 and 4: key, C to B ([scales.md](scales.md)) |
+
+* **Down** shows page 2. **Up** shows page 1. The Up or Down light is on when there is a page in that direction.
+* The page opens on the last page you used. After a power cycle, it opens on page 1.
+* To leave the page, press a view or track button (for example Note, Sample, Velocity, Gate, Mixer, Track 1 to 8).
+  The unit goes to that view or track, as from any other view. The button press is not lost.
+* While the page is open, those buttons keep their normal lights. Track 8 is magenta. Up or Down is green when
+  there is a page in that direction. Shift keeps its normal light. Clear keeps its normal light (dim red when that
+  light is off) and is red while you hold it.
+
+![The lights of the synth page on page 1 and page 2: exit buttons with their normal lights, Track 8 magenta, Clear dim, Up or Down green, knob lights 1 to 4 green](img/synth-page-lights.png)
+* Note leaves the page to the Note view as you left it (normal or expanded). It does not switch between them.
+* Shift + Track 8 also closes the page.
+* Play and Rec operate while the page is open. The page stays open.
+* Shift has no function on the page. Shift + pad does the same as the pad.
+
+| Synth page macro (all pages) | New project and Clear + macro |
 |---|---|
 | 1 tune (64: no change; 5 steps per semitone, plus or minus 12 semitones) | 64 |
 | 2 modulator attack (same range as attack) | 0 |
@@ -80,12 +106,16 @@ other results.
 | 4 modulator floor (modulation level after its decay) | 127 |
 
 * Macros 1 to 4 apply at the next note start. They do not change sounding notes.
+* **Clear + macro** sets that macro to the value in the table. Hold Clear and turn the knob. The Clear light turns red
+  while you hold Clear.
+* Macros 5 to 8 have no function on the page.
 * The light of macro 1 (tune) has its centre at 64.
 * Up to 0.2.0, synth page macro 1 was feedback. Feedback is now macro 1 of the normal track view.
 * The project saves the values.
-* **Save does not operate while the synth page is open.** Close the page, then press Save.
-* When the unit is busy, the page blinks red and ignores the edit. Try again.
-* The page does not open while a module runs. Up and Down have no function on the page.
+* **Save** leaves the page and starts the save, as from any other view. A knob turn made just before is saved.
+* When the unit is busy, the Track 8 light blinks red and the page ignores the edit. Try again.
+* The page does not open while a module runs. Shift + Sample Rec on the page closes the page and opens the module
+  picker.
 
 ## Notes, chords and voices
 
@@ -180,7 +210,8 @@ The project saves the synth settings, the selected sound, the per-step sounds an
 
 ## Known issues
 
-Details: [release notes, known issues](../../RELEASE-NOTES-0.2.1.md#known-issues) and
+Details: [release notes, known issues](../../RELEASE-NOTES-0.2.2.md#known-issues),
+[0.2.1 known issues](../../RELEASE-NOTES-0.2.1.md#known-issues) and
 [0.2.0 known issues](../../RELEASE-NOTES-0.2.0.md#known-issues).
 
 * Feedback (macro 1) and sustain (macro 4) apply at the next note. A knob turn does not change sounding notes.

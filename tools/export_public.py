@@ -2,6 +2,7 @@
 
     uv run python -I tools/export_public.py OUTDIR [--ref HEAD] [--deny-file export-deny.json]
                                            [--firmware-dir DIR] [--bootloader FILE] [--allow-email ADDR] [--dry-run]
+                                           [--web-modules DIR]
 
 Copies only allow-listed paths (ALLOW, every file by name, minus EXCLUDE) as committed at --ref (never the working tree),
 each to its own path or the one PUBLISH_AS names (docs/user/README.md becomes the export's README.md), and only after
@@ -51,6 +52,11 @@ travel with the commit and no checkout or worktree can hold a diverging copy. --
 if it is byte-identical to the committed one (refusal names the two SHA-256 prefixes, never the contents). Firmware images are looked up in this checkout, then in the main checkout of
 the same repository (worktrees share no ignored files).
 
+--web-modules DIR: the release's module files (the release assets, e.g. a release packet's release/) go to
+web/modules/ of the export, for the module loader page web/modules.html. Exactly the files the page lists (its PUBLISHED
+array) are taken from DIR; each must be there, pass tools/build_module.py check and every check above, or nothing is
+written. Without it, an export that holds web/modules.html has no web/modules/ (a note says so).
+
 OUTDIR must not exist or be empty, and must not lie inside this repository or any of its worktrees.
 """
 import argparse
@@ -64,6 +70,10 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import syx  # noqa: E402
+import build_module  # noqa: E402
+
+WEB_PAGE = "web/modules.html"          # the module loader page and the folder its published modules are fetched from
+WEB_MODULES = "web/modules"
 
 # Published paths, every one by name (release plan §2.1; D7): a new file anywhere stays private until it is listed here
 # (public-maps review, 2026-10-19: tools/, patches/src/, release/ and web/ too, not only docs/
@@ -76,7 +86,21 @@ PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md
                "docs/user/scales.md", "docs/user/developers.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
-               "docs/user/img/synth-macros.png")
+               "docs/user/img/synth-macros.png",
+               "docs/user/img/synth-page-lights.png",
+               "docs/user/img/shift-track8.png",
+               "docs/user/img/module-picker.png",
+               "docs/user/img/web-modules.png",
+               "docs/user/img/module-paint.png",
+               "docs/user/img/module-euclid.png",
+               "docs/user/img/module-life.png",
+               "docs/user/img/module-rain.png",
+               "docs/user/img/module-balls.png",
+               "docs/user/img/module-pulse.png",
+               "docs/user/img/module-stars.png",
+               "docs/user/img/module-snake.png",
+               "docs/user/img/module-lights.png",
+               "docs/user/img/module-mole.png")
 # Developer reference (master, 2026-10-19): curated from the private notes under D7, one file by name.
 PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flashing.md",
                    "docs/dev/backup-and-recovery.md", "docs/dev/devkit-sysex.md", "docs/dev/modules-reference.md",
@@ -87,13 +111,13 @@ PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flash
 PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py", "tests/test_web_installer.mjs",
                 "tests/test_patch_transport.py", "tests/test_export_public.py", "tests/test_build_module.py",
                 "tests/test_capture.py", "tests/test_flash_mock.py", "tests/test_norbackup.py",
-                "tests/test_module_readback.py")
+                "tests/test_module_readback.py", "tests/test_web_modules.py", "tests/test_web_modules.mjs")
 PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
                 "tools/crpatch.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
                 "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
                 "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
-PUBLIC_SRC = ("patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
+PUBLIC_SRC = ("patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
               "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/ad_life207.h", "patches/src/plockfix.c", "patches/src/scales.c",
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
@@ -133,10 +157,12 @@ PUBLIC_DSPVOICE207 = ('tests/test_dspvoice207_source.py',
                     'tools/dspvoice207/source-manifest.json')
 PUBLIC_DSPVOICE207RC = ('tests/test_dspvoice207rc_source.py', 'tools/dspvoice207rc/README.md', 'tools/dspvoice207rc/NOTICE.md', 'tools/dspvoice207rc/build.py', 'tools/dspvoice207rc/instrument.asm', 'tools/dspvoice207rc/source-manifest.json')
 PUBLIC_DSPVOICE207REL = ('tests/test_dspvoice207rel_source.py', 'tools/dspvoice207rel/README.md', 'tools/dspvoice207rel/NOTICE.md', 'tools/dspvoice207rel/build.py', 'tools/dspvoice207rel/instrument.asm', 'tools/dspvoice207rel/source-manifest.json')
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "web/index.html")
-ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+PUBLIC_DSPVOICE207M4 = ('tests/test_dspvoice207m4_source.py', 'tools/dspvoice207m4/README.md', 'tools/dspvoice207m4/NOTICE.md', 'tools/dspvoice207m4/build.py', 'tools/dspvoice207m4/instrument.asm', 'tools/dspvoice207m4/source-manifest.json', 'tools/dspvoice207m4/release.py', 'tools/dspvoice207m4/release-manifest.json', 'tools/dspvoice207m4/RELEASE.md', 'tests/test_dspvoice207m4_release.py')
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "web/index.html", "web/modules.html")
+ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md",
+          "RELEASE-NOTES-0.2.2.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
-         + PUBLIC_DSPVOICE207REL)
+         + PUBLIC_DSPVOICE207REL + PUBLIC_DSPVOICE207M4)
 # Allow-listed files published under another name (source path -> published path). The public README is
 # docs/user/README.md, published at the export root; this repo's own root README.md is private (DENY_PATHS).
 PUBLISH_AS = {"docs/user/README.md": "README.md"}
@@ -156,7 +182,7 @@ EXCLUDE = ("docs/nor-backup.md", "docs/codex-brief.md", "docs/release-plan.md", 
            "patches/src/flashdump.c",
            # PRIVATE bench-only: the no-Play gate and the core-0 bench build path. Never public.
            "patches/src/noplay.c", "tools/core0_bench_profile.py", "tools/core0_benchstack.py",
-           "tools/core0_telem.py", "tools/core0_meter_read.py")
+           "tools/core0_telem.py", "tools/core0_meter_read.py", "tools/rc_build.py")
 # Never exported: an allow-listed path that is not excluded but matches DENY_PATHS refuses the whole export.
 # docs/nor-backup.md holds the unit serial; the other four EXCLUDE docs are internal process documents (master,
 # 2026-10-19). PRIVATE_DOCS / PRIVATE_TESTS: notes and tests built on maps of the stock firmware (decompilation,
@@ -195,7 +221,8 @@ PRIVATE_TESTS = ("tests/test_core0_telem.py", "tests/test_a1_notetap.py", "tests
                  "tests/test_core0_joined206.py", "tests/test_core0_bench7303.py", "tests/test_core0_bankview.py",
                  "tests/test_core0_meter_read.py", "tests/test_core0_public02.py", "tests/test_core0_join207.py",
                  "tests/test_core0_rc02.py", "tests/test_core0_rc02m7.py",
-                 "tests/test_core0_fb02diag.py", "tests/test_core0_rel02.py")
+                 "tests/test_core0_fb02diag.py", "tests/test_core0_rel02.py", "tests/test_card_write.py",
+                 "tests/test_rc_images.py", "tests/test_rc_profile.py")
 # 0.2 release preparation (PRIVATE): the checklist, the release JSON draft with placeholders (the published
 # release/v0.2.0.json is generated by tools/crpatch.py at release) and the spec note rewriter.
 PRIVATE_DOCS += ("docs/release-0.2-checklist.md",)
@@ -646,8 +673,19 @@ def check_target(repo, target):
     return t
 
 
+def page_modules(text):
+    """The file names the module loader page publishes: its `const PUBLISHED = [...]` array."""
+    m = re.search(r"const PUBLISHED = \[([^\]]*)\]", text)
+    if not m:
+        raise Refused(f"{WEB_PAGE}: no PUBLISHED list")
+    names = re.findall(r"'([^']*)'", m.group(1))
+    if not names or len(set(names)) != len(names) or any(not re.fullmatch(r"[0-9a-z_-]{1,8}\.mod", n) for n in names):
+        raise Refused(f"{WEB_PAGE}: PUBLISHED must be distinct lower-case 8.3 .mod names")
+    return names
+
+
 def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloader_paths=None, allow=ALLOW,
-           allow_emails=(), dry_run=False, log=print, exclude=EXCLUDE, publish_as=None):
+           allow_emails=(), dry_run=False, log=print, exclude=EXCLUDE, publish_as=None, web_modules=None):
     repo = Path(git(repo, "rev-parse", "--show-toplevel").strip())
     t = check_target(repo, target)
     # #13: resolve --ref ONCE to a full commit id; policy, tree and provenance all read that commit (a branch or HEAD
@@ -686,6 +724,25 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
         for rule, detail in check_file(path, data, cfg, index, allow_emails, allow, exclude):
             findings.append((path, rule, detail))
         files.append((path, mode, data))
+    page = next((d for p, _, d in files if published(p, publish_as) == WEB_PAGE), None)
+    if web_modules is not None:
+        if page is None:
+            raise Refused(f"--web-modules: {WEB_PAGE} is not exported")
+        for name in page_modules(page.decode("utf-8")):
+            src, dest = Path(web_modules) / name, f"{WEB_MODULES}/{name}"
+            if src.is_symlink() or not src.is_file():
+                findings.append((dest, "path", f"{src} is missing (the page lists it)"))
+                continue
+            data = src.read_bytes()
+            try:
+                build_module.check(data)
+            except ValueError as e:
+                findings.append((dest, "module", str(e)))
+            for rule, detail in check_file(dest, data, cfg, index, allow_emails, allow, exclude):
+                findings.append((dest, rule, detail))
+            files.append((dest, "100644", data))
+    elif page is not None:
+        log(f"note: {WEB_PAGE} is exported without --web-modules: {WEB_MODULES}/ stays empty")
     dests = {}
     for path, _, _ in files:
         dests.setdefault(published(path, publish_as), []).append(path)
@@ -718,9 +775,11 @@ def cli(argv=None):
     ap.add_argument("--bootloader", action="append")
     ap.add_argument("--allow-email", action="append", default=[])
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--web-modules")
     a = ap.parse_args(argv)
     try:
-        export(a.repo, a.outdir, a.ref, a.deny_file, a.firmware_dir, a.bootloader, ALLOW, a.allow_email, a.dry_run)
+        export(a.repo, a.outdir, a.ref, a.deny_file, a.firmware_dir, a.bootloader, ALLOW, a.allow_email, a.dry_run,
+               web_modules=a.web_modules)
     except Refused as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1

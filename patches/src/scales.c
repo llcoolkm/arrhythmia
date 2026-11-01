@@ -101,6 +101,17 @@ static void sc_copy(const volatile uint8_t *b)
     c->rec_root = (uint8_t)syn_rec_get(rec, SR_ROOT);
 }
 
+#if PG_NAV
+/* PG_NAV (eight scales): a stored scale byte as it plays and shows. Phrygian (3) -> natural minor, Lydian (4) -> major,
+ * out of range -> major. The stored byte is never rewritten (no format change); every reader goes through
+ * sc_scale(), so the keyboards, the chord engine, the page and the 0E report agree. */
+static uint32_t sc_map(uint32_t x)
+{
+    return x == SYN_PHRYGIAN || x == SYN_LYDIAN ? (x == SYN_PHRYGIAN ? SYN_MINOR : SYN_MAJOR)
+                                                : x < SYN_SCALES ? x : SYN_MAJOR;
+}
+#endif
+
 /* Decoded settings (runtime copy). Out-of-range fields of a v1 sub-record decode to major / C. */
 static uint32_t sc_scale(void)
 {
@@ -109,7 +120,11 @@ static uint32_t sc_scale(void)
         return SYN_MAJOR;
     if (sc_status(c->sub) != SC_V1)
         return c->rec_scale;
+#if PG_NAV
+    return sc_map(c->sub[SC_SCALE]);
+#else
     return c->sub[SC_SCALE] < SYN_SCALES ? c->sub[SC_SCALE] : SYN_MAJOR;
+#endif
 }
 
 static uint32_t sc_root(void)
@@ -139,6 +154,10 @@ static uint32_t sc_edit_cb(volatile uint8_t *b, uint32_t arg)
     if ((op == SC_OP_ALL && (x >= SYN_SCALES || y > 11 || z > 0x7F)) || (op == SC_OP_SCALE && x >= SYN_SCALES)
             || (op == SC_OP_ROOT && x > 11) || (op == SC_OP_TOGGLE && x >= SC_TRACKS) || op > SC_OP_MINOR)
         return TS_REFUSED;
+#if PG_NAV                                    /* eight scales: Phrygian and Lydian are not written (SysEx 0E refused) */
+    if ((op == SC_OP_ALL || op == SC_OP_SCALE) && (x == SYN_PHRYGIAN || x == SYN_LYDIAN))
+        return TS_REFUSED;
+#endif
     if (st == SC_UNSET) {
         p[0] = 'S';
         p[1] = 'C';
@@ -157,7 +176,11 @@ static uint32_t sc_edit_cb(volatile uint8_t *b, uint32_t arg)
     } else if (op == SC_OP_TOGGLE) {
         p[SC_BITS] = (uint8_t)((p[SC_BITS] ^ 1u << x) & 0x7F);
     } else {                                  /* the page's minor pad: natural minor <-> major */
+#if PG_NAV                                    /* as it shows: a stored Phrygian (shown as minor) goes to major */
+        p[SC_SCALE] = sc_map(p[SC_SCALE]) == SYN_MINOR ? SYN_MAJOR : SYN_MINOR;
+#else
         p[SC_SCALE] = p[SC_SCALE] == SYN_MINOR ? SYN_MAJOR : SYN_MINOR;
+#endif
     }
     return TS_OK;
 }

@@ -1,4 +1,4 @@
-# Arrhythmia quick start
+# Circus Arrhythmia FM quick start
 
 1. **Back up.** Turn the unit off, take out the microSD card and copy it to your computer.
 2. **Download** Novation's firmware 2.0.1: <https://components.novationmusic.com/api/v2/firmwares/169/file>.

@@ -1,11 +1,11 @@
-# Arrhythmia install guide
+# Circus Arrhythmia FM install guide
 
-Applies to Arrhythmia 0.2 (arrhythmia-firmware build 7323, arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.2.0.md). Items marked **TBD** are not confirmed yet.
+Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228). Test status is in the
+[release notes](../../RELEASE-NOTES-0.2.2.md). Items marked **TBD** are not confirmed yet.
 
 | Image | Build | SHA-256 of the patched `.syx` (pinned) |
 |---|---|---|
-| arrhythmia-firmware | 7323 | `f5f77f2902aa7934c0c5dd22bbb890ce4c5aaa8f683d4f55e10897df95178cd5` |
+| arrhythmia-firmware | 7339 | `7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822` |
 | arrhythmia-devkit | 7228 | `66e1872c45b742992bdead24ebcbaffb9634d13b0a2db36caf5f2d1e6dd8354d` |
 
 ## Before you install
@@ -52,7 +52,7 @@ Applies to Arrhythmia 0.2 (arrhythmia-firmware build 7323, arrhythmia-devkit bui
 6. The pads light white and green, then Play flashes. Press **Play** on the unit within 60 seconds. To abort, press
    Cancel on the page.
 7. Wait about half a minute while a loading bar fills the pads twice. Do not unplug. The unit restarts, and the page
-   shows build 7323 (arrhythmia-firmware) or 7228 (arrhythmia-devkit).
+   shows build 7339 (arrhythmia-firmware) or 7228 (arrhythmia-devkit).
 
 Follow the page's error message. If the outcome is unknown, wait, reconnect and press **Check unit** before retrying.
 
@@ -66,15 +66,15 @@ the Arrhythmia files.
 
 1. Patch the official file (here named `circuit-rhythm-5706.syx`). For arrhythmia-firmware:
 
-       python3 -I tools/crpatch.py apply release/v0.2.0.json circuit-rhythm-5706.syx Arrhythmia-firmware-7323.syx --build firmware
+       python3 -I tools/crpatch.py apply release/v0.2.2.json circuit-rhythm-5706.syx Arrhythmia-firmware-7339.syx --build firmware
 
    For arrhythmia-devkit use `--build devkit` and the name `Arrhythmia-devkit-7228.syx`. The tool refuses a wrong
    input file and prints the SHA-256 of what it wrote; it must match the table above.
 2. Find the unit's MIDI device: `amidi -l` (for example `hw:3,0,0`, which is `/dev/snd/midiC3D0`).
 3. Stop any running module (Shift + Sample Rec) and leave the unit idle, then send the patched file:
 
-       python3 -I tools/flash.py /dev/snd/midiC3D0 Arrhythmia-firmware-7323.syx \
-           --expect-sha256 f5f77f2902aa7934c0c5dd22bbb890ce4c5aaa8f683d4f55e10897df95178cd5
+       python3 -I tools/flash.py /dev/snd/midiC3D0 Arrhythmia-firmware-7339.syx \
+           --expect-sha256 7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822
 
    (arrhythmia-devkit: `Arrhythmia-devkit-7228.syx` and its SHA-256 from the table.)
 4. When it prints "HEADER sent", press the flashing **Play** on the unit within 60 seconds. Only Play confirms; the
@@ -86,7 +86,7 @@ the Arrhythmia files.
        amidi -p hw:3,0,0 -S 'F0 00 20 29 00 70 F7' -d -t 2
 
    The reply is `F0 00 20 29 00 70`, five bootloader bytes, five firmware bytes, `40 02 F7`. The build number is in
-   the last three firmware bytes: `00 39 1B` is 7323 (arrhythmia-firmware), `00 38 3C` is 7228 (arrhythmia-devkit),
+   the last three firmware bytes: `00 39 2B` is 7339 (arrhythmia-firmware), `00 38 3C` is 7228 (arrhythmia-devkit),
    `00 2C 4A` is 5706 (stock).
 
 ## Check that it works
@@ -108,9 +108,9 @@ With arrhythmia-firmware:
 
 With arrhythmia-devkit, track 8 is a stock sample track; check steps 5 and 7 only (scales over SysEx, see [scales.md](scales.md)).
 
-To use modules from the card, copy `paint.mod` from the release files into the folder `Modules` at the card's root
-(see [developers.md](developers.md#loading)). Shift + Sample Rec opens the picker. Pad 1 is the first file. If
-`paint.mod` is the only file, pad 1 starts paint. From 0.2.1, the images have no built-in module.
+To use modules, put the module files of the release (for example `01paint.mod`) into the folder `Modules` at the
+card's root, with a card reader or with the module files web page (see [modules.md](modules.md)). Shift + Sample Rec
+opens the picker. `01paint.mod` is on pad 1. From 0.2.1, the images have no built-in module.
 
 On both images, the fault report should be clean:
 
@@ -121,7 +121,7 @@ The reply starts `F0 00 20 29 00 60 0D`; the next byte is 0 when there is no fau
 ## Switching between the two images
 
 Use the installer again and choose the other image. Nothing else is needed: the two images have different build
-numbers (7323 and 7228), and the unit installs any build whose number differs from the one it is running. Projects,
+numbers (7339 and 7228), and the unit installs any build whose number differs from the one it is running. Projects,
 samples and settings stay. Track 8's synth settings stay in the project on arrhythmia-devkit too, which does not use
 them, and are back in use after you return to arrhythmia-firmware.
 
@@ -149,7 +149,7 @@ Confirm with **Play** as during an install. Afterwards the version query shows `
   at a time: in our test Components hung until the installer tab was closed.
 
 Bootloader mode (hold **Sample Rec + Sample + Note** while turning the unit on) is not needed to go back to stock. It
-shows the installed firmware build on the pads, rows 3 and 4 as hex digits (for example `73 23` for build 7323).
+shows the installed firmware build on the pads, rows 3 and 4 as hex digits (for example `73 39` for build 7339).
 Press **Play** to leave it.
 
 Things to know:
@@ -157,7 +157,7 @@ Things to know:
 * Stop any running module before you install (Shift + Sample Rec). A module covers the pads, so you cannot see the
   flashing Play.
 * The unit installs only a build that differs from the one it is running. If it restarts in 2 or 3 seconds and still
-  reports the old build, it skipped the install. arrhythmia-firmware (7323), arrhythmia-devkit (7228) and stock
+  reports the old build, it skipped the install. arrhythmia-firmware (7339), arrhythmia-devkit (7228) and stock
   (5706) all have different build numbers, so any change between them installs.
 * A real install keeps the unit away from USB for about 10 seconds. Afterwards check the version (see "Install from
   the Linux command line", step 6): stock ends in `00 2C 4A` (5706). Shift + Sample Rec then opens no module picker.

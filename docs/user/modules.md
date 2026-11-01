@@ -1,7 +1,7 @@
-# Arrhythmia: the modules on the microSD card
+# Circus Arrhythmia FM: the modules on the microSD card
 
-Applies to Arrhythmia 0.2.1, arrhythmia-firmware build 7329. Test status: see the
-[release notes](../../RELEASE-NOTES-0.2.1.md#test-status).
+Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339. Test status: see the
+[release notes](../../RELEASE-NOTES-0.2.2.md#test-status).
 
 A module is a small program that runs on the unit. The release has 10 module files. Each file name starts with a
 number: that number is the pad of the module in the picker.
@@ -26,17 +26,57 @@ number: that number is the pad of the module in the picker.
 1. Power the unit off and remove the microSD card. The USB drive of the unit does not show the card, so use a card
    reader.
 2. At the root of the card, make a folder `Modules`. The name is not case-sensitive.
-3. Copy the `.mod` files into that folder. Keep the file names: the number at the start sets the pad.
+3. Copy the `.mod` files into that folder. Keep the file names: the number at the start sets the pad (see
+   [File names and pads](#file-names-and-pads)).
 4. Put the card back and power the unit on. The card must be present at power-on.
 
-The loader only reads the card. It does not write to the card and does not change your projects or samples.
+The picker only reads the card. It does not change your projects or samples.
+
+## File names and pads
+
+The picker shows up to 32 module files, on pads 1 to 32. Pad 1 is top left, pads 1 to 8 are the first row.
+
+* A module file is a file in the folder `Modules` with the extension `.mod` and a size of 26 to 15,360 bytes. Use
+  short names: up to 8 characters before `.mod`. The picker uses the short (8.3) name of a file. Hidden and system
+  files are not shown.
+* A name that starts with two digits `01` to `32` (for example `07drums.mod`) puts the file on that pad.
+* If two files have the same number, the first in the list gets the pad. The other file goes on the lowest free pad.
+* A file without a number (or with `00` or `33` to `99`) goes on the lowest free pad.
+* The list order: first the files with a number, then the other files. Each group is in character order of the name.
+* With more than 32 files, only the first 32 in the list order are shown.
+* The colour of a pad comes from the name without the number. The number does not change the colour.
+
+## Add modules with the web page
+
+![The module files web page: connect the unit, list the files on the card, add a published module or your own file, status](img/web-modules.png)
+
+The page `web/modules.html` writes module files to the card over USB, without a card reader. It needs Chrome with
+Web MIDI and SysEx, and a firmware with the card writer. If the page cannot find the card writer, it sends nothing to
+the card.
+
+1. **Connect the unit.** Close other music apps. Connect the unit by USB and stop playback. Select **Connect MIDI**,
+   select the port of the unit, then **Check unit**.
+2. **Modules on the card.** **List** shows the files in the folder `Modules`. **Verify** reads a file back and
+   compares it with the published file. **Delete** removes a file.
+3. **Add a module.** Push the button of a published module, or drop your own `.mod` file and give it a name. Then
+   **Write to card**. The name has 1 to 8 characters: A to Z, 0 to 9, `_` and `-`. The page adds `.MOD`. Start the
+   name with `01` to `32` to put the module on that pad ([File names and pads](#file-names-and-pads)). The published
+   modules keep their numbers.
+4. **Status.** The page shows the progress and the result of the last job.
+
+A card command stops a running module.
 
 ## Start and stop a module
 
+![The module picker with the 10 module files: each pad with a file is lit in its own colour, Sample Rec is lit](img/module-picker.png)
+
 * **Shift + Sample Rec** opens the picker. Pad 1 is top left. Pads 1 to 8 are the first row. A pad with a file comes
-  on in its own colour. Pads without a file stay dark.
-* Push a lit pad to start that module. The pad that loads blinks white. A red pad means that the file failed its
-  checks. The module did not start.
+  on in its own colour. Pads without a file stay dark. With no card, no folder `Modules` or no module file, no pad
+  comes on.
+* Push a lit pad to start that module. The pad that loads blinks white. A red pad means that the file did not load (it
+  failed its checks, or the unit could not read it). The module did not start. The picker stays open.
+* Other buttons and the macro knobs do not control the picker. Play still controls the transport. Only Sample Rec
+  is lit.
 * **Shift + Sample Rec** in the picker closes the picker.
 * **Shift + Sample Rec** while a module runs stops the module. The normal lights and controls come back at once.
 
@@ -71,6 +111,8 @@ Paint plays notes in a different way (see [Paint](#paint-pad-1)).
 
 ## Paint (pad 1)
 
+![Paint: pushed pads light in the selected colour and fade; each column plays its track](img/module-paint.png)
+
 Pads light where you push them, then fade. Each pad also plays a note.
 
 * **Pads.** A push lights the pad in the selected colour. The light then fades.
@@ -84,6 +126,8 @@ Pads light where you push them, then fade. Each pad also plays a note.
 * Paint does not follow the clock. It runs as soon as it starts.
 
 ## Euclid (pad 2)
+
+![Euclid: four rhythm rows, hits in green, the current step in white, row 1 selected](img/module-euclid.png)
 
 Four rhythm rows of up to 8 steps. Each row spreads its hits as evenly as possible over its steps (a Euclidean
 rhythm).
@@ -111,6 +155,8 @@ rhythm).
 
 ## Life (pad 3)
 
+![Life: living cells in green, the cell that plays in magenta](img/module-life.png)
+
 The Game of Life on the 8 x 4 pads. The edges wrap: the left edge touches the right edge, the top edge touches the
 bottom edge. A cell with 3 neighbours comes to life. A living cell with 2 or 3 neighbours stays alive.
 
@@ -128,6 +174,8 @@ bottom edge. A cell with 3 neighbours comes to life. A living cell with 2 or 3 n
 * At the start, three cells in the second row are alive.
 
 ## Rain (pad 4)
+
+![Rain: blue drops fall; a drop that lands in the bottom row flashes white and plays](img/module-rain.png)
 
 Drops fall down the pads. A drop that lands plays a note.
 
@@ -149,9 +197,12 @@ Drops fall down the pads. A drop that lands plays a note.
 
 ## Balls (pad 5)
 
+![Balls: two balls on the pads, Clear lit green](img/module-balls.png)
+
 Up to four balls bounce on the pads. A ball that hits a wall plays a note.
 
-* **Pads.** Push a pad to add a ball there. With four balls, a push replaces one ball, in turn.
+* **Pads.** Push a pad to add a ball there. This also increases macro 3 (number of balls). With four balls, a push
+  replaces one ball, in turn.
 * **Clear** puts the balls back at their start positions. The macro values stay.
 * **Macro 1:** speed. One movement each half note, quarter note, eighth note or sixteenth note (start value).
   Clockwise is faster.
@@ -160,14 +211,17 @@ Up to four balls bounce on the pads. A ball that hits a wall plays a note.
 * **Macro 4:** target track, 1 to 8 (start value 1).
 * **Clock.** Push Play to start. The cell of the hit sets the degree: pad 1 is degree 0, pad 2 degree 1, and so on.
   The velocity is 96. A note lasts half a movement. If balls hit walls at the same time, one note plays.
-* **Lights.** Each ball has its own colour. Clear is lit.
+* **Lights.** Each ball has its own colour. Clear is lit green.
 * While the transport is stopped, the balls stay still.
 
 ## Pulse (pad 9)
 
+![Pulse: one column lit on each eighth note](img/module-pulse.png)
+
 A light show on the beat. Pulse makes no sound.
 
 * Pulse does not take the controls. Play the unit as usual: the pads, buttons and macros work as normal.
+* The button and knob lights are dark while Pulse runs.
 * **Clock.** Push Play to start. While the transport is stopped, all pads pulse dimly.
 * Pulse has three patterns:
   * all pads flash on each beat;
@@ -177,6 +231,8 @@ A light show on the beat. Pulse makes no sound.
 
 ## Stars (pad 10)
 
+![Stars: single red, green and blue stars on the pads, buttons and knob lights](img/module-stars.png)
+
 Stars that come on slowly and fade out slowly, on all the lights of the unit. Stars makes no sound.
 
 * Stars does not take the controls. The pads play the tracks as usual.
@@ -184,22 +240,29 @@ Stars that come on slowly and fade out slowly, on all the lights of the unit. St
 
 ## Snake (pad 17)
 
+![Snake: the green snake with its bright head, the orange food, macro 1 lit for the speed](img/module-snake.png)
+
 The snake game. Snake makes no sound.
 
 * The game starts paused. The head of the snake blinks. Push a pad to start.
 * **Pads.** Push a pad on the side of the head where you want to go. The larger distance (row or column) sets the
-  direction. With equal distances, the snake goes up or down. The snake turns once for each move. It cannot turn
-  back on itself.
+  direction. With equal distances, the snake goes up or down. The snake turns once for each move. It cannot
+  reverse its direction in one move.
+* At the start, the snake moves right and its body is below the head. If your first push is below the head, the
+  snake turns into its own body and the game ends.
 * **Macro 1:** speed. Clockwise is faster. The light of macro 1 shows the speed. Snake follows the light frames of
   the unit, not the tempo.
 * Orange is the food. Green is the snake; the head is bright. The snake grows when it eats.
 * The game ends when the snake hits a wall or its own body. It can move into the cell that its tail leaves.
 * **Game over.** The pads flash red. The green pads show the score: one pad for each food eaten.
 * **Win.** The snake fills the board. The other pads flash blue.
-* After approx. half a second, push a pad to start a new game. The speed stays.
+* After approx. half a second, push a pad to show a new board. Push a pad again to start. The speed stays.
+* The buttons are dim white. They have no function.
 * Snake does not follow the clock.
 
 ## Lights Out (pad 18)
+
+![Lights Out: a puzzle with orange lit pads, Clear and Rec lit green](img/module-lights.png)
 
 The Lights Out puzzle. Lights Out makes no sound.
 
@@ -209,10 +272,13 @@ The Lights Out puzzle. Lights Out makes no sound.
 * **Clear** starts a new puzzle. Each puzzle is made from the solved board, so it always has a solution.
 * **Rec.** Hold Rec to see the number of pushes, 00 to 99, as two digits. Rec is lit green. At 99 or more pushes,
   Rec is red and the count stays at 99.
-* **Win.** All pads are green, in turn with the count. This stays until you push Clear.
+* **Win.** All pads are green, in turn with the count. This stays until you push Clear. Pad pushes have no effect.
+* Clear is lit green.
 * Lights Out does not follow the clock.
 
 ## Whack-a-mole (pad 19)
+
+![Whack-a-mole: one yellow target pad, Clear and Rec green, Duplicate red](img/module-mole.png)
 
 Hit the yellow pad before the next one comes. Whack-a-mole makes no sound.
 
@@ -223,8 +289,10 @@ Hit the yellow pad before the next one comes. Whack-a-mole makes no sound.
   miss when the next one comes.
 * **Macro 1:** interval: a half note, a quarter note (start value), an eighth note or a sixteenth note. Clockwise is
   faster.
-* **Clear** sets the score and the misses to 0.
+* **Clear** sets the score and the misses to 0. It also removes the target, without a miss.
 * **Rec.** Hold Rec to see the score as two green digits.
 * **Duplicate.** Hold Duplicate to see the misses as two red digits.
+* While you hold Rec or Duplicate, the target does not show.
+* Clear and Rec are lit green, Duplicate is lit red.
 * The counts stop at 99.
 * Start and stop remove the target without a miss.

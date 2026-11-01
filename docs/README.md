@@ -1,6 +1,6 @@
-# Arrhythmia documentation
+# Circus Arrhythmia FM documentation
 
-Arrhythmia is custom firmware for the Novation Circuit Rhythm, distributed as a patch that you apply to the official
+Circus Arrhythmia FM is custom firmware for the Novation Circuit Rhythm, distributed as a patch that you apply to the official
 firmware file on your own computer. No Novation code or firmware is included in this repository.
 
 ## For users
@@ -12,6 +12,8 @@ firmware file on your own computer. No Novation code or firmware is included in 
 * [user/synth.md](user/synth.md): the track 8 FM synth, its settings and its known issues.
 * [user/scales.md](user/scales.md): scales on tracks 1 to 7.
 * [user/modules.md](user/modules.md): the modules on the microSD card: copy, start, stop, and the controls of each.
+* [../RELEASE-NOTES-0.2.2.md](../RELEASE-NOTES-0.2.2.md): the 0.2.2 release notes: changes since 0.2.1, test status, known issues.
+* [../RELEASE-NOTES-0.2.1.md](../RELEASE-NOTES-0.2.1.md): the 0.2.1 release notes.
 * [../RELEASE-NOTES-0.2.0.md](../RELEASE-NOTES-0.2.0.md): the 0.2 release notes: changes since 0.1.1, test status, known issues.
 * [../RELEASE-NOTES-0.1.1.md](../RELEASE-NOTES-0.1.1.md): the 0.1.1 release notes: the two builds, what was tested, known limitations.
 * [../RELEASE-NOTES-0.1.0.md](../RELEASE-NOTES-0.1.0.md): the 0.1.0 release notes.
@@ -28,12 +30,12 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## Rebuilding the images
 
-`release/v0.2.1.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
-installer and embeds it. `release/v0.2.0.json`, `release/v0.1.1.json` and `release/v0.1.0.json` are the earlier
-releases.
+`release/v0.2.2.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
+installer and embeds it. `release/v0.2.1.json`, `release/v0.2.0.json`, `release/v0.1.1.json` and
+`release/v0.1.0.json` are the earlier releases.
 
 The 0.2 ARM source and the FM DSP source are published. With the official firmware 5706 file as the only firmware input, the complete 0.2 firmware image 7323
-rebuilds from this tree on the checked Linux toolchain. The ARM part builds from `patches/src/`. The DSP part (the FM
+(and the 0.2.1 and 0.2.2 images 7329 and 7339, steps 6 and 7) rebuilds from this tree on the checked Linux toolchain. The ARM part builds from `patches/src/`. The DSP part (the FM
 synth on DSP core 0, with its fixed output level, and the core-1 change that retires the 0.1.x voice) builds from
 `tools/dspvoice207rel/` with the line assembler built from source; no assembler binary is supplied. Installation still
 uses the official firmware and the published release patch.
@@ -94,6 +96,21 @@ Everything below needs the official firmware 5706 `.syx` file (see [user/install
    `10939096414b70a25d2e5bdc6d593df4e56563b9abdc9d9870c88d3542fb3619`. The DSP streams are the streams of step 5.
    The 0.2.1 ARM part puts part of its code (the far blob, 0x0801B000 to 0x0801C718) in flash that the old stock
    core-0 stream used. The join accepts ARM changes in that range only.
+7. arrhythmia-firmware 0.2.2 image 7339. After step 1, build the 0.2.2 ARM part (label 7304, without its DSP
+   code), then join it with the DSP streams of 0.2.2 (the output level is 4 dB down, not 7 dB):
+
+   ```sh
+   python3 -I tools/build_lightshow.py arrhythmia-firmware-arm-rc --spec-dir build
+   python3 -I tools/patch.py build/arrhythmia-firmware-arm-rc.json build/arrhythmia-firmware-arm-rc-7304
+   python3 -I tools/dspvoice207m4/release.py --stock firmware/circuit-rhythm-5706.syx --assembler build/dspvoice-toolchain/dspasm --arm-image build/arrhythmia-firmware-arm-rc-7304.bin --out build/arrhythmia-7339-source
+   ```
+
+   `build/arrhythmia-firmware-arm-rc-7304.bin` must have the SHA-256
+   `a1f5ed53d3d23c250736eede1c8fa27a13d320783d599b758bd9627db0b7c2ac`. The `.syx` must have the SHA-256
+   `7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822` and the decoded image
+   `5f10a0ac33e1358ab9bf51eb22f05d1172e22f5c0c91cb5b86dec2e1d23458df`. The DSP source is in `tools/dspvoice207m4/`
+   ([../tools/dspvoice207m4/RELEASE.md](../tools/dspvoice207m4/RELEASE.md)). The far blob of the 0.2.2 ARM part is
+   0x0801B000 to 0x0801E70C.
 
 ### Rebuild the 0.1.1 firmware image 7261
 

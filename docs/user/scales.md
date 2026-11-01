@@ -1,9 +1,9 @@
-# Arrhythmia: scales on tracks 1 to 7
+# Circus Arrhythmia FM: scales on tracks 1 to 7
 
-Applies to Arrhythmia 0.2: arrhythmia-firmware build 7323 and arrhythmia-devkit build 7228. Test status:
-see the [release notes](../../RELEASE-NOTES-0.2.0.md). **TBD** items are not confirmed.
+Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
+Test status: see the [release notes](../../RELEASE-NOTES-0.2.2.md#test-status). **TBD** items are not confirmed.
 
-Scales are in both images. In arrhythmia-firmware (build 7323), set them on the synth page. In
+Scales are in both images. In arrhythmia-firmware (build 7339), set them on the synth page. In
 arrhythmia-devkit (build 7228), set them over SysEx only.
 
 ## What it is
@@ -24,52 +24,60 @@ key note are dark and silent. See [Range](#range-dark-pads) for pads that are ou
 ## Turn scales on for a track (arrhythmia-firmware)
 
 1. Press **Shift + Track 8** to open the synth page.
-2. Press **Track 1** to **Track 7** to turn scales on or off for that track. A scaled track has a bright green
-   button; the others are dim.
-3. Press **Shift + Track 8** again to close the page.
+2. Press **Down** to show page 2 (scale).
+3. Press pad 1 to 7 of the top row to turn scales on or off for track 1 to 7. Each pad is under its track
+   button. A scaled track has a bright green pad; the others are dim. Pad 8 of the row has no function.
+4. Press a view or track button to leave the page.
 
-The synth page itself is described in [synth.md](synth.md#the-synth-page-shift--track-8).
+Track 1 to 7 do not turn scales on or off. On the synth page, they leave the page and select that track.
+
+The synth page itself is described in [synth.md](synth.md#the-synth-page).
 
 ## Choose the scale and the key (arrhythmia-firmware)
 
-With the synth page open:
+1. Open the synth page (**Shift + Track 8**).
+2. Press **Down** to show page 2 (scale).
+3. The second row shows eight violet pads, one per scale. The bright one is the scale in use. From the left: major,
+   natural minor, dorian, mixolydian, harmonic minor, major pentatonic, minor pentatonic, blues. Press a pad to select
+   that scale.
+4. The bottom two rows are a keyboard. Press a key to set the key (C to B). The key in use is lit yellow.
 
-* Hold **Shift**. The top two rows show ten violet pads, one per scale; the bright one is the scale in use. Top row,
-  from the left: major, natural minor, dorian, phrygian, lydian, mixolydian, harmonic minor, major pentatonic. Second
-  row, first two pads: minor pentatonic, blues.
-* Still holding **Shift**, press a key on the keyboard in the bottom two rows to set the key (C to B). The key in use
-  is lit yellow.
-* Without Shift, the last pad of the second row switches between natural minor and major.
+* On page 1 of the synth page, the last pad of the second row switches between natural minor and major.
+* arrhythmia-firmware has no Phrygian and no Lydian. A project that has Phrygian plays and shows natural minor. A
+  project that has Lydian plays and shows major. The project keeps its stored value.
 
 ## Choose the scale and the key (arrhythmia-devkit)
 
-arrhythmia-devkit has no synth page. There, scale, key and tracks are set together over SysEx:
+arrhythmia-devkit has no synth page. There, scale, key and tracks are set together over SysEx. arrhythmia-devkit
+has all ten scales of the table below:
 
     F0 00 20 29 00 60 0E 01 <scale> <key> <tracks> F7
 
-* `<scale>`: 0 to 9, in the order of the table below (0 major ... 9 blues).
+* `<scale>`: 0 to 9, in the order of the table below (0 major ... 9 blues). arrhythmia-firmware refuses 3
+  (Phrygian) and 4 (Lydian), and its reply gives 1 for a stored 3 and 0 for a stored 4.
 * `<key>`: 0 to 11 (0 = C, 1 = C#, ... 11 = B).
 * `<tracks>`: one bit per track: 1 = track 1, 2 = track 2, 4 = track 3 ... 64 = track 7; `7F` = all seven, `00` = none.
 
 `F0 00 20 29 00 60 0E 00 F7` reports the current setting. The reply format is in
 [../dev/devkit-sysex.md](../dev/devkit-sysex.md). This command works on arrhythmia-firmware too.
 
-## The ten scales
+## The scales
 
-Intervals are semitones above the key note. Notes are shown in the key of C.
+Intervals are semitones above the key note. Notes are shown in the key of C. arrhythmia-firmware has the eight
+scales with a pad number. arrhythmia-devkit has all ten.
 
-| No. | Scale | Notes per octave | Intervals | In C |
-|---|---|---|---|---|
-| 0 | Major | 7 | 0 2 4 5 7 9 11 | C D E F G A B |
-| 1 | Natural minor | 7 | 0 2 3 5 7 8 10 | C D Eb F G Ab Bb |
-| 2 | Dorian | 7 | 0 2 3 5 7 9 10 | C D Eb F G A Bb |
-| 3 | Phrygian | 7 | 0 1 3 5 7 8 10 | C Db Eb F G Ab Bb |
-| 4 | Lydian | 7 | 0 2 4 6 7 9 11 | C D E F# G A B |
-| 5 | Mixolydian | 7 | 0 2 4 5 7 9 10 | C D E F G A Bb |
-| 6 | Harmonic minor | 7 | 0 2 3 5 7 8 11 | C D Eb F G Ab B |
-| 7 | Major pentatonic | 5 | 0 2 4 7 9 | C D E G A |
-| 8 | Minor pentatonic | 5 | 0 3 5 7 10 | C Eb F G Bb |
-| 9 | Blues | 6 | 0 3 5 6 7 10 | C Eb F F# G Bb |
+| No. | Pad (page 2, second row) | Scale | Notes per octave | Intervals | In C |
+|---|---|---|---|---|---|
+| 0 | 1 | Major | 7 | 0 2 4 5 7 9 11 | C D E F G A B |
+| 1 | 2 | Natural minor | 7 | 0 2 3 5 7 8 10 | C D Eb F G Ab Bb |
+| 2 | 3 | Dorian | 7 | 0 2 3 5 7 9 10 | C D Eb F G A Bb |
+| 3 | none (devkit only) | Phrygian | 7 | 0 1 3 5 7 8 10 | C Db Eb F G Ab Bb |
+| 4 | none (devkit only) | Lydian | 7 | 0 2 4 6 7 9 11 | C D E F# G A B |
+| 5 | 4 | Mixolydian | 7 | 0 2 4 5 7 9 10 | C D E F G A Bb |
+| 6 | 5 | Harmonic minor | 7 | 0 2 3 5 7 8 11 | C D Eb F G Ab B |
+| 7 | 6 | Major pentatonic | 5 | 0 2 4 7 9 | C D E G A |
+| 8 | 7 | Minor pentatonic | 5 | 0 3 5 7 10 | C Eb F G Bb |
+| 9 | 8 | Blues | 6 | 0 3 5 6 7 10 | C Eb F F# G Bb |
 
 ## Play: the Note view of a scaled track
 
