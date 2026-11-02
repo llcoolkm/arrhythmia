@@ -21,7 +21,7 @@
  "builds": [
   {
    "name": "firmware",
-   "description": "Circus Arrhythmia FM 0.2.2. Image 7339, pinned by SHA-256. New in 0.2.2: the synth page is a view with two pages (chords; scales, tracks and key), Up and Down select the page, and a view or track button closes it; Clear + macro sets the synth page defaults; the synth output is approx. 3 dB louder (a 4 dB decrease, was 7 dB); arrhythmia-firmware has eight scales (no Phrygian, no Lydian); the module files web page writes module files to the microSD card over USB. Development builds with the code of 0.2.2 except the final light changes were tested on one unit: install, synth page, card writer with the module files web page, module picker and output level. The final light changes were tested in emulation only. For players: the FM synth on track 8, the synth page, scales for tracks 1 to 7, the p-lock fix and the modules.",
+   "description": "Circus Arrhythmia FM 0.2.2, firmware image 7339. Track 8: 4-operator FM synthesizer with chords and a synth page (Shift + Track 8). Tracks 1 to 7: scales in the Note view. Modules on the microSD card, written over USB with the module files web page. Bug fixes: parameter locks, sound processor fault. Changes from 0.2.1: synth page with two pages and Clear + macro defaults, synth output 3 dB louder, eight scales, module files web page.",
    "output": {
     "version_digits": [
      0,
@@ -972,7 +972,7 @@
   },
   {
    "name": "devkit",
-   "description": "Arrhythmia 0.1.1. Unchanged from 0.1.0. Image 7228, pinned by SHA-256. Image 7228 itself is not tested on hardware. A development build that differs from it only in the scales code and the build number had a short hardware test 2026-10-19 (install, version reply, no DSP fault, SysEx 7D restriction and meter read); no listening or stress test. For developers: the DSP load meter and its read command, the module loader and SDK, scales for tracks 1 to 7 (set over SysEx only) and the p-lock fix. Track 8 stays a stock sample track in this image.",
+   "description": "Arrhythmia 0.1.1, firmware image 7228 for developers, unchanged from 0.1.0. DSP load meter and its read command. Module loader and SDK. Tracks 1 to 7: scales, set over SysEx only. Bug fix: parameter locks. Track 8: stock sample track.",
    "output": {
     "version_digits": [
      0,

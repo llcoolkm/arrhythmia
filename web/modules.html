@@ -64,7 +64,7 @@ progress { width:100%; height:18px; }
 <main>
 <h1>Circus Arrhythmia FM: module files</h1>
 <p class="sub">Add, examine and delete the module files on the microSD card of the unit, without a card reader. The
-files go in the folder Modules on the card. This page runs in Chrome (tested; Edge untested) with Web MIDI and SysEx.
+files go in the folder Modules on the card. This page works in Chrome with Web MIDI and SysEx.
 The unit must run a Circus Arrhythmia FM firmware with the card writer. <a href="index.html">Installer</a></p>
 
 <section>
@@ -693,7 +693,7 @@ async function openSelected() {
 }
 
 $('connect').onclick = async () => {
-  if (!navigator.requestMIDIAccess) { log('This browser has no Web MIDI. Use Chrome (Edge is untested).', 'bad'); return; }
+  if (!navigator.requestMIDIAccess) { log('This browser has no Web MIDI. Use Chrome.', 'bad'); return; }
   try { access = await navigator.requestMIDIAccess({ sysex: true }); }
   catch (e) { log(`MIDI access refused (${e.name}). Allow MIDI and SysEx for this page.`, 'bad'); return; }
   session = new ML.Session(access, s => log(s));

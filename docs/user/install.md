@@ -39,7 +39,7 @@ Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit bu
 
 ## Install with the web page
 
-Requires Chrome on Windows or Linux. Edge is not tested.
+Requires Chrome on Windows or Linux.
 
 1. Close Novation Components and all other music applications. Connect the unit by USB and turn it on.
 2. Open https://llcoolkm.github.io/arrhythmia/web/ in Chrome. Allow MIDI access when Chrome asks. Press

@@ -307,8 +307,9 @@ class _Release:
     """A committed release: both builds reproduce their pins, no stock bytes, rebuild reproducible, JS equals Python.
     Subclasses set REL, NAME, LABELS, PINS, SPECS and EMBEDDED (only the current release is embedded in the page)."""
     EMBEDDED = False
-    # per build: the release name its description starts with, and the test-status phrase it must carry
+    # per build: the release name its description starts with, and a phrase it must carry
     DESC = {"firmware": (None, "fault containment not tested"), "devkit": (None, "not tested on hardware")}
+    SEP = "."       # the character after the release name
 
     def setUp(self):
         self.stock = STOCK.read_bytes()
@@ -323,7 +324,7 @@ class _Release:
         self.assertEqual(crpatch.select(self.rel)["name"], "firmware")
         for b in self.rel["builds"]:
             name, phrase = self.DESC[b["name"]]
-            self.assertTrue(b["description"].startswith((name or self.NAME) + "."))
+            self.assertTrue(b["description"].startswith((name or self.NAME) + self.SEP))
             self.assertIn(phrase, b["description"])
             out, _ = crpatch.apply(self.rel, self.stock, b["name"])
             self.assertEqual(hashlib.sha256(out).hexdigest(), self.PINS[b["name"]])
@@ -381,8 +382,14 @@ class ReleaseV022(_Release, unittest.TestCase):
     PINS = {"firmware": "7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822", "devkit": PIN_7228}
     SPECS = (ROOT / "build/arrhythmia-firmware-7339.json", ROOT / "build/arrhythmia-devkit-7228.json")
     # derived like packet 021i's (tools/release_packet.py build_release); the devkit build is carried from 0.2.1
-    DESC = {"firmware": (None, "The final light changes were tested in emulation only"),
-            "devkit": ("Arrhythmia 0.1.1", "not tested on hardware")}
+    # with the same patches and pin and a new description. The descriptions state facts only, no test status.
+    DESC = {"firmware": (None, ", firmware image 7339. "), "devkit": ("Arrhythmia 0.1.1", ", firmware image 7228 ")}
+    SEP = ","
+
+    def test_descriptions_facts_only(self):
+        for b in self.rel["builds"]:
+            for word in ("tested", "pinned", "SHA-256", "development build", "emulation"):
+                self.assertNotIn(word, b["description"])
 
     def test_devkit_unchanged_from_010(self):
         old = crpatch.select(json.loads(REL_V010.read_text()), "devkit")
