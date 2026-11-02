@@ -59,6 +59,9 @@ The synthesizer functions are in arrhythmia-firmware only.
   module, refer to [developers](docs/user/developers.md).
 * **Module files over USB.** The module files web page writes, replaces and deletes module files on the microSD
   card without a card reader ([add modules with the web page](docs/user/modules.md#add-modules-with-the-web-page)).
+* **MIDI export.** The MIDI export web page converts a project into a ZIP file for a DAW: a multitrack MIDI file, the
+  samples that the project plays and a note map for Drum Racks. It reads a copy of the card or the unit itself over
+  USB ([MIDI export](docs/user/midi-export.md)).
 
 ## Limits
 

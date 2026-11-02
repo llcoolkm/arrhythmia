@@ -83,7 +83,7 @@ WEB_MODULES = "web/modules"
 # modules/stars.c is the one published example module (master, 2026-10-19); the other examples stay private.
 PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
                "docs/user/synth.md",
-               "docs/user/scales.md", "docs/user/developers.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
+               "docs/user/scales.md", "docs/user/developers.md", "docs/user/midi-export.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
                "docs/user/img/synth-macros.png",
@@ -111,12 +111,15 @@ PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flash
 PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py", "tests/test_web_installer.mjs",
                 "tests/test_patch_transport.py", "tests/test_export_public.py", "tests/test_build_module.py",
                 "tests/test_capture.py", "tests/test_flash_mock.py", "tests/test_norbackup.py",
-                "tests/test_module_readback.py", "tests/test_web_modules.py", "tests/test_web_modules.mjs")
+                "tests/test_module_readback.py", "tests/test_web_modules.py", "tests/test_web_modules.mjs",
+                "tests/test_midiexport.py", "tests/test_web_export.py", "tests/test_web_export.mjs",
+                "tests/test_unitread.py")
 PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
                 "tools/crpatch.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
                 "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
-                "tools/norbackup.py", "tools/patch.py", "tools/scrolltext.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
+                "tools/norbackup.py", "tools/patch.py", "tools/scrolltext.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py",
+                "tools/crsong.py", "tools/midiexport.py", "tools/smf.py", "tools/unitread.py")
 PUBLIC_SRC = ("patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
               "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/ad_life207.h", "patches/src/plockfix.c", "patches/src/scales.c",
@@ -158,7 +161,7 @@ PUBLIC_DSPVOICE207 = ('tests/test_dspvoice207_source.py',
 PUBLIC_DSPVOICE207RC = ('tests/test_dspvoice207rc_source.py', 'tools/dspvoice207rc/README.md', 'tools/dspvoice207rc/NOTICE.md', 'tools/dspvoice207rc/build.py', 'tools/dspvoice207rc/instrument.asm', 'tools/dspvoice207rc/source-manifest.json')
 PUBLIC_DSPVOICE207REL = ('tests/test_dspvoice207rel_source.py', 'tools/dspvoice207rel/README.md', 'tools/dspvoice207rel/NOTICE.md', 'tools/dspvoice207rel/build.py', 'tools/dspvoice207rel/instrument.asm', 'tools/dspvoice207rel/source-manifest.json')
 PUBLIC_DSPVOICE207M4 = ('tests/test_dspvoice207m4_source.py', 'tools/dspvoice207m4/README.md', 'tools/dspvoice207m4/NOTICE.md', 'tools/dspvoice207m4/build.py', 'tools/dspvoice207m4/instrument.asm', 'tools/dspvoice207m4/source-manifest.json', 'tools/dspvoice207m4/release.py', 'tools/dspvoice207m4/release-manifest.json', 'tools/dspvoice207m4/RELEASE.md', 'tests/test_dspvoice207m4_release.py')
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "web/index.html", "web/modules.html")
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "web/index.html", "web/modules.html", "web/export.html")
 ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md",
           "RELEASE-NOTES-0.2.2.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
