@@ -52,7 +52,7 @@ The picker shows up to 32 module files, on pads 1 to 32. Pad 1 is top left, pads
 
 Open the page `web/modules.html` in Chrome.
 
-![The module files web page: connect the unit, list the files on the card, add a published module or your own file, status](img/web-modules.png)
+![The module files web page: connect the unit, list the files on the card in the order of the picker with their pads, add all published modules, one published module or your own file, status](img/web-modules.png)
 
 The page writes module files to the card over USB, without a card reader. It requires Chrome with Web MIDI and
 SysEx, and a firmware with the card writer. Without the card writer, the page sends nothing to the card.
@@ -68,6 +68,28 @@ SysEx, and a firmware with the card writer. Without the card writer, the page se
 4. **Status.** The page shows the progress and the result of the last job.
 
 A card command stops a running module.
+
+### Add all published modules
+
+**Add all published modules** puts all 11 published modules on the card with one push.
+
+1. Connect the unit and select **Check unit** (step 1 above). Stop playback.
+2. Select **Add all published modules**, then **OK** in the question.
+3. The page gets the 11 files from the web site. If it cannot get one of them, it stops and sends nothing to the unit.
+4. The page reads the list of files on the card.
+5. For each published module, the page examines the file with that name on the card:
+   * Same size and CRC as the published file: the page skips it.
+   * No such file, or other contents: the page writes the published file and reads it back.
+6. At the end, the status shows one line: the number of modules written, already on the card and failed. The list
+   shows the files on the card.
+
+If the unit refuses a request, or a request fails, the page stops at that module. It sends nothing more, and the
+status shows the error and the number of modules done. Remove the cause (for example, stop playback), then select
+**Add all published modules** again: the page skips the modules that are already on the card. If the status says
+that the outcome is unknown, select **Check status** first.
+
+Other files in the folder `Modules` stay on the card. A file with the name of a published module and other contents
+is replaced.
 
 ## Start and stop a module
 

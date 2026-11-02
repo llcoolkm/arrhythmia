@@ -86,7 +86,10 @@ tidies its helper files (NAME.TMP, NAME.OLD) left by an interrupted write.</p>
 
 <section>
 <h2>3. Add a module</h2>
-<p>Published modules (the file name starts with the pad number):</p>
+<p>Published modules (the file name starts with the pad number). <b>Add all published modules</b> writes every
+published module that is not on the card yet, or that differs from the published file. It skips the modules that
+are on the card with the same size and CRC. It stops at the first refusal or error.</p>
+<div class="row"><button id="addall" class="primary" data-need-unit="1">Add all published modules</button></div>
 <div class="row" id="published"></div>
 <p>Your own module file (.mod):</p>
 <div id="drop">Drop a .mod file here, or <input type="file" id="pick" accept=".mod"></div>
@@ -547,22 +550,28 @@ function pickerOrder(entries, capped = false) {
 // lost(error) (the link is gone). A failure stays the last status: no new job starts after it.
 const WARN = ['busy', 'running', 'unknown', 'pending'];
 class Actions {
-  constructor(ui) { this.ui = ui; this.running = false; this.entries = null; }
-  async act(what, fn) {
-    if (this.running) return { ok: false };
-    const c = await this.ui.card();
-    if (!c) return { ok: false };
-    this.running = true; this.ui.busy(true); this.ui.status(`${what}...`);
-    try { return { ok: true, value: await fn(c) }; }
+  constructor(ui) { this.ui = ui; this.running = false; this.batch = null; this.entries = null; }
+  // Free for a new action: nothing runs and no batch owns the unit (or the caller is that batch).
+  free(tok) { return !this.running && (!this.batch || this.batch === tok); }
+  // One action. The claim is taken before the first await, so a second click cannot pass the guard meanwhile.
+  async act(what, fn, tok) {
+    if (!this.free(tok)) return { ok: false, refused: true };
+    this.running = true; this.ui.busy(true);
+    try {
+      const c = await this.ui.card();
+      if (!c) return { ok: false };
+      this.ui.status(`${what}...`);
+      return { ok: true, value: await fn(c) };
+    }
     catch (e) {
       const cls = WARN.includes(e.kind) ? 'warn' : 'bad';
       this.ui.status(e.message, cls); this.ui.log(`${what}: ${e.message}`, cls);
       if (this.ui.lost) this.ui.lost(e);
       return { ok: false, error: e };
-    } finally { this.running = false; this.ui.busy(false); }
+    } finally { this.running = false; this.ui.busy(!!this.batch); }
   }
-  async list(before = '') {
-    const r = await this.act('List', c => c.list());
+  async list(before = '', tok) {
+    const r = await this.act('List', c => c.list(), tok);
     if (r.ok) {
       this.entries = pickerOrder(r.value.files, r.value.capped); this.entries.capped = r.value.capped;
       const n = this.entries.length;
@@ -572,6 +581,7 @@ class Actions {
     return r;
   }
   async del(name) {
+    if (!this.free()) return { ok: false, refused: true };
     if (!this.ui.confirm(`Delete ${name}.MOD from the card? This cannot be undone.`)) return { ok: false };
     const r = await this.act(`Delete ${name}.MOD`, c => c.del(name));
     if (!r.ok) return r;                             // the error stays; no list
@@ -582,6 +592,7 @@ class Actions {
   // Before BEGIN: one verify of the target name, fresh (the last list can be out of date or capped at 32 files).
   // Not found: write. Found: ask, with the live size and CRC. Any other result: stop, nothing is written.
   async write(blob, name) {
+    if (!this.free()) return { ok: false, refused: true };
     try { checkModule(blob); nameBytes(name); }
     catch (e) { this.ui.status(e.message, 'bad'); return { ok: false, error: e }; }
     const f = `${name}.MOD`;
@@ -599,6 +610,60 @@ class Actions {
     await this.list(`Wrote ${f}: ${w.size} bytes, CRC ${hex8(w.crc)}. The unit checked the file at commit and read the ` +
                     'card file back: size and CRC-32 match. ');
     return r;
+  }
+  // Add all published modules: one question, every file fetched first (a fetch failure sends nothing), a fresh
+  // list, then for each module one VERIFY of its name: the same size and CRC skips it, anything else writes it (and
+  // the write verifies it). The first failure of any kind (refusal, error, lost reply) stops the run: nothing more is
+  // sent and the error stays. The run owns the unit from the click to the end of the final list (taken before the
+  // first await, released once): every other action is refused meanwhile. names: card names; blob(name): the file.
+  async addAll(names, blob) {
+    if (!this.free()) return { ok: false, refused: true };
+    const tok = {};
+    this.batch = tok; this.ui.busy(true);
+    const done = { written: [], present: [], failed: [] };
+    const line = () => {
+      const left = names.length - done.written.length - done.present.length - done.failed.length;
+      return `${done.written.length} written, ${done.present.length} already on the card, ${done.failed.length} failed` +
+             (left > 0 ? `, ${left} not done` : '');
+    };
+    const end = (head, r, cls) => {
+      const msg = `${head}: ${r.error ? r.error.message : 'not started'} ${line()}.`;
+      this.ui.status(msg, cls || (r.error && WARN.includes(r.error.kind) ? 'warn' : 'bad')); this.ui.log(msg, 'bad');
+      return msg;
+    };
+    try {
+      if (!this.ui.confirm(`Write the ${names.length} published modules to the card? A module that is on the card ` +
+                           'with the same size and CRC is skipped. A file with the name of a published module and ' +
+                           'other content is replaced.')) return { ok: false, done };
+      const files = [];
+      try {
+        for (const n of names) { const b = await blob(n); checkModule(b); files.push([n, b]); }
+      } catch (e) {
+        this.ui.status(`Nothing sent to the unit. ${e.message}`, 'bad');
+        return { ok: false, done, error: e };
+      }
+      const l = await this.list('', tok);
+      if (!l.ok) { end('Add all stopped: the list of the card failed', l); return { ok: false, done, error: l.error }; }
+      for (const [n, b] of files) {
+        const crc = crc32(b) >>> 0;
+        const pre = await this.act(`Examine ${n}.MOD`, c => c.exists(n), tok);
+        if (!pre.ok) { done.failed.push(n); end(`Add all stopped at ${n}.MOD`, pre); return { ok: false, done, error: pre.error }; }
+        if (pre.value && pre.value.size === b.length && pre.value.crc === crc) {
+          done.present.push(n); this.ui.log(`${n}.MOD already on the card`); continue;
+        }
+        const w = await this.act(`Write ${n}.MOD`, c => c.write(b, n), tok);
+        if (!w.ok) { done.failed.push(n); end(`Add all stopped at ${n}.MOD`, w); return { ok: false, done, error: w.error }; }
+        done.written.push(n);
+        this.ui.log(`${pre.value ? 'replaced' : 'wrote'} ${n}.MOD, ${w.value.size} bytes, CRC ${hex8(w.value.crc)}`, 'ok');
+      }
+      const f = await this.list(`Add all: ${line()}. `, tok);
+      if (!f.ok) {                                   // the writes stand; only the refresh failed (no retry)
+        const msg = `Add all: ${line()}. The list of the card after it failed: ${f.error ? f.error.message : 'not started'}`;
+        this.ui.status(msg, f.error && WARN.includes(f.error.kind) ? 'warn' : 'bad'); this.ui.log(msg, 'bad');
+        return { ok: false, done, refreshError: f.error || null };
+      }
+      return { ok: true, done };
+    } finally { this.batch = null; this.ui.busy(false); }
   }
   async verify(name) { return this.act(`Verify ${name}.MOD`, c => c.verify(name)); }
   async reconcile() {                                // no list after it: List is the user's choice
@@ -796,6 +861,8 @@ for (const f of ML.PUBLISHED) {
   };
   $('published').appendChild(b);
 }
+
+$('addall').onclick = () => actions.addAll(ML.PUBLISHED.map(ML.nameOf), published);
 
 async function takeFile(f) {
   const out = $('userfile'); out.innerHTML = ''; userBlob = null;

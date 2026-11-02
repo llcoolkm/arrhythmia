@@ -694,5 +694,211 @@ await test('page: List shows the files in the picker order', async () => {
   assert.equal(p.a.entries.capped, false);
 });
 
+// ---------------------------------------------------------------- add all published modules
+const PUB = ML.PUBLISHED.map(ML.nameOf);
+const pubBlobs = Object.fromEntries(PUB.map((n, i) => [n, makeModule(60 + 37 * i, i % 2 === 1, 100 + i)]));
+const getBlob = async n => pubBlobs[n];
+const begins = unit => unit.subs().filter(x => x === 0x01).length;
+
+await test('add all: the list has the 11 published modules, 20SCROLL included', () => {
+  assert.equal(PUB.length, 11);
+  assert.ok(PUB.includes('20SCROLL'));
+});
+
+await test('add all: all missing: 11 written, each after a fresh verify; one list before, one after', async () => {
+  const p = pageRig();
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.done.written, PUB);
+  for (const n of PUB) assert.deepEqual(p.unit.files.get(`${n}.MOD`), pubBlobs[n]);
+  assert.equal(begins(p.unit), 11);
+  assert.equal(p.unit.subs().filter(x => x === 0x05).length, 2, 'the fresh list and the refreshed list');
+  // every BEGIN follows a verify (07, its status polls, 7F) of the same name
+  p.unit.sent.forEach((m, i) => {
+    if (m[5] !== 0x60 || m[7] !== 0x01) return;
+    const prev = p.unit.sent.slice(0, i).reverse().find(x => x[7] === 0x07);
+    assert.equal(ML.toHex(prev.subarray(8, 16)), ML.toHex(m.subarray(8, 16)), 'verify of the name before its BEGIN');
+  });
+  assert.match(p.last()[0], /^Add all: 11 written, 0 already on the card, 0 failed\. 11 files/);
+  assert.equal(p.ui.asked.length, 1, 'one question for the whole run');
+});
+
+await test('add all: all present: nothing written', async () => {
+  const p = pageRig();
+  for (const n of PUB) p.unit.files.set(`${n}.MOD`, pubBlobs[n]);
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, true);
+  assert.equal(begins(p.unit), 0);
+  assert.deepEqual(r.done.present, PUB);
+  assert.match(p.last()[0], /^Add all: 0 written, 11 already on the card, 0 failed\./);
+});
+
+await test('add all: mixed, and a name present with another CRC is rewritten', async () => {
+  const p = pageRig();
+  for (const n of PUB.slice(0, 4)) p.unit.files.set(`${n}.MOD`, pubBlobs[n]);
+  const other = makeModule(pubBlobs['05BALLS'].length, false, 999);   // same size, other content
+  p.unit.files.set('05BALLS.MOD', other);
+  p.unit.files.set('MINE.MOD', makeModule(80));
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.done.present, PUB.slice(0, 4));
+  assert.deepEqual(r.done.written, PUB.slice(4));
+  assert.deepEqual(p.unit.files.get('05BALLS.MOD'), pubBlobs['05BALLS']);
+  assert.ok(p.unit.files.has('MINE.MOD'), 'other files are left alone');
+  assert.match(p.last()[0], /^Add all: 7 written, 4 already on the card, 0 failed\./);
+  assert.ok(p.ui.logs.some(([t]) => /replaced 05BALLS\.MOD/.test(t)));
+});
+
+await test('add all: a refusal midway stops; nothing more is sent; the summary says what was done', async () => {
+  const p = pageRig();
+  const run = p.unit.runJob.bind(p.unit);
+  p.unit.runJob = () => { run(); if (p.unit.job === 4 && p.unit.files.size >= 3) p.unit.busy = true; };
+  // the unit turns busy after the verify of the third written file
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.done.written, PUB.slice(0, 3));
+  assert.deepEqual(r.done.failed, [PUB[3]]);
+  const after = p.unit.sent.findIndex(m => m[7] === 0x07 && ML.toHex(m.subarray(8, 15)) === ML.toHex(ML.enc.verify(PUB[3]).subarray(8, 15)));
+  assert.ok(after >= 0);
+  assert.equal(p.unit.sent.length, after + 1, 'the refused verify is the last request: no retry, no list');
+  assert.match(p.last()[0], new RegExp(`^Add all stopped at ${PUB[3]}\\.MOD: .*Stop playback.* 3 written, 0 already on the card, 1 failed, 7 not done\\.`));
+  assert.equal(p.last()[1], 'warn');
+});
+
+await test('add all: a failed write stops; a lost reply leaves the outcome pending', async () => {
+  const a = pageRig({ jobFail: { job: 1, result: 9, fr: 4 } });
+  let r = await a.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, false); assert.deepEqual(r.done.failed, [PUB[0]]);
+  assert.equal(begins(a.unit), 1);
+  assert.match(a.last()[0], /File system error.*0 written, 0 already on the card, 1 failed, 10 not done/);
+  const b = pageRig();
+  const orig = b.unit.status.bind(b.unit);
+  let commits = 0;
+  b.unit.status = (sub, x) => { if (sub === 0x03 && ++commits === 2) return; orig(sub, x); };
+  r = await b.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, false); assert.deepEqual(r.done.written, [PUB[0]]);
+  assert.ok(b.card.ctx.pending, 'unknown outcome kept');
+  assert.equal(begins(b.unit), 2);
+  assert.match(b.last()[0], /outcome is unknown/);
+});
+
+await test('add all: a fetch failure or a declined question sends nothing', async () => {
+  const a = pageRig();
+  const r = await a.a.addAll(PUB, async n => { if (n === '09PULSE') throw new ML.CardError('fetch', 'Cannot get modules/09pulse.mod from this site (HTTP 404).'); return pubBlobs[n]; });
+  assert.equal(r.ok, false);
+  assert.deepEqual(a.unit.sent, []);
+  assert.match(a.last()[0], /^Nothing sent to the unit\. Cannot get modules\/09pulse\.mod/);
+  const b = pageRig({}, [false]);
+  await b.a.addAll(PUB, getBlob);
+  assert.deepEqual(b.unit.sent, []);
+});
+
+await test('add all: a pending outcome stops it before anything is sent', async () => {
+  const p = pageRig();
+  p.card.ctx.pending = { op: 'write', what: 'Write X.MOD', name: 'X', size: 1, crc: 1 };
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, false);
+  assert.deepEqual(p.unit.sent, []);
+  assert.match(p.last()[0], /Check status/);
+});
+
+// ---------------------------------------------------------------- add all: ownership and the final list
+function heldFetch() {
+  let release;
+  const gate = new Promise(r => { release = r; });
+  return { release, blob: async n => { await gate; return pubBlobs[n]; } };
+}
+
+await test('add all: ownership is taken at the click; a second run and other actions are refused during the fetch', async () => {
+  const p = pageRig();
+  const busy = [];
+  p.a.ui.busy = on => busy.push(on);
+  const h = heldFetch();
+  const first = p.a.addAll(PUB, h.blob);
+  assert.ok(p.a.batch, 'owned before the fetch resolves');
+  assert.equal(busy[busy.length - 1], true, 'controls disabled at once');
+  const second = await p.a.addAll(PUB, getBlob);
+  assert.equal(second.refused, true);
+  assert.equal((await p.a.list()).refused, true);
+  assert.equal((await p.a.del('X')).refused, true);
+  assert.equal((await p.a.write(makeModule(100), 'X')).refused, true);
+  assert.equal((await p.a.verify('X')).refused, true);
+  assert.equal((await p.a.reconcile()).refused, true);
+  assert.equal(p.ui.asked.length, 1, 'one question only');
+  assert.deepEqual(p.unit.sent, [], 'no traffic from the refused actions');
+  h.release();
+  const r = await first;
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.done.written, PUB);
+  assert.equal(p.unit.subs().filter(x => x === 0x05).length, 2);
+  assert.ok(busy.slice(0, -1).every(x => x === true), 'controls stay disabled through the final list');
+  assert.equal(busy[busy.length - 1], false);
+  assert.equal(busy.filter(x => x === false).length, 1, 'released once');
+  assert.equal(p.a.batch, null);
+});
+
+await test('add all: refused actions during the run do not interleave requests', async () => {
+  const p = pageRig();
+  const order = [];
+  const recv = p.unit.receive.bind(p.unit);
+  p.unit.receive = m => { order.push(m[7]); recv(m); };
+  const run = p.a.addAll(PUB, getBlob);
+  let refused = 0;
+  for (let i = 0; i < 20; i++) {
+    await sleep(2);
+    if (p.a.batch) refused += (await p.a.list()).refused + (await p.a.del('01PAINT')).refused;
+  }
+  assert.ok(refused >= 2, 'actions were tried while the run owned the unit');
+  const r = await run;
+  assert.equal(r.ok, true);
+  assert.equal(order.filter(x => x === 0x04).length, 0, 'no delete reached the unit');
+  assert.equal(order.filter(x => x === 0x05).length, 2, 'only the two lists of the run');
+});
+
+await test('add all: the release also happens after a fetch failure and a declined question', async () => {
+  const a = pageRig();
+  await a.a.addAll(PUB, async () => { throw new ML.CardError('fetch', 'Cannot get modules/x.mod (HTTP 404).'); });
+  assert.equal(a.a.batch, null);
+  assert.equal((await a.a.list()).ok, true, 'free again');
+  const b = pageRig({}, [false]);
+  await b.a.addAll(PUB, getBlob);
+  assert.equal(b.a.batch, null);
+  assert.deepEqual(b.unit.sent, []);
+});
+
+await test('act: two plain actions at once: the second is refused before any await', async () => {
+  const p = pageRig();
+  const [x, y] = await Promise.all([p.a.list(), p.a.list()]);
+  assert.equal(x.ok, true); assert.equal(y.refused, true);
+  assert.equal(p.unit.subs().filter(s => s === 0x05).length, 1);
+});
+
+await test('add all: final list refused: counts kept, not success, no retry', async () => {
+  const p = pageRig();
+  const run = p.unit.runJob.bind(p.unit);
+  p.unit.runJob = () => { run(); if (p.unit.job === 4 && p.unit.files.size === 11) p.unit.busy = true; };
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.done.written, PUB, 'verified writes stay written');
+  assert.deepEqual(r.done.failed, []);
+  assert.equal(r.refreshError.kind, 'busy');
+  assert.equal(p.unit.subs().filter(s => s === 0x05).length, 2, 'the refused list is not retried');
+  assert.match(p.last()[0], /^Add all: 11 written, 0 already on the card, 0 failed\. The list of the card after it failed: .*Stop playback/);
+  assert.equal(p.a.batch, null);
+});
+
+await test('add all: final list reply lost: counts kept, outcome pending, not success', async () => {
+  const p = pageRig();
+  const run = p.unit.runJob.bind(p.unit);
+  p.unit.runJob = () => { run(); if (p.unit.job === 4 && p.unit.files.size === 11) p.unit.lose.add(0x05); };
+  const r = await p.a.addAll(PUB, getBlob);
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.done.written, PUB);
+  assert.equal(r.refreshError.kind, 'unknown');
+  assert.equal(p.card.ctx.pending.op, 'list');
+  assert.match(p.last()[0], /^Add all: 11 written.*after it failed: .*outcome is unknown/);
+  assert.equal(p.unit.subs().filter(s => s === 0x05).length, 2);
+});
+
 console.log(results.join('\n'));
 console.log(`${passed}/${results.length} passed`);
