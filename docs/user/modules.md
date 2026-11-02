@@ -19,15 +19,15 @@ number: that number is the pad of the module in the picker.
 | 18 | `18lights.mod` | [Lights Out](#lights-out-pad-18) | no | no |
 | 19 | `19mole.mod` | [Whack-a-mole](#whack-a-mole-pad-19) | yes | no |
 
-"Clock: yes" means that the module follows the sequencer. Push **Play** to start it.
+"Clock: yes" means that the module follows the sequencer clock. Push **Play** to start it.
 
 ## Put the modules on the card
 
-1. Power the unit off and remove the microSD card. The USB drive of the unit does not show the card, so use a card
-   reader.
+1. Power the unit off and remove the microSD card. Put the card in a card reader. The USB drive of the unit does not
+   show the card.
 2. At the root of the card, make a folder `Modules`. The name is not case-sensitive.
-3. Copy the `.mod` files into that folder. Keep the file names: the number at the start sets the pad (see
-   [File names and pads](#file-names-and-pads)).
+3. Copy the `.mod` files into that folder. Keep the file names. The number at the start sets the pad
+   ([File names and pads](#file-names-and-pads)).
 4. Put the card back and power the unit on. The card must be present at power-on.
 
 The picker only reads the card. It does not change your projects or samples.
@@ -48,11 +48,12 @@ The picker shows up to 32 module files, on pads 1 to 32. Pad 1 is top left, pads
 
 ## Add modules with the web page
 
+Open the page `web/modules.html` in Chrome.
+
 ![The module files web page: connect the unit, list the files on the card, add a published module or your own file, status](img/web-modules.png)
 
-The page `web/modules.html` writes module files to the card over USB, without a card reader. It needs Chrome with
-Web MIDI and SysEx, and a firmware with the card writer. If the page cannot find the card writer, it sends nothing to
-the card.
+The page writes module files to the card over USB, without a card reader. It requires Chrome with Web MIDI and
+SysEx, and a firmware with the card writer. Without the card writer, the page sends nothing to the card.
 
 1. **Connect the unit.** Close other music apps. Connect the unit by USB and stop playback. Select **Connect MIDI**,
    select the port of the unit, then **Check unit**.
@@ -68,48 +69,51 @@ A card command stops a running module.
 
 ## Start and stop a module
 
+**Shift + Sample Rec** opens the picker.
+
 ![The module picker with the 10 module files: each pad with a file is lit in its own colour, Sample Rec is lit](img/module-picker.png)
 
-* **Shift + Sample Rec** opens the picker. Pad 1 is top left. Pads 1 to 8 are the first row. A pad with a file comes
-  on in its own colour. Pads without a file stay dark. With no card, no folder `Modules` or no module file, no pad
+* A pad with a file comes on in its own colour. Pads without a file stay dark. With no card, no folder `Modules` or no module file, no pad
   comes on.
-* Push a lit pad to start that module. The pad that loads blinks white. A red pad means that the file did not load (it
-  failed its checks, or the unit could not read it). The module did not start. The picker stays open.
-* Other buttons and the macro knobs do not control the picker. Play still controls the transport. Only Sample Rec
-  is lit.
+* Push a lit pad to start that module. The pad that loads blinks white.
+* A red pad means that the file did not load: it failed its checks, or the unit could not read it. The module does
+  not start. The picker stays open.
+* Other buttons and the macro knobs do not control the picker. Play controls the transport. Only Sample Rec is lit.
 * **Shift + Sample Rec** in the picker closes the picker.
 * **Shift + Sample Rec** while a module runs stops the module. The normal lights and controls come back at once.
 
-No module stops by itself. No module starts by itself at power-on.
+No module stops automatically. No module starts automatically at power-on.
 
 ## While a module runs
 
-* **Play** always starts and stops the transport, also while the picker is open.
+* **Play** always starts and stops the transport.
 * A module that follows the clock waits for **Play**. While it waits, the Play button blinks dim green. When the
   transport stops, its clock-driven activity stops and its notes are released. The module stays open with idle lights.
 * Most modules take the pads, the buttons and the macros. **Shift**, Shift + Sample Rec, the master filter and the
   master volume stay normal.
-* Pulse and stars do not take the controls. The pads, buttons and macros work as usual, but the lights show the
+* Pulse and Stars do not take the controls. The pads, buttons and macros operate normally. The lights show the
   module.
-* Except in Paint, each value step of a module macro needs four counts of the encoder. Small bounces of the knob
-  do not change the value. Paint uses the encoder counts directly.
+* In all modules except Paint, one value step of a module macro needs four encoder counts. Small knob bounces do not
+  change the value. Paint uses the encoder counts directly.
 
 ## Notes from the modules
 
-Euclid, life, rain and balls play notes on a target track that you select. These rules apply to all four:
+Euclid, Life, Rain and Balls play notes on a selected target track. These rules apply to all four:
 
 * The notes come from the Note view keyboard of the target track. The module uses the notes that the keyboard shows
   in the two octaves from the original pitch of the sample up. Degree 0 is the lowest of these notes. The higher
   degrees go up through these notes. After the highest note, the count starts again at the lowest note.
-* With scales on (tracks 1 to 7), the notes are in the scale (see [scales.md](scales.md)).
-* If the module cannot read the keyboard of the track (for example a slice layout), it plays no note on that track.
+* With scales on (tracks 1 to 7), the notes are in the scale ([scales.md](scales.md)).
+* If the module cannot read the keyboard of the track (for example a slice layout), it plays no notes on that track.
 * Each track plays one module note at a time. A new note on the same track ends the note before it.
 * The notes play the sound of the track only. They do not go to MIDI out, and the pattern does not record them.
-* On track 8, arrhythmia-firmware plays the synth (see [synth.md](synth.md)).
+* On track 8, arrhythmia-firmware plays the synth ([synth.md](synth.md)).
 
-Paint plays notes in a different way (see [Paint](#paint-pad-1)).
+Paint plays notes differently ([Paint](#paint-pad-1)).
 
 ## Paint (pad 1)
+
+Start: pad 1 in the picker.
 
 ![Paint: pushed pads light in the selected colour and fade; each column plays its track](img/module-paint.png)
 
@@ -123,13 +127,15 @@ Pads light where you push them, then fade. Each pad also plays a note.
 * **Macro 2:** trail length. Clockwise makes the trail longer, from approx. 0.5 s to approx. 16 s in 28 steps. Start
   value: approx. 1.5 s.
 * The other buttons stay dim white.
-* Paint does not follow the clock. It runs as soon as it starts.
+* Paint does not follow the clock. It runs immediately.
 
 ## Euclid (pad 2)
 
+Start: pad 2 in the picker.
+
 ![Euclid: four rhythm rows, hits in green, the current step in white, row 1 selected](img/module-euclid.png)
 
-Four rhythm rows of up to 8 steps. Each row spreads its hits as evenly as possible over its steps (a Euclidean
+Four rhythm rows of up to 8 steps. Each row spreads its hits as equally as possible over its steps (a Euclidean
 rhythm).
 
 * **Pads.** Each pad row is one rhythm row. Push any pad of a row to select that row.
@@ -155,6 +161,8 @@ rhythm).
 
 ## Life (pad 3)
 
+Start: pad 3 in the picker.
+
 ![Life: living cells in green, the cell that plays in magenta](img/module-life.png)
 
 The Game of Life on the 8 x 4 pads. The edges wrap: the left edge touches the right edge, the top edge touches the
@@ -174,6 +182,8 @@ bottom edge. A cell with 3 neighbours comes to life. A living cell with 2 or 3 n
 * At the start, three cells in the second row are alive.
 
 ## Rain (pad 4)
+
+Start: pad 4 in the picker.
 
 ![Rain: blue drops fall; a drop that lands in the bottom row flashes white and plays](img/module-rain.png)
 
@@ -197,6 +207,8 @@ Drops fall down the pads. A drop that lands plays a note.
 
 ## Balls (pad 5)
 
+Start: pad 5 in the picker.
+
 ![Balls: two balls on the pads, Clear lit green](img/module-balls.png)
 
 Up to four balls bounce on the pads. A ball that hits a wall plays a note.
@@ -216,11 +228,13 @@ Up to four balls bounce on the pads. A ball that hits a wall plays a note.
 
 ## Pulse (pad 9)
 
+Start: pad 9 in the picker.
+
 ![Pulse: one column lit on each eighth note](img/module-pulse.png)
 
 A light show on the beat. Pulse makes no sound.
 
-* Pulse does not take the controls. Play the unit as usual: the pads, buttons and macros work as normal.
+* Pulse does not take the controls. The pads, buttons and macros operate normally.
 * The button and knob lights are dark while Pulse runs.
 * **Clock.** Push Play to start. While the transport is stopped, all pads pulse dimly.
 * Pulse has three patterns:
@@ -231,14 +245,18 @@ A light show on the beat. Pulse makes no sound.
 
 ## Stars (pad 10)
 
+Start: pad 10 in the picker.
+
 ![Stars: single red, green and blue stars on the pads, buttons and knob lights](img/module-stars.png)
 
-Stars that come on slowly and fade out slowly, on all the lights of the unit. Stars makes no sound.
+Stars come on slowly and fade out slowly, on all the lights of the unit. Stars makes no sound.
 
-* Stars does not take the controls. The pads play the tracks as usual.
-* Stars does not follow the clock. It runs as soon as it starts.
+* Stars does not take the controls. The pads play the tracks normally.
+* Stars does not follow the clock. It runs immediately.
 
 ## Snake (pad 17)
+
+Start: pad 17 in the picker.
 
 ![Snake: the green snake with its bright head, the orange food, macro 1 lit for the speed](img/module-snake.png)
 
@@ -252,7 +270,7 @@ The snake game. Snake makes no sound.
   snake turns into its own body and the game ends.
 * **Macro 1:** speed. Clockwise is faster. The light of macro 1 shows the speed. Snake follows the light frames of
   the unit, not the tempo.
-* Orange is the food. Green is the snake; the head is bright. The snake grows when it eats.
+* Orange is the food. Green is the snake. The head is bright. The snake grows when it eats.
 * The game ends when the snake hits a wall or its own body. It can move into the cell that its tail leaves.
 * **Game over.** The pads flash red. The green pads show the score: one pad for each food eaten.
 * **Win.** The snake fills the board. The other pads flash blue.
@@ -261,6 +279,8 @@ The snake game. Snake makes no sound.
 * Snake does not follow the clock.
 
 ## Lights Out (pad 18)
+
+Start: pad 18 in the picker.
 
 ![Lights Out: a puzzle with orange lit pads, Clear and Rec lit green](img/module-lights.png)
 
@@ -278,12 +298,14 @@ The Lights Out puzzle. Lights Out makes no sound.
 
 ## Whack-a-mole (pad 19)
 
+Start: pad 19 in the picker.
+
 ![Whack-a-mole: one yellow target pad, Clear and Rec green, Duplicate red](img/module-mole.png)
 
-Hit the yellow pad before the next one comes. Whack-a-mole makes no sound.
+Hit the yellow pad before the next target comes on. Whack-a-mole makes no sound.
 
-* **Clock.** Push Play to start. A new yellow pad comes on at each interval. It is never the same pad two times in
-  sequence.
+* **Clock.** Push Play to start. A new yellow pad comes on at each interval. Two sequential targets are never the
+  same pad.
 * **Pads.** Push the yellow pad to score. Each target scores once. While a target is active, a push on another pad
   counts a miss. After a hit, pad pushes are ignored until the next target. A target that you do not hit counts a
   miss when the next one comes.

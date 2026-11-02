@@ -88,7 +88,6 @@ PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
                "docs/user/img/synth-macros.png",
                "docs/user/img/synth-page-lights.png",
-               "docs/user/img/shift-track8.png",
                "docs/user/img/module-picker.png",
                "docs/user/img/web-modules.png",
                "docs/user/img/module-paint.png",

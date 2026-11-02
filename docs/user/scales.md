@@ -1,46 +1,47 @@
 # Circus Arrhythmia FM: scales on tracks 1 to 7
 
 Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
-Test status: see the [release notes](../../RELEASE-NOTES-0.2.2.md#test-status). **TBD** items are not confirmed.
+Test status: see the [release notes](../../RELEASE-NOTES-0.2.2.md#test-status) and the
+[0.1.0 release notes](../../RELEASE-NOTES-0.1.0.md). **TBD** items are not confirmed.
 
 Scales are in both images. In arrhythmia-firmware (build 7339), set them on the synth page. In
 arrhythmia-devkit (build 7228), set them over SysEx only.
 
 ## What it is
 
-With scales on, a sample track plays its **Note view** in a musical scale instead of the chromatic keyboard, so every
-pad you press is in key. Every pad that plays, plays a note of the scale. Each row of pads is one octave, from the key
-note to the key note above it, and every pad you play lights itself. In 5- and 6-note scales the pads past the upper
-key note are dark and silent. See [Range](#range-dark-pads) for pads that are out of the unit's range.
+With scales on, the **Note view** of a sample track plays a musical scale instead of the chromatic keyboard. All
+pads that play are in key. Each pad row is one octave, from the key note to the key note above it. Each played pad
+lights. In 5-note and 6-note scales, the pads past the upper key note are dark and silent. For pads out of the range
+of the unit, refer to [Range](#range-dark-pads).
 
-* **Tracks 1 to 7**, the sample tracks. You turn scales on or off for each of them.
-* **One scale and one key for the whole project.** Every scaled track uses them. In arrhythmia-firmware the chords of
-  track 8 follow the same scale and key (see [synth.md](synth.md)); track 8's own keyboard does not change.
-* **Saved with the project.** The scale, the key and which tracks are scaled are stored in the project. A project
-  made without scales opens with scales off.
-* **On stock firmware**, a project with scales loads normally and its tracks play the normal chromatic Note view.
+* **Tracks 1 to 7**, the sample tracks. Scales are on or off per track.
+* **One scale and one key per project.** All scaled tracks use them. In arrhythmia-firmware, the chords of track 8
+  use the same scale and key ([synth.md](synth.md)). The keyboard of track 8 does not change.
+* **Saved with the project.** The project stores the scale, the key and the scaled tracks. A project without scales
+  opens with scales off.
+* **On the stock firmware**, a project with scales loads normally. Its tracks play the normal chromatic Note view.
   **TBD:** not tested on hardware.
 
 ## Turn scales on for a track (arrhythmia-firmware)
 
 1. Press **Shift + Track 8** to open the synth page.
 2. Press **Down** to show page 2 (scale).
-3. Press pad 1 to 7 of the top row to turn scales on or off for track 1 to 7. Each pad is under its track
-   button. A scaled track has a bright green pad; the others are dim. Pad 8 of the row has no function.
-4. Press a view or track button to leave the page.
+3. Press pad 1 to 7 of the top row to turn scales on or off for track 1 to 7. Each pad is below its track button.
+   A scaled track has a bright green pad. The other pads are dim. Pad 8 of the row has no function.
+4. Press a view or track button to close the page.
 
-Track 1 to 7 do not turn scales on or off. On the synth page, they leave the page and select that track.
+On the synth page, Track 1 to 7 do not turn scales on or off. They close the page and select that track.
 
-The synth page itself is described in [synth.md](synth.md#the-synth-page).
+The synth page: [synth.md](synth.md#the-synth-page).
 
 ## Choose the scale and the key (arrhythmia-firmware)
 
 1. Open the synth page (**Shift + Track 8**).
 2. Press **Down** to show page 2 (scale).
-3. The second row shows eight violet pads, one per scale. The bright one is the scale in use. From the left: major,
-   natural minor, dorian, mixolydian, harmonic minor, major pentatonic, minor pentatonic, blues. Press a pad to select
-   that scale.
-4. The bottom two rows are a keyboard. Press a key to set the key (C to B). The key in use is lit yellow.
+3. Press a pad in the second row to select a scale. The row has eight violet pads, one per scale. The bright pad is
+   the scale in use. From the left: major, natural minor, dorian, mixolydian, harmonic minor, major pentatonic,
+   minor pentatonic, blues.
+4. Press a key on the bottom two rows (a keyboard, C to B) to set the key. The key in use is yellow.
 
 * On page 1 of the synth page, the last pad of the second row switches between natural minor and major.
 * arrhythmia-firmware has no Phrygian and no Lydian. A project that has Phrygian plays and shows natural minor. A
@@ -48,22 +49,22 @@ The synth page itself is described in [synth.md](synth.md#the-synth-page).
 
 ## Choose the scale and the key (arrhythmia-devkit)
 
-arrhythmia-devkit has no synth page. There, scale, key and tracks are set together over SysEx. arrhythmia-devkit
-has all ten scales of the table below:
+arrhythmia-devkit has no synth page. One SysEx command sets scale, key and tracks. arrhythmia-devkit has all ten
+scales of the table below:
 
     F0 00 20 29 00 60 0E 01 <scale> <key> <tracks> F7
 
 * `<scale>`: 0 to 9, in the order of the table below (0 major ... 9 blues). arrhythmia-firmware refuses 3
-  (Phrygian) and 4 (Lydian), and its reply gives 1 for a stored 3 and 0 for a stored 4.
+  (Phrygian) and 4 (Lydian). Its reply gives 1 for a stored 3 and 0 for a stored 4.
 * `<key>`: 0 to 11 (0 = C, 1 = C#, ... 11 = B).
 * `<tracks>`: one bit per track: 1 = track 1, 2 = track 2, 4 = track 3 ... 64 = track 7; `7F` = all seven, `00` = none.
 
-`F0 00 20 29 00 60 0E 00 F7` reports the current setting. The reply format is in
-[../dev/devkit-sysex.md](../dev/devkit-sysex.md). This command works on arrhythmia-firmware too.
+`F0 00 20 29 00 60 0E 00 F7` reports the current setting, also on arrhythmia-firmware. The reply format is in
+[../dev/devkit-sysex.md](../dev/devkit-sysex.md).
 
 ## The scales
 
-Intervals are semitones above the key note. Notes are shown in the key of C. arrhythmia-firmware has the eight
+Intervals are semitones above the key note. The notes are in the key of C. arrhythmia-firmware has the eight
 scales with a pad number. arrhythmia-devkit has all ten.
 
 | No. | Pad (page 2, second row) | Scale | Notes per octave | Intervals | In C |
@@ -81,29 +82,31 @@ scales with a pad number. arrhythmia-devkit has all ten.
 
 ## Play: the Note view of a scaled track
 
+Select a scaled track and press **Note**.
+
 ![The Note view of a scaled track at the default octave, in C major and in A minor pentatonic](img/scales-note-view.png)
 
-Select a scaled track and press **Note**. The keyboard is the bottom two pad rows, 8 pads each. Each row is one
-octave of the scale, from the key note up to the key note an octave higher:
+The keyboard is the bottom two pad rows, 8 pads each. Each row is one
+octave of the scale, from the key note to the key note one octave higher.
 
-* **Bottom row:** the scale from the key note up, ending on the key note an octave higher. In a 7-note scale that
-  fills all 8 pads. In a 5-note scale (the pentatonics) it fills 6 pads and the last 2 are dark and silent; in blues
-  (6 notes) it fills 7 pads and the last one is dark.
-* **Top row:** the same as the bottom row, one octave higher. Its first pad is the same note as the last key-note pad
-  of the bottom row.
-* **Key pads:** every pad that plays the key note is highlighted, in the colour the stock Note view gives its C pads.
-  In a 7-note scale these are pads 1 and 8 of each row; in a pentatonic scale pads 1 and 6; in blues pads 1 and 7.
-  Only key notes sit on two pads, and both light together when that note plays.
-* **Lights:** a pad you press lights itself, and so does the pad of a note the sequencer plays.
-* **Up and Down** move the rows by one octave, as on stock firmware.
-* **Expanded view** (press **Note** again, all four rows): four octaves, one per row, the lowest at the bottom. At the
-  default octave the two upper rows run above the unit's highest note and are mostly dark; press **Down** twice for
-  four full rows. See [Range: dark pads](#range-dark-pads).
+* **Bottom row:** the scale from the key note up to the key note one octave higher. A 7-note scale fills all 8 pads.
+  A 5-note scale (the pentatonics) fills 6 pads, and the last 2 pads are dark and silent. Blues (6 notes) fills 7
+  pads, and the last pad is dark.
+* **Top row:** the bottom row, one octave higher. Its first pad has the same note as the last key-note pad of the
+  bottom row.
+* **Key pads:** all pads that play the key note have the colour of the C pads in the stock Note view. In a 7-note
+  scale, these are pads 1 and 8 of each row. In a pentatonic scale, pads 1 and 6. In blues, pads 1 and 7. Only key
+  notes are on two pads. Both pads light together when that note plays.
+* **Lights:** a pressed pad lights. The pad of a note that the sequencer plays also lights.
+* **Up and Down** move the rows by one octave, as on the stock firmware.
+* **Expanded view** (press **Note** again, all four rows): four octaves, one per row, the lowest at the bottom. At
+  the default octave, the two upper rows are above the highest note of the unit and are mostly dark. Press **Down**
+  two times for four full rows. Refer to [Range: dark pads](#range-dark-pads).
 
-At the default octave the bottom-left pad plays the key note in the octave where the stock Note view has its
-bottom-left C (for example C in C, A above that C in A).
+At the default octave, the bottom-left pad plays the key note in the octave of the bottom-left C of the stock Note
+view (for example C in C, A above that C in A).
 
-**Worked example: C major**
+**Example: C major**
 
 | Row | Pads 1 to 8 |
 |---|---|
@@ -112,7 +115,7 @@ bottom-left C (for example C in C, A above that C in A).
 
 Key pads: 1 and 8 in both rows. The top-left C and the bottom-right C are the same note. All 16 pads play.
 
-**Worked example: A minor pentatonic, default octave**
+**Example: A minor pentatonic, default octave**
 
 | Row | Pads 1 to 8 |
 |---|---|
@@ -120,61 +123,48 @@ Key pads: 1 and 8 in both rows. The top-left C and the bottom-right C are the sa
 | Bottom | A C D E G A, then pads 7 and 8 dark |
 
 Key pads: 1 and 6 in both rows. The top-left A and bottom pad 6 are the same note. Pads 7 and 8 of each row have no
-note: they are dark and silent in every key and at every octave.
+note. They are dark and silent in all keys and at all octaves.
 
 ### Range: dark pads
 
-The Note view plays notes from the C# just under four octaves below the default bottom-left C up to the C three
-octaves above it. A pad whose note falls outside that range is dark and silent. This is separate from the dark pads
-past the upper key note of a 5- or 6-note scale (above), which never play.
+The Note view plays notes from the C# 47 semitones below the default bottom-left C, up to the C three octaves
+above it. A pad with a note outside this range is dark and silent. These pads are different from the dark
+pads past the upper key note of a 5-note or 6-note scale, which never play.
 
-**Simple view (two rows).** At the default octave and at every octave below it, every pad of every scale in every key
-is in range. After one press of **Up**, 110 of the 120 scale and key combinations have dark pads at the top right
-(only key C stays fully lit); after two presses every combination has them.
+**Simple view (two rows).** At the default octave and at all lower octaves, all pads of all scales in all keys are
+in range. After one press of **Up**, 110 of the 120 scale and key combinations have dark pads at the top right. Only
+key C stays fully lit. After two presses, all combinations have dark pads.
 
-**Expanded view (four rows).** At the default octave the two rows above the simple view's rows start at the key note
-two and three octaves above the bottom-left pad, and the top of the range cuts them off:
+**Expanded view (four rows).** At the default octave, the two upper rows start at the key note two and three
+octaves above the bottom-left pad. The top of the range cuts them off:
 
 | Row | At the default octave |
 |---|---|
-| Top (pads 1 to 8) | Dark in every scale and key, except key C: its first pad plays the highest C, the rest is dark. |
+| Top (pads 1 to 8) | Dark in all scales and keys, except key C: its first pad plays the highest C, the other pads are dark. |
 | Second (pads 9 to 16) | Key C: all pads play (6 in a pentatonic scale, 7 in blues). Higher keys: fewer pads play, down to 1 or 2 in key B. A minor pentatonic: A and C play, the next four pads are dark. |
-| Third and bottom | The simple view's two rows: every pad plays. |
+| Third and bottom | The two rows of the simple view: all pads play. |
 
-Press **Down** once: key C (every scale) shows four full rows; the other keys still have dark pads at the top right.
-Press **Down** twice: every scale in every key shows four full rows, and so does the lowest octave (one more press).
+* Press **Down** one time: key C (all scales) shows four full rows. The other keys still have dark pads at the top
+  right.
+* Press **Down** two times: all scales in all keys show four full rows. The lowest octave (one more press) also
+  shows four full rows.
 
-## Good to know
+## Behaviour
 
-* What you record is what you heard: the pattern keeps the notes you played. Changing the scale or the key later does
-  not change recorded notes.
-* Holding a step and pressing a pad in the Note view puts that pad's note in the step, as usual.
-* A pad you hold while the scale or key changes stops the note it started when you let go; nothing hangs.
-* Sample view pads, MIDI notes coming in, and the sequencer are not changed by scales.
-* A track whose sample is sliced keeps its slices in the Note view, even with scales turned on. Scales come back when
-  slicing is turned off.
-* If the page blinks red, the unit was busy (for example saving) and nothing changed. Wait a moment and press again.
-* Only the key note sits on two pads (the end of one row and the start of the next); both light together while it
-  plays.
-* After a change of scale or key, the scaled tracks switch over one at a time, within a few moments.
-* Changing a scale while the sequencer plays can lengthen the intervals of the MIDI clock the unit sends. At 130 BPM,
-  with all seven tracks scaled, the longest clock interval measured during scale changes was 26.9 ms, against 24.0 ms
-  without changes (measured on a development build). Devices that follow the unit's clock may notice it. This is
-  a known limitation of 0.1.
+* The pattern keeps the played notes. A later change of the scale or the key does not change recorded notes.
+* Hold a step and press a pad in the Note view to put the note of that pad in the step.
+* A pad held during a scale or key change stops its note when you release it. No note hangs.
+* Scales do not change Sample view pads, incoming MIDI notes or the sequencer.
+* A track with a sliced sample keeps its slices in the Note view when scales are on. Scales come back when slicing
+  is off.
+* If the page blinks red, the unit was busy (for example saving) and nothing changed. Wait and press again.
+* After a change of scale or key, the scaled tracks change one at a time, within a few moments.
+* A scale change while the sequencer plays can lengthen the intervals of the MIDI clock that the unit sends. Devices
+  that follow the clock of the unit can be affected. Measured at 130 BPM with all seven tracks scaled:
 
-## Evidence
-
-* **On hardware (build 7229, the arrhythmia-firmware image of 0.1.0, 2026-10-20, one unit):** C major in the simple
-  and expanded views (every pad lights itself), A minor pentatonic (the two dark pads per row), a note held across a
-  scale change, scales off (the stock keyboard comes back), save and power cycle, and track 8 and unscaled tracks
-  unaffected: all passed. Build 7261 (0.1.1) uses the same scales code for tracks 1 to 7. The scales tests in this
-  list ran on the builds named, not on 7261.
-* **On hardware (development build 7222, with a different keyboard layout):** a D harmonic minor setting persisted through save and power
-  cycle, and the MIDI clock timing above was measured on the unit.
-* **In emulation (builds 7228 and 7229, the images of 0.1.0):** the full layout for all ten scales in all twelve keys
-  and every octave, both views, Up and Down, the key-pad colours, every pressed pad lighting itself (and notes played
-  by the sequencer), and slice layouts staying unchanged.
-* **Not tested on hardware:** arrhythmia-devkit 7228, the key-pad colours as such, slice layouts on a scaled track, and loading a project with
-  scales on stock firmware.
+| Condition | Longest clock interval |
+|---|---|
+| No scale changes | 24.0 ms |
+| During scale changes | 26.9 ms |
 
 Developer details: [../dev/design/scales.md](../dev/design/scales.md).
