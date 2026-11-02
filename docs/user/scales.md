@@ -2,7 +2,7 @@
 
 Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
 Test status: see the [release notes](../../RELEASE-NOTES-0.2.2.md#test-status) and the
-[0.1.0 release notes](../../RELEASE-NOTES-0.1.0.md). **TBD** items are not confirmed.
+[0.1.0 release notes](../../RELEASE-NOTES-0.1.0.md).
 
 Scales are in both images. In arrhythmia-firmware (build 7339), set them on the synth page. In
 arrhythmia-devkit (build 7228), set them over SysEx only.
@@ -19,8 +19,6 @@ of the unit, refer to [Range](#range-dark-pads).
   use the same scale and key ([synth.md](synth.md)). The keyboard of track 8 does not change.
 * **Saved with the project.** The project stores the scale, the key and the scaled tracks. A project without scales
   opens with scales off.
-* **On the stock firmware**, a project with scales loads normally. Its tracks play the normal chromatic Note view.
-  **TBD:** not tested on hardware.
 
 ## Turn scales on for a track (arrhythmia-firmware)
 

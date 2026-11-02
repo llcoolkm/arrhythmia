@@ -1,7 +1,7 @@
 # Circus Arrhythmia FM install guide
 
 Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.2.2.md). Items marked **TBD** are not confirmed.
+[release notes](../../RELEASE-NOTES-0.2.2.md).
 
 | Image | Build | SHA-256 of the patched `.syx` (pinned) |
 |---|---|---|
@@ -36,8 +36,6 @@ Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit bu
 >    The tool only reads from the unit. It writes a verified copy to a new folder `rhythm-backup-YYYYMMDD-HHMMSS`.
 >    `python3 -I tools/norbackup.py extract <that folder>` extracts the content as normal files. There is no restore
 >    tool. There is no tested tool for Windows or macOS.
->
-> TBD: whether Components can save a pack from the unit to the computer.
 
 ## Install with the web page
 
