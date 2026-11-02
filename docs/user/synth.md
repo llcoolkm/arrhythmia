@@ -3,11 +3,10 @@
 Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339. Test status and full known issues: see the
 [release notes](../../RELEASE-NOTES-0.2.2.md).
 
-* Track 8 is a 4-operator FM synth. It replaces the saw synth of 0.1.x. Tracks 1 to 7 are sample tracks.
-* arrhythmia-devkit has no synth. Track 8 is a stock sample track there.
-* The synth has 4 voices. Notes in their release use voices.
+* Track 8 is a 4-operator FM synth. Tracks 1 to 7 are sample tracks.
+* The synth has 4 voices. A note that is still fading out after you release it still uses one of them.
 * Note sources: pads (track 8 selected), sequencer, MIDI on track 8's channel (default 8), modules.
-* Track 8 keeps its stock mixer level, pan, sends and FX.
+* The synth goes through the same mixer as the samples: track 8's level, pan, sends and FX apply to it.
 
 ## Choosing a sound: the Sample view
 

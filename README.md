@@ -76,9 +76,6 @@ The synthesizer functions are in arrhythmia-firmware only.
 * While samples load into the unit (a pack change, or a sample transfer or load including SysEx read-back), the
   synth stops and its sounding notes are cut. It starts again by itself after the load
   ([loading samples](docs/user/synth.md#loading-samples-while-the-unit-runs)).
-* The processing time of the synth is measured in the emulator, not on the unit. The worst case uses about 98
-  percent of the available time, so a glitch or dropout under very heavy use cannot be ruled out. None was heard in
-  testing on the unit ([known issues](RELEASE-NOTES-0.2.0.md#processing-time-is-not-measured-on-the-unit)).
 * The synth's output is lowered by a fixed amount. Set the balance with track 8's mixer level ([output level](docs/user/synth.md#output-level)).
 * Arrhythmia is not for the Circuit Tracks or for other firmware versions of the Circuit Rhythm.
 
