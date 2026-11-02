@@ -143,7 +143,7 @@ Start: pad 1 in the picker.
 
 Pads light where you push them, then fade. Each pad also plays a note.
 
-* **Pads.** A push lights the pad in the selected colour. The light then fades.
+* **Pads.** A push lights the pad in the selected colour, brighter for a harder push. The light then fades.
 * **Sound.** A push plays note 60 (the sample at its original pitch) on the track of the pad's column: column 1 plays
   track 1, column 8 plays track 8. The velocity is half the velocity of the push. The release of the pad sends the
   note off. A one-shot sample plays to its end.
