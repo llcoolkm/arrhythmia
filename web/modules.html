@@ -14,11 +14,12 @@ size, CRC-32 and module header (mod_check); after the write, a VERIFY of the nam
 and CRC-32. Before a BEGIN, one VERIFY of the target name shows whether the write replaces a file (the list can be
 out of date or capped at 32 entries).
 
-Published modules: the page fetches modules/<file>.mod relative to this page, so on the Pages site the ten release
+Published modules: the page fetches modules/<file>.mod relative to this page, so on the Pages site the eleven release
 files (01paint.mod 02euclid.mod 03life.mod 04rain.mod 05balls.mod 09pulse.mod 10stars.mod 17snake.mod 18lights.mod
-19mole.mod, the release assets) must be at web/modules/ in the public export: tools/export_public.py --web-modules DIR
-copies exactly the files of PUBLISHED below from DIR (tools/release_packet.py passes its shipped assets). Each fetched
-file passes the same checks as a user file (tools/build_module.py check) before it is sent.
+19mole.mod 20scroll.mod, the release assets) must be at web/modules/ in the public export:
+tools/export_public.py --web-modules DIR copies exactly the files of PUBLISHED below from DIR (tools/release_packet.py
+passes its shipped assets). Each fetched file passes the same checks as a user file (tools/build_module.py check)
+before it is sent.
 
 Tests: tests/test_web_modules.mjs (node, fake unit) and tests/test_web_modules.py (same SysEx bytes as tools/module.py).
 -->
@@ -130,7 +131,7 @@ const RESULT = ['none', 'OK', 'No microSD card in the unit.',
   'The unit is in the wrong state for this request.', 'The module memory of the unit is not available.',
   'Recovery of the helper files (NAME.TMP, NAME.OLD) on the card failed. Do not delete them by hand. Examine the card in a card reader.'];
 const PUBLISHED = ['01paint.mod', '02euclid.mod', '03life.mod', '04rain.mod', '05balls.mod', '09pulse.mod',
-                   '10stars.mod', '17snake.mod', '18lights.mod', '19mole.mod'];
+                   '10stars.mod', '17snake.mod', '18lights.mod', '19mole.mod', '20scroll.mod'];
 
 class CardError extends Error {
   constructor(kind, message, st) { super(message); this.kind = kind; this.st = st || null; }

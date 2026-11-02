@@ -240,8 +240,9 @@ uint32_t host_midi(uint32_t msg);
 
 ## Examples and source
 
-The folder `modules/` holds the source of the ten release modules and the shared header `module_common.h`:
-`paint.c`, `euclid.c`, `life.c`, `rain.c`, `balls.c`, `pulse.c`, `stars.c`, `snake.c`, `lights.c` and `mole.c`. The
+The folder `modules/` holds the source of the eleven release modules and the shared header `module_common.h`:
+`paint.c`, `euclid.c`, `life.c`, `rain.c`, `balls.c`, `pulse.c`, `stars.c`, `scroll.c`, `snake.c`, `lights.c` and
+`mole.c`. The
 built `.mod` files are release assets. The module files web page also has them
 ([add modules with the web page](modules.md#add-modules-with-the-web-page)).
 
@@ -260,6 +261,29 @@ rebuilds from source, on Linux (tested on Ubuntu x86-64 only). Refer to
 [the rebuild steps](../README.md#rebuilding-the-images) and
 [tools/dspvoice207m4/README.md](../../tools/dspvoice207m4/README.md). `tools/dspvoice/` holds the DSP voice source of
 the 0.1.1 image.
+
+## Text field of the scroll module
+
+`20scroll.mod` keeps its text in one fixed field in the code. A tool changes the text without a compiler
+(`tools/scrolltext.py`, [modules.md](modules.md#change-the-text)). To change it in another tool:
+
+1. Find the first 4 bytes `TXT:` (`54 58 54 3A`) in the file. The text can also contain `TXT:`, so use the first
+   occurrence only. The offset can change between builds: search for the bytes, do not use a fixed offset.
+2. The 124 bytes after `TXT:` are the field. Write the text there (1 to 120 bytes) and set the remaining bytes of
+   the field to `00`. Do not change the bytes outside the field.
+3. Set bytes 8 to 11 (the CRC field of the header) to `00`. Calculate the CRC-32 (zlib, the CRC of PNG and ZIP) of
+   the whole file. Write it at offset 8, little-endian.
+
+| Item | Value |
+|---|---|
+| Field | `TXT:`, then 124 bytes |
+| Text | 1 to 120 bytes, then `00` to the end of the field |
+| Characters | `A` to `Z`, `0` to `9`, space, `. , ! ? ' - : / &` (ASCII) |
+| File size | unchanged |
+| Checksum | CRC-32 at offset 8, as in [the file format](../dev/modules-reference.md#file-format) |
+
+The module reads the text when it starts. It shows `a` to `z` as capitals and every other byte that is not in the
+font as a space. It stops at the first `00` or after 120 bytes.
 
 ## Safety
 

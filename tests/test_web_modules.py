@@ -97,7 +97,7 @@ class PublishedList(unittest.TestCase):
         page = export_public.page_modules((ROOT / export_public.WEB_PAGE).read_text())
         table = re.findall(r"^\| *\d+ *\| *`([0-9a-z_-]+\.mod)` *\|", (ROOT / "docs/user/modules.md").read_text(), re.M)
         self.assertEqual(sorted(page), sorted(table))
-        self.assertEqual(len(page), 10)
+        self.assertEqual(len(page), 11)
 
 
 @unittest.skipUnless(NODE, "node not found")

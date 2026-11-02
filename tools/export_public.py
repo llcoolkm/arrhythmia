@@ -97,6 +97,7 @@ PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md
                "docs/user/img/module-balls.png",
                "docs/user/img/module-pulse.png",
                "docs/user/img/module-stars.png",
+               "docs/user/img/module-scroll.png",
                "docs/user/img/module-snake.png",
                "docs/user/img/module-lights.png",
                "docs/user/img/module-mole.png")
@@ -115,7 +116,7 @@ PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capt
                 "tools/crpatch.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
                 "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
-                "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
+                "tools/norbackup.py", "tools/patch.py", "tools/scrolltext.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
 PUBLIC_SRC = ("patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
               "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/ad_life207.h", "patches/src/plockfix.c", "patches/src/scales.c",
@@ -124,7 +125,7 @@ PUBLIC_SRC = ("patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/de
               "patches/src/core0feed.c", "patches/src/core0feed.h", "patches/src/fm_patch.h", "patches/src/tune_pitch.h",
               "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c", "modules/module_common.h",
               "modules/snake.c", "modules/life.c", "modules/balls.c", "modules/euclid.c", "modules/rain.c",
-              "modules/mole.c", "modules/lights.c", "modules/pulse.c")
+              "modules/mole.c", "modules/lights.c", "modules/pulse.c", "modules/scroll.c")
 # DSP voice source of arrhythmia-firmware 0.1.1 (build 7261): our assembly, generators, adapter, builder, the line
 # assembler frontend and its licence notices, and the test; exactly the files that tools/dspvoice/source-manifest.json
 # names, plus the manifest itself.

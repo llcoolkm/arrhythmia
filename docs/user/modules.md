@@ -3,7 +3,7 @@
 Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339. Test status: see the
 [release notes](../../RELEASE-NOTES-0.2.2.md#test-status).
 
-A module is a small program that runs on the unit. The release has 10 module files. Each file name starts with a
+A module is a small program that runs on the unit. The release has 11 module files. Each file name starts with a
 number: that number is the pad of the module in the picker.
 
 | Pad | File | Module | Clock | Sound |
@@ -18,8 +18,10 @@ number: that number is the pad of the module in the picker.
 | 17 | `17snake.mod` | [Snake](#snake-pad-17) | no | no |
 | 18 | `18lights.mod` | [Lights Out](#lights-out-pad-18) | no | no |
 | 19 | `19mole.mod` | [Whack-a-mole](#whack-a-mole-pad-19) | yes | no |
+| 20 | `20scroll.mod` | [Scroll](#scroll-pad-20) | yes | no |
 
-"Clock: yes" means that the module follows the sequencer clock. Push **Play** to start it.
+"Clock: yes" means that the module follows the sequencer clock. Push **Play** to start it. Scroll also runs while
+the transport is stopped.
 
 ## Put the modules on the card
 
@@ -71,7 +73,7 @@ A card command stops a running module.
 
 **Shift + Sample Rec** opens the picker.
 
-![The module picker with the 10 module files: each pad with a file is lit in its own colour, Sample Rec is lit](img/module-picker.png)
+![The module picker with the 11 module files: each pad with a file is lit in its own colour, Sample Rec is lit](img/module-picker.png)
 
 * A pad with a file comes on in its own colour. Pads without a file stay dark. With no card, no folder `Modules` or no module file, no pad
   comes on.
@@ -318,3 +320,44 @@ Hit the yellow pad before the next target comes on. Whack-a-mole makes no sound.
 * Clear and Rec are lit green, Duplicate is lit red.
 * The counts stop at 99.
 * Start and stop remove the target without a miss.
+
+## Scroll (pad 20)
+
+Start: pad 20 in the picker.
+
+![Scroll: the start of the text CIRCUS ARRHYTHMIA FM in amber on the pads, macro 1 lit for the speed, macro 2 lit in the colour](img/module-scroll.png)
+
+Text moves across the pads from right to left, one column per step. Scroll makes no sound.
+
+* **Text.** The characters are 4 pads high. A dark column follows each character. After the text, 8 dark columns
+  follow, then the text starts again. The text of the release file is CIRCUS ARRHYTHMIA FM. To change it, see
+  [Change the text](#change-the-text).
+* **Characters.** A to Z, 0 to 9, space and `. , ! ? ' - : /` and `&`.
+* **Macro 1:** speed. One column each half note, quarter note, eighth note, sixteenth note (start value) or
+  thirty-second note. Clockwise is faster. The light of macro 1 shows the speed.
+* **Macro 2:** colour: amber (start value), orange, red, pink, magenta, violet, blue, sky, cyan, mint, green, lime,
+  white, rainbow. With rainbow, each column has its own colour. The light of macro 2 shows the colour.
+* **Pads.** Push a pad to start the text again at the right edge.
+* **Clock.** Scroll runs at once. While the transport runs, the steps follow the sequencer clock and the tempo.
+  While the transport is stopped, the steps have the length that they have at approx. 120 BPM, and the Play
+  button blinks dim green.
+* The buttons are dark. They have no function.
+
+### Change the text
+
+The text is in the module file. `tools/scrolltext.py` changes it. It needs Python 3 and no compiler.
+
+1. Change the text and write a new file:
+
+       uv run python -I tools/scrolltext.py 20scroll.mod "HELLO WORLD" -o 21hello.mod
+
+2. Copy the new file to the folder `Modules` on the card ([Put the modules on the card](#put-the-modules-on-the-card)),
+   or write it with the web page as your own file ([Add modules with the web page](#add-modules-with-the-web-page)).
+3. Start it from its pad in the picker. The number at the start of the file name sets the pad, so different texts
+   can go on different pads.
+
+* The text has 1 to 120 characters, from the characters above. The tool changes lower-case letters to capitals and
+  refuses all other characters.
+* The file keeps its size. The tool also writes the new checksum of the file.
+* `uv run python -I tools/scrolltext.py 20scroll.mod --show` shows the text of a file.
+* The format of the text in the file: [developers.md](developers.md#text-field-of-the-scroll-module).
