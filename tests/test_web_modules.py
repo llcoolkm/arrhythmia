@@ -94,10 +94,10 @@ class PublishedList(unittest.TestCase):
     export (tools/export_public.py --web-modules, tools/release_packet.py step "web modules") ships exactly these."""
     def test_page_lists_the_release_modules(self):
         import re
-        page = export_public.page_modules((ROOT / export_public.WEB_PAGE).read_text())
+        page = export_public.page_modules((ROOT / "web/loader.html").read_text())
         table = re.findall(r"^\| *\d+ *\| *`([0-9a-z_-]+\.mod)` *\|", (ROOT / "docs/user/modules.md").read_text(), re.M)
         self.assertEqual(sorted(page), sorted(table))
-        self.assertEqual(len(page), 11)
+        self.assertEqual(len(page), 10)
 
 
 @unittest.skipUnless(NODE, "node not found")

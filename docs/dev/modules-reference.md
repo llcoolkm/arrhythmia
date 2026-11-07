@@ -98,10 +98,33 @@ module guide.
 | `host_midi(msg)` | channel voice messages only: status 0x80..0xEF, data below 0x80, d2 = 0 for 0xCn and 0xDn. Sent to all three MIDI outputs. The output rings drop silently when full (stock behaviour) | EMU |
 
 Parameter indices 6 to 13 are the eight macro parameters of the track ([maps.md](maps.md)); 0 is the sample slot.
-On arrhythmia-firmware, track 8 notes play the chord synth (EMU); on arrhythmia-devkit they play track 8's sample.
+On arrhythmia-firmware 0.3.0, track 8 notes use the pack's engine when loaded and otherwise its sample; on arrhythmia-devkit they play track 8's sample.
 
 There is deliberately no call to read DSP memory: DSP reads are allowed only while the unit is idle, which a module
 cannot guarantee.
+
+## Capability trailer and pattern write (abi 4)
+
+The [Euclid controls and limits](../user/modules.md#euclid-pattern-write) describe the user-facing behavior. This interface was checked in emulation only (EMU). Firmware 0.3.0 provides host table ABI 4; its pattern-write path remains untested on the unit. Devkit 7228 remains ABI 3. On ABI 3 a module with a trailer runs as any other module, and the host never reads its RAM.
+
+* **Opt-in.** `MC_CAPABILITY(caps, mailbox)` in `module_common.h` makes `build_module.py` append a 16-byte trailer,
+  inside the size and the CRC: `'CRX1'`, `caps | mailbox << 16`, `block | 1328 << 16`, `~(word 0 ^ word 1 ^ word 2)`.
+  caps bit 0 = pattern write, bit 1 = sequencer silence. The mailbox is three words of module RAM in 0x100..0x3F4.
+  The request block (1,328 B) follows the image; it must end at or below 0x3E00, so a module with the pattern write is
+  at most 13,520 B.
+* **Mailbox.** Word 0: handshake `tag << 24 | seq << 16 | result`, written by the module (`'P'` offer, 0 idle) and the
+  host (`'T'` taken, `'D'` done). Word 1: silence, `0x5345 << 16 | track mask`. Word 2: busy, written by the host: bit t
+  = silenced track t still holds a sequencer note; do not play on t while it is set.
+* **Request.** READ, WRITE (compare the read bytes and the project token, then write) and UNDO of steps 1 to 32 and
+  the length of the edit pattern of up to four tracks. Results OK, BUSY, CONFLICT, INVALID, NO_TRACK, FAULT. The
+  host serves at most one request per Main pass and answers it in the same pass.
+* **Silence.** A silenced track starts no sequencer note and no sample flip; its held notes get their offs, and its
+  p-locks keep running. The silence holds while the host still holds a module note on the track.
+* Euclid is the reference user: Rec writes its rows, Clear undoes the last write. At its first frame it also
+  READs its target tracks and takes the rows of patterns it can write (after power on or a project load).
+* ITCM above a module's image is not zeroed at start. Euclid keeps a 52-byte settings record at 0x3DC0..0x3DF3,
+  above its request block and below the free top 512 B, and checks it (magic, FNV-1a, ranges) before use. A larger
+  image or a file staged over it clears it.
 
 ## Clock
 
@@ -123,10 +146,10 @@ How we know: our design; emulated, and a clock module observed on hardware.
 How we know: our design; emulated. The facts about the firmware's own file handling come from static analysis,
 kept to what is needed to load modules safely.
 
-* Folder `MODULES` at the card root (not case-sensitive). The firmware's own files live under `Rhythm`, so the
+* Folder `modules` at the card root (not case-sensitive). The firmware's own files live under `Rhythm`, so the
   folders cannot collide. The USB disk does not show the card: use a card reader (HW).
-* A file is listed when its 8.3 short name ends in `.MOD`. Long names work under their short name (for example
-  `MYPAIN~1.MOD`). Up to 31 files, the 31 smallest short names in byte order; folders, hidden, system and label
+* A file is listed when its 8.3 short name ends in `.mod` (case-insensitive). The listing uses lowercase. Long names work under their short name (for example
+  `mypain~1.mod`). Up to 31 files, the 31 smallest short names in byte order; folders, hidden, system and label
   entries, and files outside 26 bytes to 15 KB are skipped; at most 512 directory entries are examined.
 * Pad 1 (dim cyan) is the built-in module, pads 2 to 32 (dim white) the files; a failed load turns its pad dim red and
   leaves the picker open. While the folder is read, pad 1 blinks and pads are ignored.
@@ -145,5 +168,5 @@ On one unit: upload and read-back with `tools/module.py`; a clock module
 in time with the sequencer; `host_note_port` with recording and MIDI out (notes replayed from the pattern after
 leaving the module, MIDI out on the track's channel). The other host calls are emulated only. DIN MIDI out from a
 module was not checked. The picker's card loading was used on an arrhythmia-firmware build on 2026-10-19: the stars
-example (`Modules/STARS.MOD`) was picked with Shift + Sample Rec and ran during a one-hour soak, and the built-in
+example (`modules/stars.mod`) was picked with Shift + Sample Rec and ran during a one-hour soak, and the built-in
 paint module was started and used. Refusal of bad module files is emulated only.

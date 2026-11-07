@@ -1,0 +1,5 @@
+# Notices
+
+Own program additions are MIT licensed, copyright 2026 km. The instrument derives from the repository's own `dspvoice207m4` source and adds independently authored live-feedback handling and smoothing. Shared assembler/table provenance remains in [the existing notice](../dspvoice206/NOTICE.md) and [toolchain notices](../dspvoice/toolchain/NOTICES.md). No official firmware or assembler binary is included. The independently reconstructed engine body and `fm.dse` consist entirely of own MIT-licensed program, generated tables and zero padding; no official firmware bytes are copied into them. The complete core-0 and core-1 streams combine own code with user-provided firmware material and must remain private. See [the component README](README.md) for the body provenance ranges and pinned identities.
+
+The independent engine version 1.0.0 is metadata in the CRE2 header; its source program and body are unchanged from the historical informational build 0x300. Firmware 0.3.0 and DSP identity 0x300 are separate version domains.

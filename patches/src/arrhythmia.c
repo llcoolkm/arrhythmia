@@ -161,6 +161,29 @@
 #if BOOT_PULSE && !STEP_CHORDS
 #error "BOOT_PULSE=1 needs the far blob (STEP_CHORDS)"
 #endif
+#ifndef CARD_DSP                        /* -DCARD_DSP=1 (profile arrhythmia-firmware-arm-carddsp only, PROTOTYPE, emulation
+                                           only, #36): the core-0 engine region from the card at boot (carddsp.c, far
+                                           blob). 0 everywhere else: every existing profile keeps its bytes */
+#define CARD_DSP 0
+#endif
+#ifndef CARD_DSP_BENCH                  /* -DCARD_DSP_BENCH=1 (with CARD_DSP, bench builds only): cmd 10 0C, the keyed
+                                           watchdog test (carddsp.c); never in a public build */
+#define CARD_DSP_BENCH 0
+#endif
+#if CARD_DSP_BENCH && !CARD_DSP
+#error "CARD_DSP_BENCH=1 needs CARD_DSP=1"
+#endif
+#ifndef CARD_DSP_MAIN                   /* -DCARD_DSP_MAIN=1 (profile arrhythmia-firmware-arm-engopt only): carddsp.c in the
+                                           main blob; composes the validated card engine with the flash core-0 stream
+                                           for loading as one image */
+#define CARD_DSP_MAIN 0
+#endif
+#ifndef CARD_DSP_WRITER                 /* the #36 writer jobs for 1:/MODULES/ENGINE.DSE (cmd 10 08..0B, far blob) */
+#define CARD_DSP_WRITER (CARD_DSP && !CARD_DSP_MAIN)
+#endif
+#if CARD_DSP_MAIN && (!CARD_DSP || CARD_DSP_BENCH)
+#error "CARD_DSP_MAIN=1 needs CARD_DSP=1 and no CARD_DSP_BENCH"
+#endif
 #ifndef PG_NAV                          /* -DPG_NAV=1 (profile arrhythmia-firmware-arm-synthnav only): the synth page as
                                            a stock-like view (synthpage.c): Up / Down page between the chord, scale and
                                            tracks pages, any other view or track button leaves the page and reaches
@@ -168,8 +191,62 @@
                                            existing profile keeps its bytes */
 #define PG_NAV 0
 #endif
+#ifndef PAGE030                         /* -DPAGE030=1 (the synthnav, arp, ew and engine-optional profiles): the 0.3.0 synth page
+                                           rules (macros 1..4 on page 1 only, synthpage.c; the track 8 Sample view stops
+                                           at its second page, notetap.c). 0 everywhere else, rc included: every
+                                           existing profile keeps its bytes */
+#define PAGE030 0
+#endif
+#if PAGE030 && !PG_NAV
+#error "PAGE030=1 needs PG_NAV=1"
+#endif
+#ifndef PG_LEDS_MAIN                    /* -DPG_LEDS_MAIN=1 (the engine-optional profiles only): the synth page's lights
+                                           (synthpage.c far_pgleds) in the main blob, a direct call from pg_frame,
+                                           so that the far blob has room for the pack pointer writer (cardwrite.c).
+                                           0 everywhere else: every existing profile keeps its bytes */
+#define PG_LEDS_MAIN 0
+#endif
+#if PG_LEDS_MAIN && !PG_NAV
+#error "PG_LEDS_MAIN=1 needs PG_NAV=1"
+#endif
+#define PG_LEDS_HERE    (PG_LEDS_MAIN ? !FAR_PART : FAR_PART)   /* this pass compiles the page's lights */
 #if PG_NAV && !(FB_MACRO1 && FM_BANKVIEW && SCALES && SYNTH)
 #error "PG_NAV=1 builds on the 0.2.1 configuration (FB_MACRO1, FM_BANKVIEW, SCALES, SYNTH)"
+#endif
+#ifndef ARP                             /* -DARP=1 (profile arrhythmia-firmware-arm-arp only, issue #31): the track-8
+                                           arpeggiator (patches/src/arp.c: far blob engine, synth page 3, SysEx 11,
+                                           struct arp below struct sc). 0 everywhere else: every existing profile keeps
+                                           its bytes */
+#define ARP 0
+#endif
+#if ARP && !(PG_NAV && CARD_WRITE && STEP_CHORDS && CORE0_SYNTH && SCALES)
+#error "ARP=1 builds on the 0.2.2 configuration (PG_NAV, CARD_WRITE, STEP_CHORDS, CORE0_SYNTH, SCALES)"
+#endif
+#ifndef ENGINE_OPT                      /* -DENGINE_OPT=1 (profile arrhythmia-firmware-arm-engopt only, emulation only):
+                                           track 8 is a sample track unless an engine kind has been published.
+                                           0 everywhere else: every existing profile keeps its bytes */
+#define ENGINE_OPT 0
+#endif
+#ifndef REMOTE_PACK_LOAD
+#define REMOTE_PACK_LOAD 0
+#endif
+#define CARD_INVENTORY (!REMOTE_PACK_LOAD)
+#define ENGINE_PACK (ENGINE_OPT && CARD_DSP_MAIN)  /* per-pack engines: the pack transaction (enginepack.c) */
+#ifndef T8SCALE                         /* -DT8SCALE=1 (profile arrhythmia-firmware-arm-arp only, issue #34): track 8's
+                                           Note-view keyboard follows the project scale and key like tracks 1..7 (bit
+                                           7 of the scales sub-record's track byte; scales.c). 0 everywhere else */
+#define T8SCALE 0
+#endif
+#if T8SCALE && !(SCALES && PG_NAV && AD_LIVE)
+#error "T8SCALE=1 builds on the 0.2.2 configuration (SCALES, PG_NAV, AD_LIVE)"
+#endif
+#ifndef PWRITE                          /* -DPWRITE=1 (profile arrhythmia-firmware-arm-ew only, issue #47): Euclid write to
+                                           pattern (patches/src/pwrite.c, far blob): host table abi 4, the capability-
+                                           trailer mailbox service and the sequencer silence. 0 everywhere else */
+#define PWRITE 0
+#endif
+#if PWRITE && !(ARP && STEP_CHORDS && SCALES)
+#error "PWRITE=1 runs from the far arp tick (ARP, STEP_CHORDS) and needs the track-modes runtime copy (SCALES)"
 #endif
 #if STEP_CHORDS && !(FM_BANKVIEW && SCALES)
 #error "STEP_CHORDS=1 builds on the FM_BANKVIEW configuration (SCALES: tm_edit)"
@@ -196,6 +273,9 @@
 #define DUMP_ALLOW 1
 #endif
 #include "devkit_abi3.c"
+#if ENGINE_PACK
+#include "enginepack.h"
+#endif
 #include "trackmodes.c"
 #include "plockfix.c"
 #if SCALES
@@ -204,8 +284,20 @@
 #if SYNTH
 #include "synthpage.c"
 #include "notetap.c"
+#if PWRITE
+#include "pwrite.c"
+#endif
+#if ARP
+#include "arp.c"
+#endif
 #endif
 #include "o1wait.c"
 #if CARD_WRITE
 #include "cardwrite.c"
+#endif
+#if CARD_DSP
+#include "carddsp.c"
+#endif
+#if ENGINE_PACK && !FAR_PART
+#include "enginepack.c"
 #endif

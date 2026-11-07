@@ -54,6 +54,18 @@ enum { VK_STOCK_ON, VK_STOCK_OFF, VK_STOCK_OTHER, VK_ONSET, VK_KILL, VK_ALLOFF, 
 #define VC_SR_W0        0xA07000u
 #define VC_TONE_W0      0xA08000u
 #define VC_TONE_MASK    0x1FFFFFu
+#if ENGINE_PACK
+/* Live FM variant (issue #55; engine_live_tone_ok, core0feed.c): word0 = 0xA0B000 | feedback (bits 0..6), word1 as
+ * A08000's. Bit 7 of an N entry's word0 is the internal barrier mark (TONE_BAR_MARK), never on the wire. The tone key
+ * (tone_iss, tone_pub) is depth | cutoff << 7 | resonance << 14 | feedback << 21 | TONE_LIVE (feedback and the flag only
+ * in the live variant). */
+#define VC_TONE_LIVE_W0 0xA0B000u
+#define VC_TONE_IS_LIVE(w0) (((w0) & ~0xFFu) == VC_TONE_LIVE_W0)
+#define TONE_LIVE       0x10000000u     /* key bit 28 (internal): the live variant is in force */
+#define VC_TONE_KEY(w0, w1) (((w1) & VC_TONE_MASK) | (VC_TONE_IS_LIVE(w0) ? ((w0) & 0x7Fu) << 21 | TONE_LIVE : 0u))
+#else
+#define VC_TONE_KEY(w0, w1) ((w1) & VC_TONE_MASK)
+#endif
 enum { VK_REL = VK_AD + 1, VK_TONE };
 #include "tune_pitch.h"
 #endif
@@ -201,6 +213,10 @@ static uint32_t vc_kind(uint32_t w0)
         return VK_REL;
     if (w0 == VC_TONE_W0)
         return VK_TONE;
+#if ENGINE_PACK
+    if (VC_TONE_IS_LIVE(w0))
+        return VK_TONE;
+#endif
 #endif
     return op == VC_OP_KILL ? VK_KILL : op == VC_OP_ALLOFF ? VK_ALLOFF : VK_PATCH;
 }

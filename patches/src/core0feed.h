@@ -75,7 +75,12 @@
 #define TONE_RESERVE    11u             /* free transport entries a knob-only tone leaves: 4 KILL + 2 ENV + 4 ONSET + 1 */
 #define Q0_GROUP_MAX    2u              /* the ENV AD + SR pair */
 #endif
+#if ENGINE_PACK
+#define TONE_BAR_MARK   0x80u           /* N-internal bit 7 of a barrier TONE's word0 (cleared before publication): bits
+                                           0..6 of the live variant's word0 are the feedback */
+#else
 #define TONE_BAR_MARK   1u              /* N-internal bit 0 of a barrier TONE's word0 (cleared before publication) */
+#endif
 #define REJ_KEY(src, note) ((uint16_t)(((uint32_t)(note) & 0x7Fu) | ((uint32_t)(src) & 7u) << 7))
 #define REJ_ONE         0x0400u         /* count unit (bits 10..15) */
 #define REJ_SAT         63u             /* count saturation: quarantine */     /* no tone known at the DSP (after a load or an epoch: its caches are gone) */
@@ -130,7 +135,7 @@ struct q0 {
     uint8_t excl;                             /* offset 113: CORE0_BULK_EXCLUDE: closed after a bulk interval */
     uint16_t c_excl;                          /* offset 114 */
 #if CORE0_TONE
-    /* live tone (CORE0_TONE; offset 116): depth | cutoff << 7 | resonance << 14 */
+    /* live tone (CORE0_TONE; offset 116): depth | cutoff << 7 | resonance << 14 (ENGINE_PACK: | feedback << 21) */
     uint32_t tone_iss, tone_pub;              /* last issued (queued or published), last published; TONE_NONE */
     uint32_t t_tone;                          /* tick of the last tone issue (pacing), valid while tone_ok */
 #if CORE0_RECOVER

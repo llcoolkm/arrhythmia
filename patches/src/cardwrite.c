@@ -60,6 +60,41 @@
  *                                <size 3x7> F7 (25 bytes; no reply unless a list is done and i < count)
  *   10 07 n0..n7                 verify: read NAME.MOD back; size and CRC-32 in the status
  *   10 7F                        end the session (the module area is free again)
+ * CARD_DSP only (the card DSP engine file, carddsp.c): the same transaction for 1:/MODULES/ENGINE.DSE, with
+ * ENGINE.TMP and ENGINE.OLD as its helpers (recovery pairs them with ENGINE.DSE; the module name ENGINE is
+ * refused), and no content check (the bench writes deliberately bad files: carddsp.c checks the file at boot):
+ *   10 08 s2 s1 s0 c4..c0        begin a write of ENGINE.DSE: size 3x7 (1..15360), CRC-32 5x7; pieces and commit
+ *                                as 02 / 03
+ *   10 09                        delete ENGINE.DSE
+ *   10 0A                        verify ENGINE.DSE: size and CRC-32 in the status
+ *   10 0B                        card DSP status (read-only, no session; carddsp.c cd_status, its own reply). In
+ *                                the ENGINE_PACK profiles the main blob answers it before this writer: the engine
+ *                                status (enginepack.c ep_status, layout 'E' 2; module.py card engstatus)
+ *   10 0C 'I' 'W' 'D' 'G' 'G' 'O'  CARD_DSP_BENCH only: the watchdog test (carddsp.c)
+ * ENGINE_PACK only (the engine-optional profiles): the engine pointers.
+ *   10 0D p n0..n7               stock pack p's pointer 1:/Rhythm/NN_<name>/ENGINE.CFG, NN = p - 1 (p 1..31, the
+ *                                stock's card packs: its index numbers folder NN_ as pack NN + 1; pack 0 is the NOR's
+ *                                factory pack and follows the default; 0x7F: the card default
+ *                                1:/ENGINES/DEFAULT.CFG) = the line "NAME.DSE" + LF (name as 01, basename DEFAULT
+ *                                refused) or "NONE" + LF (name all zeros). The job (job 1, write) first finds the
+ *                                pack's folder: the one entry of 1:/Rhythm that is a plain folder whose long name
+ *                                starts with the two digits of p - 1 and '_' (none: W_NOTFOUND; two: W_NAME), kept by
+ *                                its 8.3 name; then the transaction above with typed helpers:
+ *                                ENGINE.CFT / ENGINE.CFO (DEFAULT.CFT / .CFO), and recovery over exactly those two
+ *                                names in that one folder (no folder scan: nothing else there is ever settled). A
+ *                                missing 1:/ENGINES is made; a pack folder never is (gone: W_NOTFOUND). Nothing
+ *                                else under /Rhythm is written. Applies at the pack's next load.
+ *   10 0E n0..n7 s2 s1 s0 c4..c0 begin an engine file 1:/ENGINES/NAME.DSE (NAME 1..8 of A-Z
+ *                                0-9, DEFAULT refused), size 3x7 (35..15360), whole-file CRC-32 5x7; pieces 02 and
+ *                                commit 03 as a module, but the content check is one exact CRE2 file for this ARM
+ *                                (cw_cre2: header, length, body CRC, queue ABI, base id, kind 1..15), else W_MODULE.
+ *                                Then the transaction above with typed helpers NAME.DST / NAME.DSO and recovery over
+ *                                exactly those (job 1, write); a missing 1:/ENGINES is made. Pack pointers name it from
+ *                                their next load. A cut between the two renames leaves NAME.DSE absent and the old
+ *                                file as NAME.DSO (the loader then takes the stock path) until the next 0E / 0F of
+ *                                the same NAME settles it.
+ *   10 0F n0..n7                 verify 1:/ENGINES/NAME.DSE: size and CRC-32 in the status (job 4; its recovery
+ *                                runs first, so it can rename or delete NAME.DST / NAME.DSO: not read-only)
  * Every sub except 06 replies F0 00 20 29 00 60 10 <sub> <answer> <state> <job> <result> <fr> <got 3x7> <size 3x7>
  * <info 5x7> <count> F7 (26 bytes). answer = W_OK if the request was taken, else a W_* code (nothing changed).
  * state 0 no session, 1 staging, 2 job queued or running, 3 job done; job 1 write, 2 delete, 3 list, 4 verify;
@@ -75,6 +110,9 @@
 
 #if CARD_WRITE && !STEP_CHORDS
 #error "CARD_WRITE=1 needs the far blob (STEP_CHORDS)"
+#endif
+#if ENGINE_PACK
+#define CW_BASE_ID      0xFE80B6B5u     /* 10 0E: header +16 = CRBC_ID (crbc.h; asserted in enginepack.c, main pass) */
 #endif
 
 #if FAR_PART
@@ -93,6 +131,18 @@
 #define DIR_NSFLAG      0x2Bu           /* DIR: fn[11], the name status */
 #define FR_EXIST        8u
 #define CW_REC          4u              /* names with helpers settled per recovery round */
+#define CW_CFG          ENGINE_PACK     /* the engine pointers (10 0D): ENGINE.CFG in a pack folder, DEFAULT.CFG */
+#if CW_CFG
+#define CW_PATH         40u             /* "1:/Rhythm/<8.3 folder>/ENGINE.CFT" and its NUL */
+#define CW_DEF          0x7Fu           /* 10 0D pack byte: the card default */
+#define CW_PACKS        31u             /* 10 0D: stock card packs 1..31 (folders 00_..30_) */
+#define W4(a, b, c, d)  ((uint32_t)(a) | (uint32_t)(b) << 8 | (uint32_t)(c) << 16 | (uint32_t)(d) << 24)
+#define CF_ENG          3u              /* struct cw cfg: an engine file 1:/ENGINES/NAME.DSE (10 0E, 10 0F) */
+#define CW_CRE2         0x32455243u     /* "CRE2" file magic */
+#define CW_EWORDS       0x2000u         /* most body words: P:0x2000..0x3FFF (carddsp.c CD_PTOP - CD_BASE) */
+#else
+#define CW_PATH         24u
+#endif
 #define CW_ROUNDS       8u              /* recovery rounds per job (more helpers: W_RECOVER; the next job goes on) */
 typedef uint32_t (*f_path_fn)(const char *path);
 typedef uint32_t (*f_rename_fn)(const char *from, const char *to);
@@ -108,7 +158,11 @@ enum { W_NONE, W_OK, W_NOCARD, W_BUSY, W_NAME, W_SIZE, W_OFFSET, W_CRC, W_MODULE
        W_NOTASK, W_STATE, W_ITCM, W_RECOVER };      /* W_NOTASK: not used (kept for the numbering) */
 enum { S_SCAN, S_SCAN_READ, S_REC, S_REC_T, S_REC_M, S_REC_O, S_REC_ACT_T, S_REC_ACT_O, S_BODY,
        S_W_OPEN, S_W_MKDIR, S_W_DATA, S_V_READ, S_C_OLD, S_C_NEW, S_C_BACK, S_C_DEL,
-       S_D_UNLINK, S_Y_OPEN, S_Y_READ, S_Y_DONE, S_L_OPEN, S_L_READ, S_FLUSH, S_END };
+       S_D_UNLINK, S_Y_OPEN, S_Y_READ, S_Y_DONE, S_L_OPEN, S_L_READ, S_FLUSH, S_END
+#if CW_CFG
+       , S_P_OPEN, S_P_READ             /* a pack pointer: find the pack's folder */
+#endif
+};
 enum { IO_WRITE, IO_CMP, IO_CRC };      /* cw_io */
 #define OB_NONE     0u                  /* struct cw obj: our DIR is open (OB_DIR) or not */
 #define OB_DIR      1u
@@ -130,13 +184,67 @@ struct cw {
     uint8_t step, obj, had, post, nrec, irec, round, more;
     char name[NAME_LEN];                /* "NAME.MOD" */
     char rec[CW_REC][8];                /* recovery: base names with a .TMP or .OLD, 0-padded */
+#if CW_CFG
+    uint8_t cfg;                        /* a typed job: 1 the card default's pointer, 2 a pack's (folder no. in acc),
+                                           CF_ENG an engine file (10 0E / 10 0F); 0 a module */
+#endif
     union {
         uint8_t buf[PIECE];             /* read-back pieces */
         struct cw_ent ent[PADS];        /* list */
+#if CW_CFG
+        struct {
+            uint8_t buf_[PIECE];
+            char fold[24];              /* a pointer job's folder: "1:/ENGINES" or "1:/Rhythm/<8.3 folder name>" */
+        } c;
+#endif
     } u;
+#if CARD_DSP_WRITER
+    uint8_t eng;                        /* the session's file is ENGINE.DSE: no content check at commit */
+#endif
 };
 _Static_assert(sizeof(struct cw) <= MOD_BASE - MOD_RAM, "writer data must fit MOD_RAM");
 #define CW          ((volatile struct cw *)MOD_RAM)
+#if CARD_DSP_WRITER
+#define CW_ENG(w)   ((w)->eng)
+static void cd_status(void);            /* carddsp.c: cmd 10 0B */
+#if CARD_DSP_BENCH
+static uint32_t cd_wd(const uint8_t *m, uint32_t st);  /* carddsp.c: cmd 10 0C; 0 = no reply */
+#endif
+
+/* "ENGINE.DSE" at out (plain stores: no data section). */
+#if ENGINE_PACK
+static void cw_engname(volatile char *out)
+{
+    out[0] = 'e'; out[1] = 'n'; out[2] = 'g'; out[3] = 'i'; out[4] = 'n'; out[5] = 'e'; out[6] = '.';
+    out[7] = 'd'; out[8] = 's'; out[9] = 'e';
+    for (uint32_t i = 10; i < NAME_LEN; i++)
+        out[i] = 0;
+}
+#else
+static void cw_engname(volatile char *out)
+{
+    out[0] = 'E'; out[1] = 'N'; out[2] = 'G'; out[3] = 'I'; out[4] = 'N'; out[5] = 'E'; out[6] = '.';
+    out[7] = 'D'; out[8] = 'S'; out[9] = 'E';
+    for (uint32_t i = 10; i < NAME_LEN; i++)
+        out[i] = 0;
+}
+#endif
+
+/* The base name ENGINE (8 bytes, 0-padded): reserved for the engine file. */
+#if ENGINE_PACK
+static uint32_t cw_is_eng(const volatile char *b)
+{
+    return (b[0] | 32) == 'e' && (b[1] | 32) == 'n' && (b[2] | 32) == 'g' && (b[3] | 32) == 'i' && (b[4] | 32) == 'n' && (b[5] | 32) == 'e' && !b[6];
+}
+#else
+static uint32_t cw_is_eng(const volatile char *b)
+{
+    return b[0] == 'E' && b[1] == 'N' && b[2] == 'G' && b[3] == 'I' && b[4] == 'N' && b[5] == 'E' && !b[6];
+}
+#endif
+#else
+#define CW_ENG(w)   0
+#endif
 
 static uint32_t cw_state(const struct state *s)
 {
@@ -145,6 +253,33 @@ static uint32_t cw_state(const struct state *s)
 }
 
 /* "NAME.MOD" from the 8 request bytes: 1..8 of A-Z 0-9 _ -, then zeros only. 0 = invalid. */
+#if ENGINE_PACK
+static uint32_t cw_name(const uint8_t *m, volatile char *out)
+{
+    uint32_t n = 0;
+    while (n < 8 && m[n])
+        n++;
+    if (!n)
+        return 0;
+    for (uint32_t i = 0; i < 8; i++) {
+        uint8_t c = m[i];
+        if (c >= 'a' && c <= 'z')
+            c -= 32;
+        if (i < n ? !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') : c != 0)
+            return 0;
+    }
+#if CARD_DSP_WRITER
+    if (cw_is_eng((const volatile char *)m))
+        return 0;                       /* ENGINE.TMP / ENGINE.OLD belong to ENGINE.DSE */
+#endif
+    for (uint32_t i = 0; i < NAME_LEN; i++)
+        out[i] = 0;
+    for (uint32_t i = 0; i < n; i++)
+        out[i] = (char)(m[i] >= 'A' && m[i] <= 'Z' ? m[i] + 32 : m[i]);
+    out[n] = '.'; out[n + 1] = 'm'; out[n + 2] = 'o'; out[n + 3] = 'd';
+    return 1;
+}
+#else
 static uint32_t cw_name(const uint8_t *m, volatile char *out)
 {
     uint32_t n = 0;
@@ -157,6 +292,10 @@ static uint32_t cw_name(const uint8_t *m, volatile char *out)
         if (i < n ? !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') : c != 0)
             return 0;
     }
+#if CARD_DSP_WRITER
+    if (cw_is_eng((const volatile char *)m))
+        return 0;                       /* ENGINE.TMP / ENGINE.OLD belong to ENGINE.DSE */
+#endif
     for (uint32_t i = 0; i < NAME_LEN; i++)
         out[i] = 0;
     for (uint32_t i = 0; i < n; i++)
@@ -164,18 +303,123 @@ static uint32_t cw_name(const uint8_t *m, volatile char *out)
     out[n] = '.'; out[n + 1] = 'M'; out[n + 2] = 'O'; out[n + 3] = 'D';
     return 1;
 }
+#endif
 
-/* "1:/MODULES/<nm>" at d (at most 24 bytes with the NUL). */
+#if CW_CFG
+/* Up to 12 characters from three little-endian words (stops at a 0 byte), then a NUL, at d; returns the length.
+ * Plain stores: the far code has no data section. */
+static uint32_t cw_str(volatile char *d, uint32_t a, uint32_t b, uint32_t c)
+{
+    uint32_t n = 0;
+    for (; n < 12; n++) {
+        uint32_t v = (n < 4 ? a : n < 8 ? b : c) >> (n & 3) * 8 & 0xFFu;
+        if (!v)
+            break;
+        d[n] = (char)v;
+    }
+    d[n] = 0;
+    return n;
+}
+
+/* 10 0E / 10 0F: the engine file's name "NAME.DSE" at nm from the 8 request bytes (1..8 of A-Z 0-9, then zeros;
+ * DEFAULT is the default pointer's reserved basename). 0 = refused. Writes only nm (no session data yet). */
+static uint32_t cw_ename(const uint8_t *m, volatile char *nm)
+{
+    if (!cw_name(m, nm) || (nm[7] == '.' && nm[0] == 'd' && nm[1] == 'e' && nm[2] == 'f' && nm[3] == 'a'
+                            && nm[4] == 'u' && nm[5] == 'l' && nm[6] == 't'))
+        return 0;
+    uint32_t n = 0;
+    for (; nm[n] != '.'; n++)
+        if (nm[n] == '_' || nm[n] == '-')
+            return 0;
+    nm[n + 1] = 'd'; nm[n + 2] = 's'; nm[n + 3] = 'e';
+    return 1;
+}
+
+/* The opened session's job on 1:/ENGINES/<nm> with NAME.DST / NAME.DSO, recovery over exactly those (rec[0]). */
+static void cw_eset(const volatile char *nm)
+{
+    volatile struct cw *w = CW;
+    for (uint32_t i = 0; i < NAME_LEN; i++)
+        w->name[i] = nm[i];
+    for (uint32_t i = 0; nm[i] != '.'; i++)
+        w->rec[0][i] = nm[i];
+    cw_str(w->u.c.fold, W4('1', ':', '/', 'e'), W4('n', 'g', 'i', 'n'), W4('e', 's', 0, 0));
+    w->cfg = CF_ENG;
+}
+
+static uint32_t crc_add(uint32_t c, const volatile uint8_t *p, uint32_t n);
+
+/* 10 03 for an engine file: the staged size bytes are one exact CRE2 file (header: magic, 1..CW_EWORDS words and
+ * size = 32 + 3 x words, the body CRC-32 at +8, this ARM's queue ABI, the base contract id, kind 1..15, +28..+31
+ * zero; the loader's own checks, carddsp.c cd_hdr / cd_check). 1 = admissible. */
+static uint32_t cw_cre2(uint32_t size)
+{
+    const volatile uint32_t *h = (const volatile uint32_t *)MOD_BASE;
+    uint32_t words = h[1];
+    return h[0] == CW_CRE2 && words && words <= CW_EWORDS && size == 32 + 3 * words && h[3] == Q0_VERSION
+           && h[4] == CW_BASE_ID && h[5] && h[5] <= 15 && !h[7]
+           && ~crc_add(0xFFFFFFFFu, (const volatile uint8_t *)MOD_BASE + 32, 3 * words) == h[2];
+}
+
+/* The job's folder at d: the pointer's (fold) or "1:/MODULES"; returns its length. */
+static uint32_t cw_dir(volatile char *d)
+{
+    const volatile struct cw *w = CW;
+    if (!w->cfg)
+        return dir_path(d);
+    uint32_t n = 0;
+    for (; n < sizeof w->u.c.fold - 1 && w->u.c.fold[n]; n++)
+        d[n] = w->u.c.fold[n];
+    d[n] = 0;
+    return n;
+}
+#else
+#define cw_dir dir_path
+#endif
+
+/* "<the job's folder>/<nm>" at d (at most CW_PATH bytes with the NUL). */
+#if ENGINE_PACK
 static void cw_path(volatile char *d, const volatile char *nm)
 {
-    uint32_t n = dir_path(d);
+    uint32_t n = cw_dir(d);
+    d[n++] = '/';
+    for (uint32_t j = 0; j < NAME_LEN - 1 && nm[j]; j++)
+        d[n++] = nm[j] >= 'A' && nm[j] <= 'Z' ? nm[j] + 32 : nm[j];
+    d[n] = 0;
+}
+#else
+static void cw_path(volatile char *d, const volatile char *nm)
+{
+    uint32_t n = cw_dir(d);
     d[n++] = '/';
     for (uint32_t j = 0; j < NAME_LEN - 1 && nm[j]; j++)
         d[n++] = nm[j];
     d[n] = 0;
 }
+#endif
 
-/* "1:/MODULES/<base of nm>.<a b c>" at d. */
+#if CW_CFG
+/* A typed job's extension for the module helper a b c (TMP, MOD, OLD) at x[0..2]: a
+ * pointer's CFT / CFG / CFO, an engine file's DST / DSE / DSO (10 0E, cfg CF_ENG). */
+static void cw_type(volatile char *x, char a, char b, char c)
+{
+    uint32_t e = CW->cfg == CF_ENG;
+    x[0] = a | 32; x[1] = b | 32; x[2] = c | 32;
+    if (CW->cfg) {
+        x[2] = a == 'T' ? 't' : a == 'M' ? (e ? 'e' : 'g') : 'o';
+        x[0] = e ? 'd' : 'c';
+        x[1] = e ? 's' : 'f';
+    }
+}
+#else
+static void cw_type(volatile char *x, char a, char b, char c)
+{
+    x[0] = a; x[1] = b; x[2] = c;
+}
+#endif
+
+/* "1:/MODULES/<base of nm>.<a b c>" at d; a typed job's helpers carry their type (cw_type). */
 static void cw_path_ext(volatile char *d, const volatile char *nm, char a, char b, char c)
 {
     volatile char t[NAME_LEN];
@@ -184,7 +428,9 @@ static void cw_path_ext(volatile char *d, const volatile char *nm, char a, char 
         t[n] = nm[n];
         n++;
     }
-    t[n] = '.'; t[n + 1] = a; t[n + 2] = b; t[n + 3] = c; t[n + 4] = 0;
+    t[n] = '.';
+    cw_type(t + n + 1, a, b, c);
+    t[n + 4] = 0;
     cw_path(d, t);
 }
 
@@ -315,8 +561,13 @@ static void cw_sysex(struct state *s, const uint8_t *m, uint32_t len)
             answer = W_SIZE;
         else if (~crc_add(0xFFFFFFFFu, (const volatile uint8_t *)MOD_BASE, w->size) != w->crc)
             answer = W_CRC;
-        else if (mod_check() != 1 || h->size != w->size)
+#if CW_CFG
+        else if (w->cfg == CF_ENG ? !cw_cre2(w->size) : mod_check() != 1 || h->size != w->size)
+            answer = W_MODULE;              /* an engine file: not one exact CRE2 file for this ARM */
+#else
+        else if (!CW_ENG(w) && (mod_check() != 1 || h->size != w->size))
             answer = W_MODULE;
+#endif
         else {
             w->result = W_NONE;
             w->got = 0;                     /* from now on: bytes written, then verified */
@@ -332,6 +583,83 @@ static void cw_sysex(struct state *s, const uint8_t *m, uint32_t len)
         }
     } else if (sub == 0x05 && len == 9) {
         answer = cw_open(s, LD_JOB, J_LIST);
+#if CARD_DSP_WRITER
+    } else if (sub == 0x08 && len == 17) {
+        uint32_t size = (uint32_t)m[8] << 14 | (uint32_t)m[9] << 7 | m[10];
+        uint32_t crc = (uint32_t)m[11] << 28 | (uint32_t)m[12] << 21 | (uint32_t)m[13] << 14 | (uint32_t)m[14] << 7
+                       | m[15];
+        if (size < 1 || size > MOD_MAX)
+            answer = W_SIZE;
+        else if ((answer = cw_open(s, LD_STAGE, J_WRITE)) == W_OK) {
+            cw_engname(w->name);
+            w->eng = 1;
+            w->size = size;
+            w->crc = crc;
+        }
+    } else if ((sub == 0x09 || sub == 0x0A) && len == 9) {
+        if ((answer = cw_open(s, LD_JOB, sub == 0x09 ? J_DELETE : J_VERIFY)) == W_OK)
+            cw_engname(w->name);
+    } else if (sub == 0x0B && len == 9) {
+        RESUME_ALL();
+        cd_status();                        /* read-only: no session, its own reply */
+        return;
+#if CARD_DSP_BENCH
+    } else if (sub == 0x0C && len == 15 && (answer = cd_wd(m, st)) != 0) {
+        /* the watchdog test: armed (W_OK) or refused (W_BUSY: a job runs); a wrong key: no reply */
+#endif
+#endif
+#if CW_CFG
+    } else if (sub == 0x0D && len == 18) {  /* 10 0D p n0..n7: pack p's pointer (0x7F: the default) = NAME.DSE / NONE */
+        uint32_t p = m[8], none = 1, n = 0;
+        for (uint32_t i = 0; i < 8; i++)
+            none &= !m[9 + i];
+        if ((p < 1 || p > CW_PACKS) && p != CW_DEF)
+            answer = W_NAME;
+        else if (!none && (!cw_name(m + 9, nm) || (nm[7] == '.' && nm[0] == 'd' && nm[1] == 'e' && nm[2] == 'f'
+                                                  && nm[3] == 'a' && nm[4] == 'u' && nm[5] == 'l' && nm[6] == 't')))
+            answer = W_NAME;                /* DEFAULT is the default's reserved basename */
+        else if ((answer = cw_open(s, LD_JOB, J_WRITE)) == W_OK) {
+            volatile char *d = (volatile char *)MOD_BASE;
+            if (none)
+                n = cw_str(d, W4('n', 'o', 'n', 'e'), 0, 0);
+            else {
+                while (nm[n] != '.')
+                    d[n] = nm[n], n++;
+                n += cw_str(d + n, W4('.', 'd', 's', 'e'), 0, 0);
+            }
+            d[n++] = '\n';
+            w->size = n;
+            w->cfg = p == CW_DEF ? 1 : 2;
+            w->acc = p - 1;                 /* a pack's folder number (the default ignores it) */
+            if (p == CW_DEF) {
+                cw_str(w->name, W4('d', 'e', 'f', 'a'), W4('u', 'l', 't', '.'), W4('c', 'f', 'g', 0));
+                cw_str(w->rec[0], W4('d', 'e', 'f', 'a'), W4('u', 'l', 't', 0), 0);
+                cw_str(w->u.c.fold, W4('1', ':', '/', 'e'), W4('n', 'g', 'i', 'n'), W4('e', 's', 0, 0));
+            } else {
+                cw_str(w->name, W4('e', 'n', 'g', 'i'), W4('n', 'e', '.', 'c'), W4('f', 'g', 0, 0));
+                cw_str(w->rec[0], W4('e', 'n', 'g', 'i'), W4('n', 'e', 0, 0), 0);
+                w->step = S_P_OPEN;
+            }
+        }
+    } else if (sub == 0x0E && len == 25) {  /* 10 0E n0..n7 s2 s1 s0 c4..c0: begin 1:/ENGINES/NAME.DSE; pieces 02 */
+        uint32_t size = (uint32_t)m[16] << 14 | (uint32_t)m[17] << 7 | m[18];
+        uint32_t crc = (uint32_t)m[19] << 28 | (uint32_t)m[20] << 21 | (uint32_t)m[21] << 14 | (uint32_t)m[22] << 7
+                       | m[23];
+        if (!cw_ename(m + 8, nm))
+            answer = W_NAME;
+        else if (size < 35 || size > MOD_MAX)
+            answer = W_SIZE;
+        else if ((answer = cw_open(s, LD_STAGE, J_WRITE)) == W_OK) {
+            cw_eset(nm);
+            w->size = size;
+            w->crc = crc;
+        }
+    } else if ((sub == 0x0F || sub == 0x13) && len == 17) {  /* 10 0F n0..n7: verify 1:/ENGINES/NAME.DSE (size, CRC-32) */
+        if (!cw_ename(m + 8, nm))
+            answer = W_NAME;
+        else if ((answer = cw_open(s, LD_JOB, sub == 0x13 ? J_DELETE : J_VERIFY)) == W_OK)
+            cw_eset(nm);
+#endif
     } else if (sub == 0x7F && len == 9) {
         if (st == CW_JOB)
             answer = W_BUSY;
@@ -354,12 +682,16 @@ static void cw_sysex(struct state *s, const uint8_t *m, uint32_t len)
  * close (no I/O). Returns the FatFs error, 0 = ok. */
 static uint32_t cw_clust(const volatile char *nm, volatile uint32_t *c)
 {
-    volatile char p[24];
+    volatile char p[CW_PATH];
     uint32_t fil = file_b(0);
     if (!fil)
         return 0x7F;                        /* B is open in the firmware */
     cw_path(p, nm);
     uint32_t r = F_OPEN(fil, (const char *)p, FA_READ);
+#if CW_CFG
+    if (r == FR_NO_PATH)
+        r = FR_NO_FILE;                     /* no folder (1:/ENGINES not made yet, a pack gone): no such file */
+#endif
     if (r == FR_NO_FILE) {
         *c = C_ABSENT;
         return 0;
@@ -376,7 +708,7 @@ static uint32_t cw_clust(const volatile char *nm, volatile uint32_t *c)
 static uint32_t cw_drop(const volatile char *nm)
 {
     volatile struct cw *w = CW;
-    volatile char p[24];
+    volatile char p[CW_PATH];
     cw_path(p, nm);
     const char *path = (const char *)p;
     uint32_t fs = 0;
@@ -398,9 +730,15 @@ static void cw_rname(volatile char *out, uint32_t i, char a, char b, char c)
 {
     volatile struct cw *w = CW;
     uint32_t n = 0;
+#if CARD_DSP_WRITER
+    if (a == 'M' && cw_is_eng(w->rec[i])) {
+        a = 'D'; b = 'S'; c = 'E';      /* ENGINE.TMP / ENGINE.OLD: their file is ENGINE.DSE */
+    }
+#endif
     for (; n < 8 && w->rec[i][n]; n++)
         out[n] = w->rec[i][n];
-    out[n] = '.'; out[n + 1] = a; out[n + 2] = b; out[n + 3] = c;
+    out[n] = '.';
+    cw_type(out + n + 1, a, b, c);
     for (n += 4; n < NAME_LEN; n++)
         out[n] = 0;
 }
@@ -444,6 +782,47 @@ static void cw_fail_rec(uint32_t fr)
 }
 
 /* Recovery scan: is the entry in fi a helper (X.TMP or X.OLD, X 1..8 of A-Z 0-9 _ -)? Then note X once. */
+#if ENGINE_PACK
+static void cw_note(void)
+{
+    volatile struct cw *w = CW;
+    const volatile uint8_t *fi = (const volatile uint8_t *)w->fi;
+    if (fi[FI_ATTR] & AM_SKIP)
+        return;
+    const volatile uint8_t *n = fi[FI_ALT] ? fi + FI_ALT : fi + FI_NAME;
+    uint32_t len = 0;
+    while (len < NAME_LEN - 1 && n[len])
+        len++;
+    if (len < 5 || n[len - 4] != '.')
+        return;
+    uint32_t tmp = (n[len - 3] | 32) == 't' && (n[len - 2] | 32) == 'm' && (n[len - 1] | 32) == 'p';
+    uint32_t old = (n[len - 3] | 32) == 'o' && (n[len - 2] | 32) == 'l' && (n[len - 1] | 32) == 'd';
+    if (!tmp && !old)
+        return;
+    for (uint32_t j = 0; j < len - 4; j++) {
+        uint8_t c = n[j];
+        if (c >= 'a' && c <= 'z')
+            c -= 32;
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+            return;
+    }
+    for (uint32_t i = 0; i < w->nrec; i++) {
+        uint32_t same = 1;
+        for (uint32_t j = 0; j < 8; j++)
+            if ((w->rec[i][j] | 32) != ((j < len - 4 ? (char)n[j] : 0) | 32))
+                same = 0;
+        if (same)
+            return;
+    }
+    if (w->nrec >= CW_REC) {
+        w->more = 1;
+        return;
+    }
+    for (uint32_t j = 0; j < 8; j++)
+        w->rec[w->nrec][j] = j < len - 4 ? (char)n[j] : 0;
+    w->nrec++;
+}
+#else
 static void cw_note(void)
 {
     volatile struct cw *w = CW;
@@ -481,6 +860,7 @@ static void cw_note(void)
         w->rec[w->nrec][j] = j < len - 4 ? (char)n[j] : 0;
     w->nrec++;
 }
+#endif
 
 /* One file step on B's FIL, opened and closed within the step: kind IO_WRITE appends up to 2 pieces of the staged
  * copy to NAME.TMP (whose size must be the bytes written so far); IO_CMP reads up to 2 pieces of NAME.TMP (size must
@@ -489,7 +869,7 @@ static void cw_note(void)
 static uint32_t cw_io(uint32_t kind)
 {
     volatile struct cw *w = CW;
-    volatile char p[24];
+    volatile char p[CW_PATH];
     uint32_t fil = file_b(0);
     if (!fil)
         return W_BUSY;
@@ -543,7 +923,7 @@ static void cw_step(void)
 {
     volatile struct cw *w = CW;
     const volatile uint8_t *fi = (const volatile uint8_t *)w->fi;
-    volatile char a[NAME_LEN], b[NAME_LEN], pa[24], pb[24];
+    volatile char a[NAME_LEN], b[NAME_LEN], pa[CW_PATH], pb[CW_PATH];
     uint32_t r, fil, k;
     if (w->step != S_FLUSH && !fs_state()) {
         w->obj = OB_NONE;                   /* the card or its volume is gone: abandon the folder object */
@@ -554,6 +934,15 @@ static void cw_step(void)
     }
     switch (w->step) {
     case S_SCAN:                            /* recovery round: list the helpers */
+#if CW_CFG
+        if (w->cfg) {                       /* a pointer job: its own two helpers only (rec[0], set at the request) */
+            w->nrec = 1;
+            w->more = 0;
+            w->irec = 0;
+            w->step = S_REC;
+            break;
+        }
+#endif
         w->nrec = 0;
         w->more = 0;
         w->seen = 0;
@@ -668,7 +1057,13 @@ static void cw_step(void)
         }
         break;
     case S_W_MKDIR:
-        dir_path(pa);
+#if CW_CFG
+        if (w->cfg == 2) {                  /* the pack's folder is gone: never a folder made under /Rhythm */
+            cw_fail(W_NOTFOUND, FR_NO_PATH);
+            break;
+        }
+#endif
+        cw_dir(pa);
         r = F_MKDIR((const char *)pa);
         if (r)
             cw_fail(W_FS, r);
@@ -791,7 +1186,11 @@ static void cw_step(void)
             volatile struct cw_ent *e = &w->u.ent[w->count];
             for (uint32_t j = 0, end = 0; j < NAME_LEN - 1; j++) {
                 end |= !nm[j];
+                #if ENGINE_PACK
+                e->n[j] = end ? 0 : (char)(nm[j] >= 'A' && nm[j] <= 'Z' ? nm[j] + 32 : nm[j]);
+#else
                 e->n[j] = end ? 0 : (char)nm[j];
+#endif
             }
             uint32_t size = fi[0] | fi[1] << 8 | fi[2] << 16 | (uint32_t)fi[3] << 24;
             size = size > 0xFFFF ? 0xFFFF : size;
@@ -800,6 +1199,46 @@ static void cw_step(void)
             w->count++;
         }
         break;
+#if CW_CFG
+    case S_P_OPEN:                          /* a pack pointer: the pack's folder, 1:/Rhythm/NN_* by its long name */
+        w->post = 1;                        /* no recovery until the folder is known */
+        cw_str(pa, W4('1', ':', '/', 'R'), W4('h', 'y', 't', 'h'), 'm');
+        r = F_OPENDIR((uint32_t)w->dir, (const char *)pa);
+        if (r) {
+            cw_fail(r == FR_NO_PATH || r == FR_NO_FILE ? W_NOTFOUND : W_FS, r);
+            break;
+        }
+        w->obj = OB_DIR;
+        w->seen = 0;
+        w->count = 0;
+        w->step = S_P_READ;
+        break;
+    case S_P_READ:                          /* one entry per step; exactly one folder NN_* must match */
+        r = F_READDIR((uint32_t)w->dir, (uint32_t)w->fi);
+        if (r || !fi[FI_NAME] || ++w->seen > SCAN_MAX) {
+            cw_close();
+            if (r || fi[FI_NAME])
+                cw_fail(W_FS, r);
+            else if (w->count != 1)
+                cw_fail(w->count ? W_NAME : W_NOTFOUND, 0);     /* two folders with this number: refused */
+            else {
+                w->post = 0;
+                w->step = S_SCAN;
+            }
+            break;
+        }
+        if ((fi[FI_ATTR] & AM_SKIP) == 0x10 && fi[FI_NAME] == '0' + w->acc / 10u
+                && fi[FI_NAME + 1] == '0' + w->acc % 10u && fi[FI_NAME + 2] == '_' && w->count < 2
+                && !w->count++) {               /* the count saturates at 2 (ambiguous): it never wraps to 1 */
+            const volatile uint8_t *sn = fi[FI_ALT] ? fi + FI_ALT : fi + FI_NAME;   /* its 8.3 name */
+            k = cw_str(w->u.c.fold, W4('1', ':', '/', 'R'), W4('h', 'y', 't', 'h'), 'm');
+            w->u.c.fold[k++] = '/';
+            for (uint32_t j = 0; j < NAME_LEN - 1 && sn[j]; j++)
+                w->u.c.fold[k++] = (char)sn[j];
+            w->u.c.fold[k] = 0;
+        }
+        break;
+#endif
     case S_FLUSH:                           /* a window left dirty by a failed write of ours: write it back */
         if (fs_state() == 2)
             SYNC_FS(link(FATFS_1, 0));

@@ -19,6 +19,12 @@ Clock (devkit-clock, label 6010): a module that defines clock(leds, event, pos, 
 Module ABI 3 (devkit-abi3, label 6012): the host table has abi 3 and four more words, note_port(), param(), ui(),
 midi(); check abi >= 3 before reading them (on older builds they are hook code). Headers do not change. See
 docs/user/developers.md.
+
+Capability trailer (host abi 4, write to pattern; profile arrhythmia-firmware-arm-ew): a module that uses
+MC_CAPABILITY(caps, mailbox) from modules/module_common.h has one word `mc_cap` (caps | mailbox << 16) in its code.
+The builder then appends the 16-byte trailer as the last bytes of the image, inside its size and CRC: 'CRX1',
+caps | mailbox << 16, block | block_len << 16, ~(the three words XOR). With caps bit 0 (PW) the request block is
+placed directly after the image (block_len 1,328) and must end at 0x3E00 or lower.
 """
 import json
 import os
@@ -33,6 +39,8 @@ MOD_MAGIC2 = 0x324D5243         # 'CRM2': header + u32 clock_off
 HDR = 24
 HDR2 = 28
 MOD_MAX = 0x4000 - 0x400
+CAP_MAGIC = 0x31585243          # 'CRX1'
+PW_LEN, PW_TOP = 1328, 0x3E00   # request block length; blocks end here or lower
 CFLAGS = ["--target=thumbv7em-none-eabi", "-mcpu=cortex-m7", "-mthumb", "-Os", "-ffreestanding", "-fno-builtin",
           "-nostdlib", "-fno-jump-tables", "-fno-pic", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables"]
 
@@ -58,10 +66,13 @@ def build(src, out):
             sys.exit("module has no .text")
         subprocess.run(["llvm-objcopy-21", "-O", "binary", "-j", ".text", obj, text], check=True)
         code = open(text, "rb").read()
-    entry = {}
+    entry, cap = {}, None
     for x in elf["Symbols"]:
         sym = x["Symbol"]
         name = sym["Name"]["Name"]
+        if name == "mc_cap" and sym["Section"]["Value"] == text_idx:
+            cap = struct.unpack_from("<I", code, sym["Value"])[0]
+            continue
         if name not in ("init", "frame", "input", "clock"):
             continue
         if sym["Type"]["Name"] != "Function" or sym["Section"]["Value"] != text_idx:
@@ -75,6 +86,16 @@ def build(src, out):
     if "frame" not in entry:
         sys.exit("module has no frame()")
     code += b"\x00" * (-len(code) % 4)
+    if cap is not None:
+        caps, mbox = cap & 0xFFFF, cap >> 16
+        if caps not in (1, 2, 3) or not 0x100 <= mbox <= 0x3F4 or mbox & 3:
+            sys.exit(f"mc_cap 0x{cap:08x}: caps must be 1..3 and the mailbox (3 words) 4-aligned in 0x100..0x3F4")
+        size = hdr + len(code) + 16
+        blk, blk_len = (0x400 + size, PW_LEN) if caps & 1 else (0, 0)
+        if blk and blk + blk_len > PW_TOP:
+            sys.exit(f"module too big for its request block: block 0x{blk:x}..0x{blk + blk_len:x} past 0x{PW_TOP:x}")
+        w1, w2 = caps | mbox << 16, blk | blk_len << 16
+        code += struct.pack("<4I", CAP_MAGIC, w1, w2, ~(CAP_MAGIC ^ w1 ^ w2) & 0xFFFFFFFF)
     size = hdr + len(code)
     if size > MOD_MAX:
         sys.exit(f"module too big: {size} > {MOD_MAX}")
@@ -91,7 +112,8 @@ def build(src, out):
     check(blob)
     open(out, "wb").write(blob)
     print(f"module {out}: {size} bytes, crc 0x{crc:08x}, init 0x{init_off:x}, frame 0x{frame_off:x}"
-          + (f", input 0x{input_off:x}" if input_off else "") + (f", clock 0x{words[6]:x}" if len(words) > 6 else ""))
+          + (f", input 0x{input_off:x}" if input_off else "") + (f", clock 0x{words[6]:x}" if len(words) > 6 else "")
+          + (f", capability trailer caps {cap & 0xFFFF} mailbox 0x{cap >> 16:x}" if cap is not None else ""))
     return blob
 
 

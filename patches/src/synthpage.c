@@ -56,7 +56,7 @@
  * PG_NAV (profile arrhythmia-firmware-arm-synthnav): the page is a stock-like view, not a mode.
  *   Shift + Track 8 opens it (and closes it, as before). Up and Down page between two pages (pg.view, kept while
  *   the unit is on): 0 chord (the single view above), 1 scale: tracks (row 1 pads 0..6, under Track 1..7: that
- *   track scaled, green, bright = scaled; pad 7 dark and inert), scales (row 2 pads 8..15: the eight scales major,
+ *   track scaled, green, bright = scaled; pad 7 dark and inert, T8SCALE: track 8 the same way), scales (row 2 pads 8..15: the eight scales major,
  *   natural minor, dorian, mixolydian, harmonic minor, major and minor pentatonic, blues; Phrygian and Lydian are not
  *   offered, scales.c sc_map) and key (rows 3-4, the keyboard of the old Shift layer). Up light dim on page 1, Down
  *   light dim on page 0. Every button that leaves the page keeps its stock light (pg_stock_leds); the page draws
@@ -77,6 +77,12 @@
  * State: struct pg (PG_SIZE bytes at PG_AT, below the track-modes block; hook_boot lowers the heap limit to PG_AT).
  */
 #include "synth_settings.h"
+#if ARP
+static void arp_pad(struct state *s, uint32_t pad);  /* arp.c: the arp page's pads */
+#if PG_LEDS_HERE
+static void arp_leds(struct state *s, const uint8_t *t);
+#endif
+#endif
 #ifndef PG_NAV                          /* arrhythmia.c: 1 only in profile arrhythmia-firmware-arm-synthnav */
 #define PG_NAV 0
 #endif
@@ -84,7 +90,7 @@
 #define BTN_TRACK8      0x07u
 #define BTN_REC         0x10u
 #define BTN_PLAY        0x11u
-#define BTN_NOTE        0x09u           /* docs/input-map.json */
+#define BTN_NOTE        0x09u           /* Note button index */
 #define PG_FB_FRAMES    24u             /* LED frames of the refused-edit blink */
 #define PG_SET          0u              /* edit ops (arg bits 16..23) */
 #define PG_TOGGLE       1u
@@ -100,7 +106,11 @@
 #endif
 #if PG_NAV
 #define PG_FMDEF        5u              /* op: FM field (codec 2 byte offset SF_FB..SF_MF) = its default */
+#if ARP
+#define PG_PAGES        3u              /* pg.view: 0 chord, 1 scale, tracks and key, 2 arp (arp.c) */
+#else
 #define PG_PAGES        2u              /* pg.view: 0 chord, 1 scale, tracks and key */
+#endif
 #define PG_SCALE_ID(i)  ((i) < 3u ? (i) : (i) + 2u)   /* row 2 pad 8 + i (i 0..7) -> scale 0 1 2 5 6 7 8 9 (no 3, 4) */
 #endif
 
@@ -287,6 +297,9 @@ static void pg_sc(struct state *s, uint32_t arg)
 #endif
 
 /* Root keyboard (Shift held): pad -> semitone 0..11, or -1. Row 4 white keys, row 3 black keys. */
+#if T8SCALE
+__attribute__((noinline))                   /* else inlined into event(): +102 B (measured) */
+#endif
 static int32_t pg_key(uint32_t pad)
 {
     switch (pad) {
@@ -301,6 +314,12 @@ static int32_t pg_key(uint32_t pad)
 static void pg_pad(struct state *s, uint32_t pad)
 {
 #if PG_NAV
+#if ARP
+    if (PG->view == 2) {                    /* the arp page (the chord page has no arp control: pad 8 is inert) */
+        arp_pad(s, pad);
+        return;
+    }
+#endif
     if (PG->view) {                         /* row 1 tracks 1..7 on / off (pad 7 inert), row 2 scale, rows 3-4 key */
         if (pad < SC_TRACKS) {
             pg_sc(s, SC_OP_TOGGLE | pad << 8);
@@ -369,6 +388,10 @@ static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit)
         g->open = (uint8_t)!open;
         if (!open)
             g->opens++;
+#if ENGINE_OPT
+        if (!t8_eng())
+            g->view = 1;                    /* no engine: the scale page only (tracks 1..8, scale, key) */
+#endif
         s->btn_eat |= bit;                  /* both edges of the gesture are nobody's */
         return 1;
     }
@@ -387,6 +410,10 @@ static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit)
         return 0;
     }
     s->btn_eat |= bit;
+#if ENGINE_OPT
+    if (!t8_eng())
+        return 1;                           /* no engine: Up and Down inert (one page) */
+#endif
     if (index == BTN_UP && g->view)
         g->view--;
     else if (index == BTN_DOWN && g->view < PG_PAGES - 1)
@@ -435,10 +462,15 @@ static uint32_t pg_encoder(struct state *s, uint32_t knob, uint32_t delta)
 {
     if (!pg_live(s))
         return 0;
+#if ENGINE_OPT
+    if (!t8_eng())
+        return 1;                           /* no engine: the page's macros are consumed, no edit */
+#endif
     int32_t d = (int16_t)delta;
 #if FM_PATCH
     if (FM_BANKVIEW || PG->view) {          /* summed here, written by pg_fm_tick (one CRC per PG_FM_PACE_MS) */
-        if (knob < 4) {
+        if (knob < 4 && !(PAGE030 && PG->view)) {   /* PAGE030: macros 1..4 act on page 1 only; on the other pages they
+                                                       are consumed and do nothing (Clear + macro included) */
 #if PG_NAV
             if (PG->clear) {
                 pg_default(s, knob);
@@ -563,7 +595,7 @@ static void pg_shift_light(struct state *s, uint32_t *src)
 }
 #endif
 
-#if PG_NAV && FAR_PART                  /* the page's lights live in the far blob (far_pgleds; flash, 7333) */
+#if PG_NAV && PG_LEDS_HERE              /* far_pgleds in the far blob, or the main blob with PG_LEDS_MAIN */
 #define PG_RENDER_RGB   ((void (*)(uint32_t *))0x0802A769u)   /* the frame encoder's view render (src): RGB elements */
 #define PG_RENDER_MONO  ((void (*)(uint32_t *))0x0802A7EDu)   /* and single channels, into src[4] (pure stores) */
 
@@ -588,7 +620,7 @@ static void pg_stock_leds(struct state *s, uint32_t *src, uint32_t flag)
         s->leds[i] = ((const volatile uint8_t *)b)[i];
 }
 
-/* The PG_OWN LED bytes the page draws over the stock frame (docs/led-map.json): macro 1..8 knob lights, btn_8, Up,
+/* The PG_OWN LED bytes the page draws over the stock frame: macro 1..8 knob lights, btn_8, Up,
  * Down; the 32 pads are drawn in full by pg_leds. Shift keeps its stock light; Clear is the stock one unless held (or
  * dark: pg_nav_leds). In .text, as pad_leds(). */
 #define PG_OWN 33u
@@ -602,8 +634,8 @@ static const uint8_t *pg_own(void)
     return t;
 }
 
-/* The page's lights (PG_NAV) over the stock frame (pg_stock_leds): the page in front, the macro 1..4 lights on every
- * page, macros 5..8 dark, Up / Down dim where another page is, Track 8 magenta (red blink after a refused edit),
+/* The page's lights (PG_NAV) over the stock frame (pg_stock_leds): the page in front, the macro 1..4 lights on page 1
+ * only, macros 5..8 dark, Up / Down dim where another page is, Track 8 magenta (red blink after a refused edit),
  * Clear bright red while held, else its stock light (dim red if that is dark). Every other light (Shift, the buttons
  * that leave the page, Play, Rec) is the stock one. UI task, LED frame, caller holds the suspension; s->mode == 0. */
 static void pg_nav_leds(struct state *s)
@@ -646,6 +678,10 @@ static void pg_nav_leds(struct state *s)
             v = (int32_t)i - 2 == oct ? BRIGHT : DIM;
             pad_rgb(s, t, 24 + i, 0, 0, v);
         }
+#if ARP
+    } else if (view == 2) {
+        arp_leds(s, t);
+#endif
     } else {                                /* tracks (green, bright = scaled), scales (violet), key (yellow) */
         uint32_t sc = sc_scale(), bits = sc_bits();
         for (uint32_t i = 0; i < SC_TRACKS; i++) {
@@ -663,17 +699,22 @@ static void pg_nav_leds(struct state *s)
                 pad_rgb(s, t, pad, k == root ? BRIGHT : DIM, k == root ? BRIGHT : DIM, k == root ? 0 : DIM);
         }
     }
-    {                                       /* knob lights 1, 4, 57, 60 (macros 1..4, green); Tune centred */
+    if (ENGINE_OPT && !t8_eng()) {
+        /* no engine: no synth macros, one page (Up, Down and the knob lights dark) */
+    } else {
+    if (!PAGE030 || !view) {                /* knob lights 1, 4, 57, 60 (macros 1..4, green); Tune centred; page 1
+                                               only, the other pages leave them dark */
         int32_t tu = syn_fm_get(pat, SF_TUNE);
         s->leds[1] = (uint8_t)(((tu < 64 ? 63 - tu : tu - 64) << 1) & 0x7E);
+        s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
+        s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
+        s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);
     }
-    s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
-    s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
-    s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);
     if (view)                               /* btn_Up G 55, btn_Down G 52 */
         s->leds[55] = DIM;
     if (view < PG_PAGES - 1)
         s->leds[52] = DIM;
+    }
     if (g->fb) {                            /* btn_8: 212, 213, 214 */
         g->fb--;
         s->leds[212] = (g->fb & 4) ? BRIGHT : 0;
@@ -693,6 +734,9 @@ static void pg_nav_leds(struct state *s)
 
 /* far table FAR_PGLEDS (hook_frame via pg_frame, notetap.c): the stock frame of source `src` and the page over it into
  * s->leds. Returns 1 (0 means the far blob is absent: far_call). */
+#if PG_LEDS_MAIN
+static                                  /* main blob: a direct call from pg_frame (notetap.c), not a far table entry */
+#endif
 uint32_t far_pgleds(uint32_t sp, uint32_t src, uint32_t flag, uint32_t d)
 {
     (void)d;
@@ -810,7 +854,7 @@ static void pg_leds(struct state *s)
         s->leds[52] = DIM;                  /* Down light: the FM view is below */
     }
 #endif
-    /* knob lights: macro 1 (0, 1, 2), macro 2 (3, 4, 5), macro 3 (56, 57, 58) (docs/led-map.json), green by value */
+    /* knob lights: macro 1 (0, 1, 2), macro 2 (3, 4, 5), macro 3 (56, 57, 58), green by value */
     if (!PG_TRIM && !g->hide_patch) {
         s->leds[1] = (uint8_t)(syn_patch_get(pat, SP_ATTACK) & 0x7E);
         s->leds[4] = (uint8_t)(syn_patch_get(pat, SP_DECAY) & 0x7E);

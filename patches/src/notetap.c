@@ -131,6 +131,24 @@ typedef uint32_t (*tick_fn)(void);
 #if SYNTH
 
 enum { SRC_PAD, SRC_SEQ, SRC_MIDI, SRC_MODULE, SRC_OTHER, NSRC };
+#if ARP
+#define SRC_ARP         NSRC            /* the arp's own notes (arp.c): an instance tag only, counted as other */
+/* the arp's own router call is running: a source "other" is the arp (ARP: only the arp calls port 0x18 + 7 from
+ * outside the patch area with the emit flag set) */
+#define ARP_TAG(src)    ((src) == SRC_OTHER && ARP_P->emit ? SRC_ARP : (src))
+/* the stock MIDI-out leg (router port 0x20 + 7, dispatched inside a tapped press or off) of a press or off the arp
+   took: skipped, so MIDI out carries the arp's notes only (arp.c, design 3.6). took is written by every take and off
+   decision and cleared each tick, so the arp's own MIDI-out calls (made from the tick after its engine call declined
+   the take) are never skipped */
+#define ARP_OUT_SKIP(port, m) ((port) == 0x20u + A1_T && (ARP_P->took & (m)))
+#define TOOK_OFF        1u              /* an off the arp took (far_arp_off) */
+#define TOOK_ON         2u              /* a press the arp took (far_arp_in) */
+#define TOOK_RETRIG     4u              /* a press whose stock retrigger off is an arp-held press's (issue #45) */
+/* a press on this router port has a stock MIDI-out leg (the pad and sequencer ports; a module's rec = 1 note uses
+   the pad port). MIDI in (0x10 + 7) and the engine-only port 0x18 + 7 (a module's rec = 0 note, stock "other")
+   have none */
+#define ARP_LEG(port)   ((port) == A1_T || (port) == 0x08u + A1_T)
+#endif
 enum { V_FREE, V_HELD, V_REL };
 enum { WHY_STOP, WHY_CHOKE, WHY_EDIT, WHY_CC123, WHY_PROJECT, WHY_BOOT, WHY_STOCK7, NWHY };
 enum { O_SLOT, O_RETRIG, O_ON, O_FORCE, O_REL };        /* the five note ring write sites */
@@ -145,7 +163,7 @@ struct a1voice {
 
 struct a1inst {
     uint32_t ser;                             /* 0 = slot unused */
-    uint8_t src, root, mask, pad;
+    uint8_t src, root, mask, port;            /* port: the press's router port (ARP: ARP_LEG, issue #45; else 0) */
 };
 
 struct a1q {
@@ -169,7 +187,16 @@ struct a1 {
     uint8_t nq_head, nq_n;
     uint16_t seq;                             /* issue counter */
     uint16_t alloff_seq, kill_seq;            /* boundary of the pending ALL OFF / KILL */
-    uint16_t pad1;
+#if CARD_DSP && CARD_DSP_BENCH
+    uint8_t cd_once;                          /* carddsp.c: the boot's core-0 send happened (the padding word; the
+                                                 block is zeroed by hook_boot at every reset) */
+    uint8_t cd_wd;                            /* carddsp.c, CARD_DSP_BENCH: the watchdog test armed (0x80 | tick) */
+#elif CARD_DSP
+    uint8_t cd_once;                          /* carddsp.c: the boot's core-0 send happened (zeroed by hook_boot) */
+    uint8_t eng;                              /* ENGINE_OPT: the published track-8 engine kind (`pub`, 0 none) */
+#else
+    uint8_t eng, pad1;                        /* ENGINE_OPT: the published track-8 engine kind (`pub`, 0 none) */
+#endif
     struct a1q nq[NQ];
     uint32_t reset_seq, reset_seen;           /* admission-side ALL OFF: the Main task resets its table */
     uint8_t phase;                            /* PH_*: admission state across DSP loads (activation) */
@@ -224,6 +251,12 @@ _Static_assert(8 + 4 + 4 + 5 * FM_GROUP_MAX + 5 == 41 && 4 + FM_GROUP_MAX + 4 + 
 #define ENV_SET_WANT(a, v) ((a)->ad_want = (uint16_t)(v))
 #endif
 
+#if ENGINE_OPT
+#define A_ENG(a)        ((a)->eng)      /* the published engine kind (`pub`) */
+__attribute__((noinline))               /* keep the shared state lookup out of line */
+#else
+#define A_ENG(a)        1u              /* no gate: the engine is always taken as resident (every existing profile) */
+#endif
 static struct a1 *a1(void)
 {
 #ifdef A1_AT
@@ -238,6 +271,24 @@ static struct a1 *a1(void)
     return (struct a1 *)p;
 #endif
 }
+
+#ifndef ENGINE_FLASH
+#define ENGINE_FLASH 1u                 /* the engine kind the flash core-0 stream carries (0: none) */
+#endif
+#if ENGINE_OPT
+/* struct a1 with a synth engine resident on core 0, else 0: every track-8 takeover gates on this */
+__attribute__((noinline)) static struct a1 *a8(void)
+{
+    struct a1 *a = a1();
+    return a && a->eng ? a : 0;
+}
+__attribute__((noinline)) static uint32_t t8_eng(void)
+{
+    return a8() != 0;
+}
+#else
+#define a8() a1()
+#endif
 
 static int32_t ser_cmp(uint32_t a, uint32_t b)
 {
@@ -981,7 +1032,7 @@ __attribute__((noinline)) static void ad_preapply(uint32_t P)
         return;
     uint32_t fresh = a->fresh;                /* a stock new project (hook_store_reset), consumed by this refresh */
     a->fresh = 0;
-    if (!ch)
+    if (!ch || !A_ENG(a))
         return;
 #else
     if (!ch || !a1())
@@ -1036,6 +1087,10 @@ static uint32_t ad_cc_thunk(void)
 
 static void ad_boot_default(void)
 {
+#if ENGINE_OPT
+    if (!a8())
+        return;
+#endif
     struct state *st = region();
     struct tm *t = st ? tm_attach(st) : 0;
     if (!t || !t->store || t->site != 0 || store_of(t->P) != t->store)
@@ -1153,7 +1208,7 @@ static uint32_t ad_qb8(void)
 /* 1: track 8's macro page edits Start / Length whatever setting C says. Returns 1 if it had to clear the flag. */
 static uint32_t ad_page_flag(uint32_t page)
 {
-    if (!a1() || !in_sram(page, 0x68) || rw(page) != PL_MACRO_VT || *(volatile uint16_t *)(page + 0x44) != 16u * A1_T
+    if (!a8() || !in_sram(page, 0x68) || rw(page) != PL_MACRO_VT || *(volatile uint16_t *)(page + 0x44) != 16u * A1_T
         || !*(volatile uint8_t *)(page + 0x4F))
         return 0;
     *(volatile uint8_t *)(page + 0x4F) = 0;
@@ -1182,16 +1237,26 @@ uint32_t hook_mp_init(uint32_t page, uint32_t b, uint32_t c, uint32_t d)
  * The keyboard must be track 8's: its cell pointer (+ 0x198) equals track 8's value cell. Only the constructor call
  * (ctor = 1, a site that builds track 8's keyboard only) may proceed while that cell cannot be resolved yet; the
  * observer path, shared by all eight keyboards, requires a positive match. */
+/* The chromatic layout, as the stock rebuild makes it with C = 0: clear, chromatic table, notify. Also scales.c's
+ * restore of track 8's unscaled layout (T8SCALE). */
+#if T8SCALE
+__attribute__((noinline))                   /* two callers: one copy (-32 B, measured) */
+#endif
+static void ad_chrom_kb(uint32_t kb)
+{
+    KB_CLEAR(kb, 0, 0, 0);
+    KB_CHROM(kb, 0, 0, 0);
+    NOTIFY(rw(kb + 4));
+}
+
 static void ad_noslice_kb(uint32_t kb, uint32_t ctor)
 {
-    if (!a1() || !in_sram(kb, 0x1A0) || rw(kb) != KB_VT || *(volatile uint8_t *)(kb + KB_ROWS) != 0)
+    if (!a8() || !in_sram(kb, 0x1A0) || rw(kb) != KB_VT || *(volatile uint8_t *)(kb + KB_ROWS) != 0)
         return;
     uint32_t q8 = ad_qb8();
     if (q8 ? rw(kb + 0x198) != q8 : !ctor)
         return;
-    KB_CLEAR(kb, 0, 0, 0);
-    KB_CHROM(kb, 0, 0, 0);
-    NOTIFY(rw(kb + 4));
+    ad_chrom_kb(kb);
 }
 
 /* The constructor of track 8's keyboard (asserted by the tests: the object is the one track 8's Note view reads). It
@@ -1214,8 +1279,14 @@ enum { FAR_CHORD, FAR_COL,
 #if CARD_WRITE
        FAR_CW_SYSEX, FAR_CW_MAIN,
 #endif
-#if PG_NAV
+#if PG_NAV && !PG_LEDS_MAIN
        FAR_PGLEDS,
+#endif
+#if ARP
+       FAR_ARP_IN, FAR_ARP_OFF, FAR_ARP_TICK, FAR_ARP_RESET, FAR_ARP_PAD, FAR_ARP_SYSEX,
+#endif
+#if CARD_DSP && !CARD_DSP_MAIN
+       FAR_CD_LIVE,
 #endif
        FAR_N };
 __attribute__((noinline)) static uint32_t far_call(uint32_t i, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
@@ -1230,9 +1301,15 @@ __attribute__((noinline)) static uint32_t far_call(uint32_t i, uint32_t a, uint3
  * far_pgleds); without the far blob (an ARM-only image) a dark frame. */
 static void pg_frame(struct state *s, uint32_t *src, uint32_t flag)
 {
+#if PG_LEDS_MAIN                               /* the lights in the main blob (synthpage.c): always there */
+#if !FAR_PART
+    far_pgleds((uint32_t)s, (uint32_t)src, flag, 0);
+#endif
+#else
     if (!far_call(FAR_PGLEDS, (uint32_t)s, (uint32_t)src, flag, 0))
         for (uint32_t i = 0; i < LEDS; i++)
             s->leds[i] = 0;
+#endif
 }
 #endif
 
@@ -1350,7 +1427,7 @@ uint32_t far_pulse(uint32_t sp, uint32_t bp, uint32_t now, uint32_t d)
 __attribute__((noinline)) static struct tm *ch_tm(void)
 {
     struct tm *t = tm();
-    return a1() && t && t->store ? t : 0;
+    return a8() && t && t->store ? t : 0;
 }
 #define CH_A1           ((struct a1 *)A1_AT)        /* after ch_tm() */
 
@@ -1527,7 +1604,7 @@ static void nv_chord_repaint(uint32_t h)
 {
     uint32_t r;
     volatile uint8_t *w6;
-    if (!in_sram(h, 0x80) || !in_sram(rw(h + 4), 4) || !in_sram(rw(rw(h + 4)), 256))
+    if ((ENGINE_OPT && !ch_tm()) || !in_sram(h, 0x80) || !in_sram(rw(h + 4), 4) || !in_sram(rw(rw(h + 4)), 256))
         return;
     if (ch_held(h, &r, &w6) > 31u || !(*w6 >> 1 & 31u)) {   /* no chord step selected (or another view): repaint
                                                                only if a chord colour remains */
@@ -1754,6 +1831,12 @@ uint64_t hook_rec_off2(uint32_t rec, uint32_t note, uint32_t now, uint32_t d)
  * and t (offsets above it); the stash is consumed. 0 = none stashed (the live rule applies). */
 uint32_t far_chord(struct a1 *a, uint32_t src, int32_t *note, int32_t *t)
 {
+#if ARP
+    if (src == SRC_ARP) {                     /* the arp's own note: one note, the octave already applied */
+        t[0] = -12 * setting(SR_OCTAVE);
+        return 1;
+    }
+#endif
     if (!a->sr && !(a->sk && src == SRC_SEQ))
         return 0;
     uint8_t x[4];
@@ -1791,7 +1874,7 @@ uint32_t far_col(uint32_t nv, uint32_t kn)
 static uint32_t ad_nv_col(uint32_t nv, uint32_t idx, uint32_t note, uint32_t d)
 {
     uint32_t kb = in_sram(nv, 0x50) ? rw(nv + 0x4C) : 0, q8;
-    if (!a1() || idx > 127 || !in_sram(kb, 0x1A0) || *(volatile uint8_t *)(kb + KB_ROWS) == 0 || !(q8 = ad_qb8())
+    if (!a8() || idx > 127 || !in_sram(kb, 0x1A0) || *(volatile uint8_t *)(kb + KB_ROWS) == 0 || !(q8 = ad_qb8())
         || rw(kb + 0x198) != q8)
         return NV_COL(nv, idx, note, d);
 #if STEP_CHORDS
@@ -1820,14 +1903,14 @@ uint32_t hook_nv_col1(uint32_t nv, uint32_t idx, uint32_t note, uint32_t d) { re
 static volatile uint8_t *ad_c8(uint32_t qb)
 {
     uint32_t q = ad_qb8();
-    return a1() && q && qb == q ? (volatile uint8_t *)obs_el(q, 0xC) : 0;
+    return a8() && q && qb == q ? (volatile uint8_t *)obs_el(q, 0xC) : 0;
 }
 
 #if FM_BANKVIEW
 /* ---- Track 8's Sample view selects the FM ratio family and algorithm ---------------------------------------------
  * Slots 0..31 are valid (page 0: families under serial4, page 1: under dual_stack, both in block 0); pages 2..7
- * (slots 32..127, blocks 1..3) are dark and inert. Our hooks: the view's press and release (select a family and
- * algorithm, or swallow an inert press), its observer (the invalid positions dark again after every redraw) and the
+ * (slots 32..127, blocks 1..3) are dark and inert (PAGE030 profiles: Up and Down do not reach them). Our hooks: the
+ * view's press and release (select a family and algorithm, or swallow an inert press), its observer (the invalid positions dark again after every redraw) and the
  * Main pass (sv_entry: open the page of the selected base). The offsets in the code are the fields it reads and
  * writes. */
 #define SV_VT           0x08068294u                 /* Sample view vtable (word 0: press, 1: release) */
@@ -1876,12 +1959,18 @@ uint32_t hook_sv_obs(uint32_t th, uint32_t obs, uint32_t c, uint32_t d)
     return r;
 }
 
+#if PAGE030                                         /* the 0.3.0 profiles only: the pinned builds keep their bytes */
+#define SV_ARROW_OFF    (SV_COLTAB + 2u * 337u)     /* colour source for disabling the Down arrow on the last sound page */
+#define SV_PAGES        (FM_SLOTS / 16u)            /* pages that hold sounds: 0 and 1 */
+#endif
+
 /* Main pass: track 8's Sample view in front (host_ui snapshot: track 8, view 0, front) that was not at the previous
  * pass, or a project applied since: the page of the selected base is set in the page cell and notified, as an Up
  * press does, then the invalid positions go dark. The selected base is track 8's store byte (SV_BASE_AT), live channel parameter 0 only when no base is set (0xFF);
  * 0..15 opens page 0, 16..31 page 1, anything else page 0. Read-only for the selection: the base, parameter 0 and the
- * FM template are never written. Leaving and coming back applies the rule again; Up and Down browse freely while the
- * view stays in front (they select nothing). */
+ * FM template are never written. Leaving and coming back applies the rule again; Up and Down browse pages 0 and 1
+ * while the view stays in front (they select nothing). PAGE030 profiles: a page beyond 1 is set back at the next pass and
+ * the Down arrow is dark on page 1, so Up and Down stop at the last page that holds sounds (stock: eight pages). */
 __attribute__((noinline)) static void sv_entry(void)
 {
     volatile struct pg *g = PG;               /* the caller holds a1(), so the region and struct tm are live */
@@ -1891,6 +1980,48 @@ __attribute__((noinline)) static void sv_entry(void)
         g->sv_in = 0;
         return;
     }
+#if PAGE030
+    /* the snapshot was taken this pass through checked links (ui_snap: lambda, controller and grid page checks) */
+    uint32_t grid = rw(rw(rw(BTN_CELL + 4)) + 0x3C), pg8 = rw(grid + 0x19C + 4 * A1_T);
+#if ENGINE_PACK
+    uint32_t view = rw(grid + 0x14 + 4 * A1_T), cell = in_sram(pg8, 0x14) ? rw(pg8 + 0x10) : 0;
+    /* Withdrawal must restore through the stock observer even though sv_t8 now rejects the absent engine. */
+    uint32_t qb = ad_qb8();
+    if (!in_sram(view, 0x58) || rw(view) != SV_VT || !qb || rw(view + 0x14) != qb || !in_sram(cell, 0x14))
+        return;
+    if (!A_ENG(a1())) {
+        *(volatile uint8_t *)OBS_SETP(cell, 0) = *(volatile uint8_t *)obs_el(cell, 0);
+        NOTIFY(cell);                         /* mark changed and redraw stock page / arrows without moving it */
+        g->sv_in = 0;
+        return;
+    }
+#else
+    uint32_t view = sv_t8(rw(grid + 0x14 + 4 * A1_T)), cell = in_sram(pg8, 0x14) ? rw(pg8 + 0x10) : 0;
+    if (!view || !in_sram(cell, 0x14))
+        return;                               /* not resolvable yet: again at the next pass */
+#endif
+    uint32_t cur = *(volatile uint8_t *)obs_el(cell, 0), page = cur, o = rw(pg8 + 4), b = in_sram(o, 4) ? rw(o) : 0;
+    uint32_t entry = !g->sv_in || g->sv_gen != gen;
+    if (entry) {
+        uint32_t base = t->store ? *(volatile uint8_t *)(t->store + SV_BASE_AT + A1_T) : 0xFFu, ch;
+        if (base == 0xFFu)                    /* no base set: live parameter 0 */
+            base = (ch = pl_channel(rw(PL_R_CELL), A1_T)) ? PL_GET(ch, 0) : 0;
+        page = base < FM_SLOTS ? base >> 4 : 0;
+    } else if (page >= SV_PAGES) {
+        page = SV_PAGES - 1u;                 /* Up / Down stop at the last page that holds sounds (stock: eight) */
+    }
+    if (cur != page) {
+        *(volatile uint8_t *)OBS_SETP(cell, 0) = (uint8_t)page;
+        NOTIFY(cell);
+    }
+    if (page == SV_PAGES - 1u && in_sram(b, 4))
+        *(volatile uint16_t *)b = *(const volatile uint16_t *)SV_ARROW_OFF;   /* no page below: the Down arrow dark */
+    if (entry) {
+        sv_dark(view);
+        g->sv_in = 1;
+        g->sv_gen = gen;
+    }
+#else
     if (g->sv_in && g->sv_gen == gen)
         return;
     /* the snapshot was taken this pass through checked links (ui_snap: lambda, controller and grid page checks) */
@@ -1909,6 +2040,7 @@ __attribute__((noinline)) static void sv_entry(void)
     sv_dark(view);
     g->sv_in = 1;
     g->sv_gen = gen;
+#endif
 }
 
 /* The press decides its physical pad (bit (arg & 15): arg = pad - 16 + 16 x (page & 1)). On track 8's view the full
@@ -2006,7 +2138,7 @@ static uint32_t ad_st8(void)
 
 static uint32_t ad_c_get(uint32_t cell, uint32_t i, uint32_t q8)
 {
-    return a1() && i == 0xC && q8 && cell == q8 ? ad_zero() : OBS_GET(cell, i, 0, 0);
+    return a8() && i == 0xC && q8 && cell == q8 ? ad_zero() : OBS_GET(cell, i, 0, 0);
 }
 
 uint32_t hook_oct_c(uint32_t cell, uint32_t i, uint32_t c, uint32_t d) { return ad_c_get(cell, i, ad_qb8()); }
@@ -2023,7 +2155,7 @@ uint32_t hook_mp_obs(uint32_t th, uint32_t obs, uint32_t bits, uint32_t d)
 uint32_t hook_nm_obs(uint32_t th, uint32_t obs, uint32_t bits, uint32_t d)
 {
     uint32_t r = NM_OBS(th, obs, bits, d), nm = th - 4;
-    if (a1() && in_sram(nm, 0x60) && rw(nm) == NM_VT && *(volatile uint8_t *)(nm + 0x54 + A1_T) == 1) {
+    if (a8() && in_sram(nm, 0x60) && rw(nm) == NM_VT && *(volatile uint8_t *)(nm + 0x54 + A1_T) == 1) {
         uint32_t arr = rw(nm + 0x2C), stride = rw(nm + 0x24);
         if (stride <= 0x100 && in_sram(arr + stride * A1_T, 4) && obs == rw(arr + stride * A1_T))
             NM_LANES_ON(nm, A1_T, 0, 0);
@@ -2036,7 +2168,7 @@ uint32_t hook_nm_obs(uint32_t th, uint32_t obs, uint32_t bits, uint32_t d)
  * bytes. */
 uint32_t hook_save_post(uint32_t a, uint32_t b, uint32_t c, uint32_t store, uint32_t e, uint32_t f)
 {
-    uint32_t P = f - 0x10u, ch = a1() && store_of(P) == store ? pl_channel(rw(P + 0x54), A1_T) : 0;
+    uint32_t P = f - 0x10u, ch = a8() && store_of(P) == store ? pl_channel(rw(P + 0x54), A1_T) : 0;
     struct plk *p = ch ? plk() : 0;
     if (p) {
         uint32_t buf = store + PL_SER_AT + PL_SER_LEN * A1_T;
@@ -2071,7 +2203,7 @@ static void a1_ring(uint32_t *pair, uint32_t origin)
         return;
     }
 #endif
-    if (vc_stock_ch7(pair[0])) {
+    if (A_ENG(a) && vc_stock_ch7(pair[0])) {
         if (origin == O_SLOT) {               /* a sample-slot change on track 8 (exempt) */
             a->c_ch7_slot++;
             return;
@@ -2118,6 +2250,9 @@ static void table_reset(struct a1 *a)
  * the old one are purged here and filtered at publication) and publishes the patch after the ALL OFF. */
 static void all_off(struct a1 *a, uint32_t why, uint32_t project)
 {
+#if ARP
+    far_call(FAR_ARP_RESET, why | 0x100u, 0, 0, 0);   /* the arp's note; the set by reason (arp.c) */
+#endif
 #if CORE0_SYNTH
     REJ_CLEAR(a->phase != PH_OPEN);           /* a global boundary: no outstanding rejected press survives it
                                                  (CORE0_RECOVER: CLOSED drops survive a boundary while closed) */
@@ -2339,6 +2474,10 @@ static struct a1inst *inst_new(struct a1 *a)
 
 static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
 {
+#if ARP
+    src = ARP_TAG(src);
+    uint8_t port = ARP_P->port;               /* this press's router port (hook_ron); restored below */
+#endif
     Q0_FLUSH(a);                              /* deferred boundaries first: never applied to a later note */
     a1_sync(a);
     if (a->phase != PH_OPEN) {                /* activation: admission closed (dropped, counted) */
@@ -2351,11 +2490,22 @@ static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
     uint8_t out[4], notes[4] = {0, 0, 0, 0};
 #if STEP_CHORDS
     uint32_t n = chord(note, out, a, src), now = TICK();
+#if ARP                                       /* arp on: the press's notes join the held set (arp.c), or the press is
+                                                 refused there (bulk / quarantine, recorded); nothing sounds now */
+    ARP_P->port = port;                       /* again after the deferred work above: a nested press there (a busy
+                                                 callback) overwrote it */
+    if (far_call(FAR_ARP_IN, src | n << 8 | vel << 16, (uint32_t)note, (uint32_t)out, 0))
+        return;
+#endif
 #else
     uint32_t n = chord(note, out), now = TICK();
 #endif
 #if PAD_POLY                                  /* pads join MIDI: true pad chords with POLY on (master 2026-10-21) */
+#if ARP                                       /* the arp's notes follow POLY too: tails ring (on) or cut (off) */
+    uint32_t poly = (src == SRC_MIDI || src == SRC_PAD || src == SRC_ARP) && n == 1 && setting(SR_POLY);
+#else
     uint32_t poly = (src == SRC_MIDI || src == SRC_PAD) && n == 1 && setting(SR_POLY);
+#endif
 #else
     uint32_t poly = src == SRC_MIDI && n == 1 && setting(SR_POLY);
 #endif
@@ -2425,6 +2575,9 @@ static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
     in->src = (uint8_t)src;
     in->root = (uint8_t)(note & 0x7F);
     in->mask = (uint8_t)mask;
+#if ARP
+    in->port = (uint8_t)port;                 /* whether its on went to MIDI out (issue #45) */
+#endif
     cutm &= ~mask;
     if (cutm | killm) {                       /* one merged KILL: stolen voices and cut voices the chord did not take;
                                                  published before the ONSET (P before N) with the mirror gens */
@@ -2454,6 +2607,10 @@ static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
  * newer than snap, the value of a->serial when the off arrived. */
 static void a1_release_at(struct a1 *a, uint32_t src, int32_t note, uint32_t snap)
 {
+#if ARP                                       /* an off of a press the arp holds (direct or staged and replayed) */
+    if (far_call(FAR_ARP_OFF, src, (uint32_t)note, snap, 0))
+        return;
+#endif
     a1_sync(a);
     struct a1inst *best = 0;
     for (uint32_t i = 0; i < NINST; i++) {
@@ -2475,6 +2632,9 @@ static void a1_release_at(struct a1 *a, uint32_t src, int32_t note, uint32_t sna
 
 static void a1_release(struct a1 *a, uint32_t src, int32_t note)
 {
+#if ARP
+    src = ARP_TAG(src);
+#endif
     Q0_FLUSH(a);                              /* older staged offs (each already bound at its arrival) go first */
     if (q0_rej_off(src, note)) {              /* decided now: the off of a rejected press is swallowed */
         a->c_stale_off++;
@@ -2526,16 +2686,62 @@ static int32_t tap_source(struct a1 *a, uint32_t port, uint32_t lr)
     return -1;
 }
 
+#if ARP
+/* The router's pass-through for calls the tap does not take; skips the stock MIDI-out leg of a press or off the arp
+   took (ARP_OUT_SKIP). Out of line: the hooks' pass-through stays a tail call (inline it costs about 150 bytes). */
+static __attribute__((noinline)) uint32_t arp_pass_ron(uint32_t r, uint32_t n12, uint32_t vel, uint32_t port,
+                                                       uint32_t a5)
+{
+    return ARP_OUT_SKIP(port, TOOK_ON) ? 0 : ROUTER_ON(r, n12, vel, port, a5);
+}
+
+static __attribute__((noinline)) uint32_t arp_pass_roff(uint32_t r, uint32_t n12, uint32_t port, uint32_t a4)
+{
+    return ARP_OUT_SKIP(port, TOOK_OFF | TOOK_RETRIG) ? 0 : ROUTER_OFF(r, n12, port, a4);
+}
+#endif
+
+#if ARP
+/* A note event inside our transaction (busy): staged or swallowed as before. An off that is not swallowed gets its
+ * MIDI-out decision now, because the stock MIDI-out leg runs at once: staged (bound to the press held now by the
+ * serial snapshot), from the owner the replay will find; past a full stage list (a Stop deferred), applied to the
+ * arp now and the arp's set reset by that Stop (far_arp_off, ARP_OFF_BUSY with the stage count before). A swallowed off (a rejected press: its echoed on
+ * was sent) and a press keep took = 0. */
+__attribute__((noinline)) static void arp_reent(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
+{
+    uint32_t k = a->c_stale_off, n = Q0->noff;
+    q0_reent_note(a, src, note, vel);
+    if (vel || a->c_stale_off == k)           /* a press while busy (vel in bits 16..22): not taken, its stock on is
+                                                 sent; the arp's holders of the pitch learn it and its retrigger off
+                                                 is decided */
+        far_call(FAR_ARP_OFF, src | vel << 16, (uint32_t)note, n, ARP_OFF_BUSY);
+}
+#endif
+
 uint32_t hook_ron(uint32_t r, uint32_t n12, uint32_t vel, uint32_t port, uint32_t a5)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     int32_t src = tap_source(a, port, (uint32_t)__builtin_return_address(0));
     if (src < 0)
+#if ARP
+        return arp_pass_ron(r, n12, vel, port, a5);
+#else
         return ROUTER_ON(r, n12, vel, port, a5);
+#endif
     a->c_tap[src]++;
+#if ARP                                       /* this event's MIDI-out leg is sent unless the arp takes it now: no
+                                                 earlier event's decision applies (a refused, dropped, swallowed or
+                                                 staged event writes no decision) */
+    ARP_P->took = 0;
+    ARP_P->port = (uint8_t)port;
+#endif
 #if CORE0_SYNTH
     if (Q0->busy)                             /* inside our transaction: no lock, no N (press dropped, off staged) */
+#if ARP
+        arp_reent(a, (uint32_t)src, (int32_t)n12 - 12, vel & 0x7F);
+#else
         q0_reent_note(a, (uint32_t)src, (int32_t)n12 - 12, vel & 0x7F);
+#endif
     else
 #endif
     if (vel & 0x7F)
@@ -2550,14 +2756,27 @@ uint32_t hook_ron(uint32_t r, uint32_t n12, uint32_t vel, uint32_t port, uint32_
 
 uint32_t hook_roff(uint32_t r, uint32_t n12, uint32_t port, uint32_t a4)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     int32_t src = tap_source(a, port, (uint32_t)__builtin_return_address(0));
     if (src < 0)
+#if ARP
+        return arp_pass_roff(r, n12, port, a4);
+#else
         return ROUTER_OFF(r, n12, port, a4);
+#endif
     a->c_tap[src]++;
+#if ARP                                       /* this event's MIDI-out leg is sent unless the arp takes it now: no
+                                                 earlier event's decision applies (a refused, dropped, swallowed or
+                                                 staged event writes no decision) */
+    ARP_P->took = 0;
+#endif
 #if CORE0_SYNTH
     if (Q0->busy)
+#if ARP
+        arp_reent(a, (uint32_t)src, (int32_t)n12 - 12, 0);
+#else
         q0_reent_note(a, (uint32_t)src, (int32_t)n12 - 12, 0);
+#endif
     else
 #endif
     a1_release(a, (uint32_t)src, (int32_t)n12 - 12);
@@ -2571,7 +2790,7 @@ uint32_t hook_roff(uint32_t r, uint32_t n12, uint32_t port, uint32_t a4)
  * does; the note is not replaced, no parameter is written. */
 uint32_t hook_nm_on(uint32_t nm, uint32_t g, uint32_t note, uint32_t vel)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     if (!a || g != A1_G)
         return NM_ON(nm, g, note, vel);
     a->c_nm_bypass++;
@@ -2581,7 +2800,7 @@ uint32_t hook_nm_on(uint32_t nm, uint32_t g, uint32_t note, uint32_t vel)
 
 uint32_t hook_nm_off(uint32_t nm, uint32_t g, uint32_t note, uint32_t d)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     if (!a || g != A1_G)
         return NM_OFF(nm, g, note, d);
     uint32_t next = *(volatile uint32_t *)(nm + 0xC);
@@ -2591,7 +2810,7 @@ uint32_t hook_nm_off(uint32_t nm, uint32_t g, uint32_t note, uint32_t d)
 /* Track 8's sample voice is never triggered: the tap owns its notes. */
 uint32_t hook_eng_on(uint32_t e, uint32_t g, uint32_t note, uint32_t vel)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     if (!a || g != A1_G)
         return ENG_ON(e, g, note, vel);
     a->c_eng_cut++;
@@ -2600,7 +2819,7 @@ uint32_t hook_eng_on(uint32_t e, uint32_t g, uint32_t note, uint32_t vel)
 
 uint32_t hook_eng_off(uint32_t e, uint32_t g, uint32_t note, uint32_t d)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     if (!a || g != A1_G)
         return ENG_OFF(e, g, note, d);
     a->c_eng_cut++;
@@ -2619,6 +2838,9 @@ uint32_t hook_eng_off(uint32_t e, uint32_t g, uint32_t note, uint32_t d)
 #if CORE0_SYNTH
 static void release_all(struct a1 *a, uint32_t why)
 {
+#if ARP
+    far_call(FAR_ARP_RESET, why, 0, 0, 0);       /* Stop / mute: sequencer entries; CC 123: all */
+#endif
     REJ_CLEAR(a->phase != PH_OPEN);
     if (a->phase != PH_OPEN) {
         all_off(a, why, 0);
@@ -2685,7 +2907,7 @@ static void release_all(struct a1 *a, uint32_t why)
  * groups unchanged. */
 static uint32_t force(uint32_t g, uint32_t why)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
     if (!a || (g & 0xFF) != A1_G)
         return FORCE_OFF(g);
 #if CORE0_SYNTH
@@ -2714,7 +2936,7 @@ uint32_t hook_fo_edit(uint32_t g) { return force(g, WHY_EDIT); }     /* sample e
 /* MIDI CC 123 on track 8's channel: the original sends one off per held-pitch bit, which cannot release duplicates. */
 uint32_t hook_midi_alloff(uint32_t midi_in, uint32_t g, uint32_t c, uint32_t d)
 {
-    struct a1 *a = a1();
+    struct a1 *a = a8();
 #if CORE0_SYNTH
     if (a && (g & 0xFF) == A1_G && Q0->busy) {
         Q0->defer |= DEF_CC123;
@@ -2823,6 +3045,25 @@ static uint32_t dsp_load(uint32_t mode, uint32_t r1, uint32_t r2, uint32_t r3)
             Q0->defer |= DEF_CLOSE;           /* inside our transaction: the purge waits for the next Main pass */
         else
             a1_close(a);
+#if ENGINE_OPT
+        a->eng = mode ? 0u : ENGINE_FLASH;    /* the flash stream's engine; a card send overrides it */
+#endif
+#if ENGINE_PACK
+        struct eo *e = eo();
+        if (e) {                              /* every DSP load starts a new resident lifecycle */
+            e->rgen++;
+            e->r_pair = mode || !ENGINE_FLASH ? R_STOCK : R_ENGINE;   /* the send hook makes it the candidate */
+            e->r_kind = e->r_pair == R_ENGINE ? 1u : 0u;
+            e->r_crc = 0;
+            e->r_fault = 0;
+            if (!(e->fl & EF_OWN))
+                e->sel = SEL_STOCK;           /* a factory load: always the stock pair, never an armed candidate */
+            a->eng = 0;                       /* pub follows the pack transaction's publish only */
+#if ENGINE_FLASH
+            a->eng = mode ? 0u : ENGINE_FLASH;
+#endif
+        }
+#endif
         a->c_load++;
     }
 #else
@@ -2834,8 +3075,63 @@ static uint32_t dsp_load(uint32_t mode, uint32_t r1, uint32_t r2, uint32_t r3)
     return ORIG_DSPLOAD(mode, r1, r2, r3);
 }
 
+#if ENGINE_PACK
+/* Refuse and count a DSP load outside the active pack transaction before it sends DSP traffic.
+ * The load wrappers also unwind their caller when this guard refuses the load. */
+static uint32_t ep_foreign_load(void)
+{
+    struct eo *e = eo();
+    if (!e || e->phase == EP_IDLE || (e->fl & EF_OWN))
+        return 0;
+    e->busy++;
+    return 1;
+}
+
+/* Mode-0 load wrapper: report an aborted ready-line wait or a refused load so the assembly hook
+ * can unwind its caller instead of continuing initialization. */
+static uint32_t __attribute__((used, noinline)) dsp_load0_c(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
+{
+    if (ep_foreign_load())
+        return 1;
+    dsp_load(r0, r1, r2, r3);
+    struct eo *e = eo();
+    return e && (e->fl & EF_ABORT);
+}
+
+/* Mode-1 load wrapper: a refused load requests an immediate return from the caller. */
+static uint32_t __attribute__((used, noinline)) dsp_load1_c(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
+{
+    if (ep_foreign_load())
+        return 1;
+    dsp_load(r0, r1, r2, r3);
+    return 0;
+}
+
+__attribute__((naked)) uint32_t hook_dsp_load1(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
+{
+    __asm__ volatile(
+        "push {r4, lr}\n\t"
+        "bl dsp_load1_c\n\t"
+        "cbnz r0, 1f\n\t"
+        "pop {r4, pc}\n"
+        "1: pop {r4, lr}\n\t"
+        "pop {r3, r4, r5, pc}");            /* the mode switch's frame: back to its caller */
+}
+
+__attribute__((naked)) uint32_t hook_dsp_load0(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
+{
+    __asm__ volatile(
+        "push {r4, lr}\n\t"
+        "bl dsp_load0_c\n\t"
+        "cbnz r0, 1f\n\t"
+        "pop {r4, pc}\n"
+        "1: pop {r4, lr}\n\t"
+        "pop {r4, pc}");                    /* unwind the caller's frame after an aborted or refused load */
+}
+#else
 uint32_t hook_dsp_load0(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) { return dsp_load(r0, r1, r2, r3); }
 uint32_t hook_dsp_load1(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) { return dsp_load(r0, r1, r2, r3); }
+#endif
 
 uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {
@@ -2847,6 +3143,13 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
         return ret;
     q0_close();
     a1_close(a);
+#if ENGINE_PACK
+    if (!eo_res_engine())                     /* the stock pair is resident: the queue stays CLOSED */
+        return ret;
+#else
+    if (!A_ENG(a))                            /* ENGINE_OPT: no engine sent at this load: the queue stays CLOSED */
+        return ret;
+#endif
     ad_boot_default();
 #if !CORE0_ONLY                               /* CORE0_ONLY: no ENABLE, no core-1 frame; c_enable stays 0 */
     a1_enable_write();
@@ -2885,6 +3188,11 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 #if CORE0_SYNTH
 uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {
+#if ENGINE_PACK && !FAR_PART && REMOTE_PACK_LOAD
+    struct state *s = region();
+    if (s)
+        ep_remote_main(s);                  /* Main only, before queue/UI work; never from SysEx dispatch */
+#endif
     struct a1 *a = a1();
 #if FM_PATCH
     pg_fm_tick();                             /* the FM view's coalesced macro write (synthpage.c) */
@@ -2892,7 +3200,12 @@ uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     if (a && !Q0->busy) {
         ad_boot_default();
 #if FM_BANKVIEW
-        sv_entry();                           /* track 8's Sample view opens on the selected base's page (no lock) */
+        if (A_ENG(a)
+#if ENGINE_PACK && PAGE030
+            || PG->sv_in                     /* one final stock redraw after an engine is withdrawn */
+#endif
+        )
+            sv_entry();                       /* track 8's Sample view opens on the selected base's page (no lock) */
 #endif
 #if CORE0_BENCH
         Q0->held = 0;                         /* a new Main pass: one queue write hold allowed (bench pacing) */
@@ -2915,6 +3228,12 @@ uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
             ad_drain(a);
             eng_unlock(sem);
         }
+#if ARP && ENGINE_OPT
+        far_call(FAR_ARP_TICK, (uint32_t)a, !A_ENG(a), 0, 0);   /* the write service always (tracks 1..4 need no
+                                                                   engine); the arp only with one (b = no engine) */
+#elif ARP
+        far_call(FAR_ARP_TICK, (uint32_t)a, 0, 0, 0);  /* at most one arp off and one on (arp.c), no catch-up */
+#endif
     }
     return ORIG_TX(r0, r1, r2, r3);
 }
@@ -2960,8 +3279,12 @@ uint32_t hook_a1_boot(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     /* fixed block, zeroed by hook_boot: activated here (the Main task's first call), so every hook passes through
      * until then */
     SUSPEND_ALL();
-    if (region())
+    if (region()) {
         ((volatile struct a1 *)A1_AT)->magic = A1_MAGIC;
+#if ENGINE_OPT
+        ((volatile struct a1 *)A1_AT)->eng = ENGINE_FLASH;   /* the flash engine until the first DSP load */
+#endif
+    }
     RESUME_ALL();
 #else
     volatile uint32_t *ctl = (volatile uint32_t *)HEAP_CTL;

@@ -21,6 +21,7 @@ FREE_END = 0x08080000                     # image size cap (0x70000 bytes)
 # The far blob (targets with "far", tools/farblob.py): in the old core-0 window, from the core-1 cap (Codex, #9) to
 # the end of the old stock core-0 stream. Only joined images (core 0 moved, pointer 0x08031658 rewritten) may run it.
 FAR_AT, FAR_END = 0x0801B000, 0x08020805
+STOCK_CORE0_AT = 0x0807A01C               # card_dsp=3: the exact stock core-0 stream (24,525 B) ends at 0x0807FFE9
 # Host table (targets with "host_table"): at CODE_AT, the hook code follows. u32 magic 'CRH1', u32 abi, u32 note()
 # Thumb address, u32 built-in module address (0 none); abi 3: then note_port(), param(), ui(), midi().
 HOST_TABLE_SIZE = 16
@@ -52,6 +53,8 @@ SITES = {"hook_frame": 0x0802596E,
          "hook_ring_force": 0x08040834, "hook_ring_rel": 0x0804086C,
          "hook_fo_choke": 0x080334E6, "hook_fo_edit": 0x0803A7EA,
          "hook_a1_tick": 0x08025874, "hook_a1_boot": 0x08025774,
+         # CARD_DSP prototype (#36): the stock loader's core-0 image send (far blob)
+         "hook_c0_send": 0x0803115E,
          # O1 bounded DSP waits: mailbox poll sites
          "hook_mb_reset": 0x0806441E,
          "hook_mb_stop": 0x08064496,
@@ -75,6 +78,11 @@ SITES = {"hook_frame": 0x0802596E,
          "hook_dsp_ready": 0x080278E2,
          # DSP stream upload, modes 0 and 1
          "hook_dsp_load0": 0x080278CC, "hook_dsp_load1": 0x080278A8,
+         "hook_ld_hs": 0x08029CE4,          # ENGINE_PACK: the bootstrap handshake wait in channel init (0x08029CB4)
+         "hook_sx_factory": 0x08026DF8,     # ENGINE_PACK: the factory SysEx dispatcher call in the SysEx fan-out
+         "hook_c1_send": 0x08031170,        # ENGINE_PACK: the loader's core-1 image send
+         "hook_slot_read": 0x08053EC6,      # ENGINE_PACK: the slot upload's header read (12.5 slot outcome)
+         "hook_slot_read2": 0x08054016,     # ENGINE_PACK: the slot upload's chunk read (the same hook)
          # FM_BANKVIEW: the stock store reset inside the project operations that create a project (fresh creation):
          # an empty slot selected, a loaded file that is not a project, clear, a pack switch without a file (notetap.c)
          "hook_rst_absent": 0x08037C8A, "hook_rst_tail": 0x08037E74, "hook_rst_clear": 0x0803868A,
@@ -91,7 +99,7 @@ BW_SITES = {"hook_fo_eng": 0x08031A34,
             "hook_fx": 0x0805A2C6}
 STOCK_BW = {0x080295CA: 0x08040108, 0x080295D8: 0x0804012A, 0x080295E4: 0x08040140, 0x080295F0: 0x08040152,
             0x080295FC: 0x0804015E, 0x0805A2C6: 0x0805F2F8, 0x08031A34: 0x080467D2}
-STOCK_BL = {0x0802596E: 0x0802960C, 0x08026E42: 0x0802CF90, 0x080256DE: 0x08026134, 0x0802AD36: 0x0802AD40,
+STOCK_BL = {0x08053EC6: 0x0804603A, 0x08054016: 0x0804603A, 0x08031170: 0x080310B0, 0x08026DF8: 0x0802CAB0, 0x08029CE4: 0x080312AC, 0x0803115E: 0x080310B0, 0x0802596E: 0x0802960C, 0x08026E42: 0x0802CF90, 0x080256DE: 0x08026134, 0x0802AD36: 0x0802AD40,
             0x0802586C: 0x0802677A, 0x08033384: 0x080333AA, 0x08037EB2: 0x08037366, 0x080386A8: 0x08037366,
             0x08038750: 0x08037366, 0x080552AC: 0x08055324, 0x08037F54: 0x08037A10,
             0x08037FD6: 0x080472E2, 0x0804C53A: 0x08055DEC, 0x0805D9CE: 0x0805DABE, 0x0805DC50: 0x0805DABE,
@@ -137,9 +145,15 @@ VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x
             # STEP_CHORDS: the Note view's observer, both vtable words (the view; its observer interface at + 8)
             "hook_nv_obs": (0x08067268, 0x0805E08F), "hook_nv_obs8": (0x08067278, 0x0805E08D),
             # BOOT_PULSE: the pack-load progress object's vtable (0x08068E70) +8 bar draw and +0x10 end
-            "hook_pb_draw": (0x08068E78, 0x08054147), "hook_pb_end": (0x08068E80, 0x080541AB)}
+            "hook_pb_draw": (0x08068E78, 0x08054147), "hook_pb_end": (0x08068E80, 0x080541AB),
+            # PWRITE (issue #47): the step player's per-microstep decision and pulse-0 sample flip (same vtable)
+            "hook_seqdec": (0x08068D28, 0x0804AEEF), "hook_seqflip": (0x08068D34, 0x0804B061)}
 # function tails replaced by a B.W to a naked hook (stock bytes checked)
-TAIL_SITES = {"hook_pack_done": (0x08053E88, "012070bd")}
+TAIL_SITES = {"hook_pack_done": (0x08053E88, "012070bd"),
+              # ENGINE_PACK: the stream loader's ready-line spin (0x08031110, after both core sends)
+              "hook_ld_ready": (0x0803117E, "28698068"),
+              # ENGINE_PACK: the stock watchdog refresh's first instruction (0x08026DD6; every feed reaches it)
+              "hook_feed": (0x08026DD6, "4af6aa20")}
 # Arrhythmia 0.1 profiles: one switch per profile selects the ARM routing/UI (SYNTH), its hook sites and cmd 08;
 # tools/dspmeter.py (devkit 7228) and tools/voicestack.py (firmware 7229) stack the DSP layer onto the ARM bases.
 OR_HOOKS = ["hook_boot", "hook_frame", "hook_sysex", "hook_pad", "hook_button", "hook_pot", "hook_pressure",
@@ -272,7 +286,7 @@ OR_PROFILES = {
     # no image. EMULATION ONLY, never an image from here.
     "arrhythmia-firmware-arm-synthnav": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
                                              fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
-                                             synthnav=1, version=[0, 0, 0, 7, 9, 0]),
+                                             synthnav=1, page030=1, version=[0, 0, 0, 7, 9, 0]),
     "arrhythmia-core0-bankview-arm-021": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
                                               fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1,
                                               boot_pulse=1, version=[0, 0, 0, 7, 9, 0]),
@@ -291,9 +305,43 @@ OR_PROFILES = {
     "arrhythmia-firmware-arm-rc": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                        recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
                                        synthnav=1, version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7339)),
+    # Arpeggiator (issue #31, not released): the 0.2.2 public ARM profile plus arp=1 (ARP: far blob engine, synth page 3,
+    # SysEx 11, struct arp 0x58 B between struct q0 and struct sc). A new profile, so that the 0.2.2 profiles keep their bytes; ARM-only
+    # base label 7304, no image. EMULATION ONLY, never an image from here. Also t8scale=1 (issue #34, T8SCALE: track 8's
+    # Note view follows the project scale and key).
+    "arrhythmia-firmware-arm-arp": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                        recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
+                                        synthnav=1, page030=1, arp=1, t8scale=1, version=[0, 0, 0, 7, 9, 0]),
+    # Pattern-write profile: the arp profile with the opt-in module request service and target-track silence.
+    # Keep a separate profile so the arp-only patch set stays reproducible.
+    "arrhythmia-firmware-arm-ew": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
+                                       recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
+                                       synthnav=1, page030=1, arp=1, t8scale=1, pwrite=1, version=[0, 0, 0, 7, 9, 0]),
+    # Per-pack engine profile: load a card engine when selected, otherwise keep track 8 as stock samples.
+    # The image layer relocates the unchanged input core-0 stream; this profile holds the ARM changes only.
+    # Engine handling is in main flash so the shared far region keeps room for the module writer.
+    "arrhythmia-firmware-arm-engopt": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                           fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
+                                           card_write=1, synthnav=1, page030=1, arp=1, t8scale=1, pwrite=1, card_dsp=3,
+                                           engine_opt=1, version=[0, 0, 0, 7, 9, 0]),
+    # The same with ENGINE_FLASH=1 (engine_opt=2): the gate seeded "FM resident" at boot and at every mode-0 load, so
+    # the existing track-8 suites, whose rigs stub the DSP load, exercise the engine-present paths. Emulation only.
+    "arrhythmia-firmware-arm-engopt-fm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                              fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
+                                              card_write=1, synthnav=1, page030=1, arp=1, t8scale=1, pwrite=1, card_dsp=3,
+                                              engine_opt=2, version=[0, 0, 0, 7, 9, 0]),
     "arrhythmia-core0-rc-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                     recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
                                     synthnav=1, version=[0, 0, 0, 7, 9, 0]),
+    # Boot-engine diagnostic profile: the 0.2.2 ARM profile plus CARD_DSP=1 and
+    # CARD_DSP_BENCH=1 (card_dsp=2): at boot the core-0 engine region from the card (patches/src/carddsp.c, far blob),
+    # the ENGINE.DSE writer, the status read and the bench's keyed watchdog test (cmd 10 08..0C). New profile, so that
+    # every other profile keeps its bytes; ARM-only base label 7304, no image. The bench image is this ARM plus the
+    # DEV_NOPLAY gate (core0_bench_profile.py --carddsp) and 7339's DSP layer (tools/carddsp/bench_build.py). Never a
+    # public build (CARD_DSP_BENCH).
+    "arrhythmia-firmware-arm-carddsp": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
+                                            fm207=1, recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
+                                            card_write=1, synthnav=1, card_dsp=2, version=[0, 0, 0, 7, 9, 0]),
     # OPTIONAL (separate commit, may be dropped): the recover profile plus CORE0_RECOVER_TIMING=1 (timing=1): ACK
     # latency and reinit duration counters, c_init_late (struct q0 block 0xD0, 0F reply 185 bytes); the rig
     # only; excluded from the public candidate source build.
@@ -318,13 +366,21 @@ OR_PROFILES = {
 
 # BOOT_PULSE (0.2.1, #5): the pack-load progress object's (0x20000A8C) bar draw (+8) and end (+0x10), vtable 0x08068E70
 BP_HOOKS = ["hook_pb_draw", "hook_pb_end"]
+PW_HOOKS = ["hook_seqdec", "hook_seqflip"]
+# CARD_DSP prototype (#36): the loader's core-0 image send, in the far blob
+CD_HOOKS = ["hook_c0_send"]
+# ENGINE_PACK: the mode-0 loader's two DSP waits after the core sends, bounded inside a pack transaction's own load
+EP_HOOKS = ["hook_ld_ready", "hook_ld_hs", "hook_sx_factory", "hook_c1_send", "hook_slot_read", "hook_slot_read2",
+            "hook_feed"]
 FAR_HOOKS = ["hook_se", "hook_seqstep", "hook_rec_on", "hook_rec_off0", "hook_rec_off1", "hook_rec_off2",
              "hook_rec_rel", "hook_np", "hook_nv_obs", "hook_nv_obs8"]
 
 
 def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="none", scales=0, ad_blocks=None,
               dump_open=0, ad=0, core0=0, pad_poly=0, fm_patch=0, bankview=0, meter_read=0, fm207=0, legacy_fm206=0,
-              recover=0, timing=0, builtin=1, fb_macro1=0, step_chords=0, boot_pulse=0, card_write=0, synthnav=0):
+              recover=0, timing=0, builtin=1, fb_macro1=0, step_chords=0, boot_pulse=0, card_write=0, synthnav=0, arp=0,
+              t8scale=0, pwrite=0, card_dsp=0, engine_opt=0, page030=0, remote_pack_load=0):
+    assert not remote_pack_load or name.endswith("-remote-bench"), name
     q0 = {0: 0, 1: 0x80, 2: 0xA0, 3: 0xA0, 4: 0xA0, 5: 0xA0}[core0]   # struct q0 block (devkit_abi3.c Q0_SIZE)
     fm = fm_patch or bankview                                          # FM_BANKVIEW implies FM_PATCH (arrhythmia.c)
     assert not legacy_fm206 or (bankview and not fm207), name
@@ -402,6 +458,11 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      "stages a module in ITCM (CRC and header checked), then the Content task writes 1:/MODULES/"
                      "_UPLOAD.TMP, reads it back, and renames it to NAME.MOD; delete, verify and list too "
                      "(patches/src/cardwrite.c, far blob)")
+    assert not card_dsp or (card_write and step_chords and core0), name   # carddsp.c: far blob, writer CRC, queue
+    if card_dsp:
+        parts.append("PROTOTYPE (CARD_DSP, emulation only, #36): at boot the core-0 engine region P:0x2000.. comes "
+                     "from 1:/MODULES/ENGINE.DSE (header, base id and CRC checked before any byte is sent; any doubt or "
+                     "a boot that never opened the queue: the flash stream as today; patches/src/carddsp.c, far blob)")
     if fb_macro1:
         parts.append("track 8 main macro 1 is FM feedback at note start (FB_MACRO1, 0.2.1: channel parameter 6, "
                      "stored 4..124, read as 0..127); the synth page's macro 1 is Tune (patch slot +4, codec 2 "
@@ -412,6 +473,28 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      "scales, row 2 Track 1..7 scaled, rows 3-4 key); stored Phrygian / Lydian play as natural minor / "
                      "major; every other button but Play, Rec, Shift and Clear leaves the page and reaches the stock "
                      "UI; Clear + page macro 1..4 sets its default")
+    assert not arp or (synthnav and card_write and step_chords and core0 and scales), name   # ARP (arrhythmia.c)
+    assert not page030 or synthnav, name                               # PAGE030 (arrhythmia.c)
+    if arp:
+        parts.append("track-8 arpeggiator (ARP, issue #31, emulation only): pad, MIDI, sequencer and module presses "
+                     "join a held set (up to 8 notes after the chord engine); the arp plays one note at a time "
+                     "through the normal press path (router port 0x18 + 7, MIDI out on 0x20 + 7) on the 24-PPQN "
+                     "transport pulse (swung) or, stopped, the free grid / a Main-pass timer at the tempo; Up, Down, "
+                     "Up/Down, Random, As played, 1/4..1/32, 1..3 octaves, 4 gates, latch; synth page 3 and chord page "
+                     "pad 8; settings in the 'A' 'R' sub-record at T1 block + 0x300; SysEx 11; struct arp 0x58 B "
+                     "between struct q0 and struct sc")
+    assert not t8scale or (scales and synthnav and ad), name   # T8SCALE (arrhythmia.c)
+    if t8scale:
+        parts.append("track 8's Note-view keyboard follows the project scale and key like tracks 1..7 (T8SCALE, issue "
+                     "#34, emulation only): bit 7 of the scales track byte, scale page pad 8; MIDI in and stored steps "
+                     "unchanged; SysEx 0E reply 17 bytes")
+    assert not pwrite or (arp and step_chords), name   # PWRITE (arrhythmia.c): the service runs from the far arp tick
+    if pwrite:
+        parts.append("Euclid write to pattern (PWRITE, issue #47, emulation only): host table abi 4; a running module "
+                     "with a valid capability trailer ('CRX1', CRC-covered) offers read / compare-and-write / undo "
+                     "requests of the edit pattern's step bytes and length through a declared mailbox, served once per "
+                     "Main pass from the far arp tick through the stock step cells; and silences the sequencer's new "
+                     "notes and sample flips on the tracks it declares (player decision and flip vtable words)")
     if meter_read:
         parts.append("BENCH ONLY: cmd 08 is the restricted core-0 meter readout (X:$5C00..$5E5F, 1..16 words, a 14-bit "
                      "nonce, the 0F idle rule and a deadline before every DSP word, no write; the general cmd 08 read is "
@@ -419,14 +502,20 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
     if not dump_open:
         parts.append("cmd 7D reads only ITCM 0x00000100-0x00003FFF (module RAM and code); every other address, "
                      "internal flash included, gets the refusal (13 bytes, no data)")
-    floor = (0x2004F0E0 if synth else 0x2004F400) - (0x20 if scales else 0) - q0
+    floor = (0x2004F0E0 if synth else 0x2004F400) - (0x20 if scales else 0) - q0 - (0x58 if arp else 0) \
+        - (0x2A0 if card_dsp == 3 and engine_opt else 0)       # ENGINE_PACK: struct eo + wd + remote request below struct sc
     return {"src": "arrhythmia.c", "hooks": OR_HOOKS + (OR_A1_HOOKS if synth else []) + (OR_SCALES_HOOKS if scales else [])
                       + (OR_AD_HOOKS if ad else []) + (OR_BANKVIEW_HOOKS if bankview else [])
-                      + (FAR_HOOKS if step_chords else []) + (BP_HOOKS if boot_pulse else []),
-            "far": dict(roots=FAR_HOOKS + (BP_HOOKS if boot_pulse else []),
+                      + (FAR_HOOKS if step_chords else []) + (BP_HOOKS if boot_pulse else [])
+                      + (PW_HOOKS if pwrite else []) + (CD_HOOKS if card_dsp else [])
+                      + (EP_HOOKS if card_dsp == 3 and engine_opt else []),
+            "far": dict(roots=FAR_HOOKS + (BP_HOOKS if boot_pulse else []) + (PW_HOOKS if pwrite else [])
+                        + (CD_HOOKS if card_dsp in (1, 2) else []),
                         table=["far_chord", "far_col"] + (["far_pulse"] if boot_pulse else [])
                         + (["far_cw_sysex", "far_cw_main"] if card_write else [])
-                        + (["far_pgleds"] if synthnav else [])) if step_chords else None,
+                        + (["far_pgleds"] if synthnav and not (card_dsp == 3 and engine_opt) else [])
+                        + (["far_arp_in", "far_arp_off", "far_arp_tick", "far_arp_reset", "far_arp_pad",
+                            "far_arp_sysex"] if arp else []) + (["far_cd_live"] if card_dsp in (1, 2) else [])) if step_chords else None,
             "defines": [f"SYNTH={synth}", f"CMD08={cmd08}"] + (["A1_PATCH=1"] if a1_patch else [])
                        + (["SCALES=1"] if scales else []) + ([f"AD_BLOCKS={ad_blocks}u"] if ad_blocks else [])
                        + (["DUMP_ALLOW=0"] if dump_open else []) + (["AD_LIVE=1"] if ad else [])
@@ -441,7 +530,15 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                        + ([] if builtin else ["BUILTIN_MODULE=0"])
                        + (["FB_MACRO1=1"] if fb_macro1 else [])
                        + (["STEP_CHORDS=1"] if step_chords else []) + (["BOOT_PULSE=1"] if boot_pulse else [])
-                       + (["CARD_WRITE=1"] if card_write else []) + (["PG_NAV=1"] if synthnav else []),
+                       + (["CARD_WRITE=1"] if card_write else []) + (["PG_NAV=1"] if synthnav else [])
+                       + (["REMOTE_PACK_LOAD=1"] if remote_pack_load else [])
+                       + (["PAGE030=1"] if page030 else [])
+                       + (["ARP=1"] if arp else []) + (["T8SCALE=1"] if t8scale else [])
+                       + (["PWRITE=1"] if pwrite else [])
+                       + (["CARD_DSP=1"] if card_dsp else []) + (["CARD_DSP_BENCH=1"] if card_dsp == 2 else [])
+                       + (["CARD_DSP_MAIN=1"] if card_dsp == 3 else [])
+                       + (["PG_LEDS_MAIN=1"] if card_dsp == 3 and engine_opt else [])
+                       + (["ENGINE_OPT=1", f"ENGINE_FLASH={1 if engine_opt == 2 else 0}u"] if engine_opt else []),
             "profile": dict({"synth": synth, "cmd08": "meter windows" if cmd08 else "refused", "a1_patch": a1_patch,
                              "image": f"{image[0]} {image[1]}" if image else "none (emulation only)",
                              "dsp_layer": dsp}, **({"scales": 1} if scales else {}),
@@ -456,6 +553,13 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                                if core0 >= 4 else {}),
                             **({"core0_only": "core 0 only: core-1 legacy voice retired (no ENABLE, no core-1 frame)"}
                                if core0 == 5 else {}),
+                            **({"arp": "track-8 arpeggiator (ARP): struct arp 0x58 B between struct q0 and struct sc, "
+                                       "far blob engine, synth page 3, SysEx 11"} if arp else {}),
+                            **({"pwrite": "Euclid write to pattern (PWRITE): abi 4, capability trailer, mailbox "
+                                          "service from the far arp tick, sequencer silence"} if pwrite else {}),
+                            **({"t8scale": "track 8's Note view follows the project scale and key (T8SCALE): bit 7 "
+                                           "of the scales track byte, SysEx 0E reply 17 bytes"}
+                               if t8scale else {}),
                             **({"core0_tone": "A08000 live tone (proposed), VERSION "
                                               + ("000207 (FM patch latches, frozen; FM_207)" if fm207 else
                                                  "000206 (FM patch latches, proposed, not frozen)" if fm else
@@ -484,12 +588,19 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                             **({"synth_page": "stock-like view: Up / Down pages chord and scale (eight scales, "
                                               "tracks, key); other buttons leave; Clear + macro 1..4 = default "
                                               "(PG_NAV)"}
-                               if synthnav else {})),
-            "version": version, "abi": 3, "heap_floor": f"0x{floor:08X}",
+                               if synthnav else {}),
+                            **({"card_dsp": "PROTOTYPE: core-0 engine region from 1:/MODULES/ENGINE.DSE at boot "
+                                            "(CARD_DSP, emulation only)"} if card_dsp else {}),
+                            **({"engine_pack": "PROTOTYPE: per-pack engine transaction, struct eo (48 B) below "
+                                               "struct sc, struct wd (32 B, watchdog and load timing) below it "
+                                               "plus remote pack request (16 B), (ENGINE_PACK, emulation only)"}
+                               if card_dsp == 3 and engine_opt else {})),
+            "version": version, "abi": 4 if pwrite else 3, "heap_floor": f"0x{floor:08X}",
+            **({"main_cap": STOCK_CORE0_AT} if card_dsp == 3 else {}),
             "host_table": {"note": "host_note", "note_port": "host_note_port", "param": "host_param",
                            "ui": "host_ui", "midi": "host_midi"},
             **({"module": "modules/paint.c"} if builtin else {}),
-            **({"probes": ["vc_tune_pitch"]} if core0 else {}),
+            **({"probes": ["vc_tune_pitch"] + (["wd_mark"] if card_dsp == 3 and engine_opt else [])} if core0 else {}),
             "extra": [{"addr": "0x080101CA", "expect": "4a16", "new": struct.pack("<H", label).hex(),
                        "note": f"build-info block: build number 5706 -> {label} (Arrhythmia 0.1 ARM-only base"
                                + (f" of {image[0]} {image[1]}" if image else "") + "; emulation only, never flashed)"}]
@@ -505,6 +616,10 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                         if fb_macro1 else []),
             "description": "; ".join(parts) + "."}
 
+
+# Explicit private emulation profile; never selected by shipping builders.
+OR_PROFILES["arrhythmia-firmware-arm-engopt-remote-bench"] = dict(
+    OR_PROFILES["arrhythmia-firmware-arm-engopt"], remote_pack_load=1)
 
 TARGETS = {
     "lightshow-glitter": {"src": "lightshow.c", "hooks": ["hook_boot", "hook_frame", "hook_sysex"],
@@ -710,6 +825,11 @@ def main(target, spec_dir="patches"):
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     os.chdir(root)
     image = open("build/circuit-rhythm-5706.bin", "rb").read()
+    if "CARD_DSP_MAIN=1" in cfg.get("defines", []):   # the base contract's header must be its parts' (19.2)
+        sys.path.insert(0, os.path.join(root, "tools"))
+        import crbc
+        if open(crbc.HEADER).read() != crbc.header_text(image):
+            sys.exit("patches/src/crbc.h differs from tools/crbc.py's parts: python3 -I tools/crbc.py header")
     far, far_abs = cfg.get("far"), {}
     with tempfile.TemporaryDirectory() as tmp:
         obj, text = os.path.join(tmp, "l.o"), os.path.join(tmp, "l.text")
@@ -780,6 +900,8 @@ def main(target, spec_dir="patches"):
                 f"patches/src/{cfg['src']})" + (f", built-in module ({len(blob)} bytes, {cfg['module']})" if blob
                                                  else ""))
     assert CODE_AT + len(code) <= FREE_END, f"patch ends at {CODE_AT + len(code):#x}, beyond the free flash"
+    if cfg.get("main_cap"):                   # card_dsp=3: main ends below the relocated stock core-0 stream
+        assert CODE_AT + len(code) <= cfg["main_cap"], f"patch ends at {CODE_AT + len(code):#x}, past {cfg['main_cap']:#x}"
     patches = [{"addr": f"0x{CODE_AT:08X}", "expect": "ff" * len(code), "new": code.hex(), "note": note}]
     for name, at in HOOKS.items():
         patches.append({"addr": f"0x{at:08X}", "expect": bl(at, STOCK_BL[at]).hex(),

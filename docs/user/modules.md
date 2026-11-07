@@ -1,33 +1,31 @@
 # Circus Arrhythmia FM: the modules on the microSD card
 
-Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339. Test status: see the
-[release notes](../../RELEASE-NOTES-0.2.2.md#test-status).
+Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358. Test status: see the
+[release notes](../../RELEASE-NOTES-0.3.0.md#known-limitations).
 
-A module is a small program that runs on the unit. The release has 11 module files. Each file name starts with a
+A module is a small program that runs on the unit. The release has 10 module files. Each file name starts with a
 number: that number is the pad of the module in the picker.
 
 | Pad | File | Module | Clock | Sound |
 |---|---|---|---|---|
-| 1 | `01paint.mod` | [Paint](#paint-pad-1) | no | yes |
-| 2 | `02euclid.mod` | [Euclid](#euclid-pad-2) | yes | yes |
-| 3 | `03life.mod` | [Life](#life-pad-3) | yes | yes |
-| 4 | `04rain.mod` | [Rain](#rain-pad-4) | yes | yes |
-| 5 | `05balls.mod` | [Balls](#balls-pad-5) | yes | yes |
-| 9 | `09pulse.mod` | [Pulse](#pulse-pad-9) | yes | no |
-| 10 | `10stars.mod` | [Stars](#stars-pad-10) | no | no |
+| 1 | `01life.mod` | [Life](#life-pad-1) | yes | yes |
+| 2 | `02rain.mod` | [Rain](#rain-pad-2) | yes | yes |
+| 3 | `03balls.mod` | [Balls](#balls-pad-3) | yes | yes |
+| 4 | `04stars.mod` | [Stars](#stars-pad-4) | no | no |
+| 5 | `05lights.mod` | [Lights Out](#lights-out-pad-5) | no | no |
+| 9 | `09paint.mod` | [Paint](#paint-pad-9) | no | yes |
+| 10 | `10euclid.mod` | [Euclid](#euclid-pad-10) | yes | yes |
+| 11 | `11pulse.mod` | [Pulse](#pulse-pad-11) | yes | no |
 | 17 | `17snake.mod` | [Snake](#snake-pad-17) | no | no |
-| 18 | `18lights.mod` | [Lights Out](#lights-out-pad-18) | no | no |
-| 19 | `19mole.mod` | [Whack-a-mole](#whack-a-mole-pad-19) | yes | no |
-| 20 | `20scroll.mod` | [Scroll](#scroll-pad-20) | yes | no |
+| 18 | `18mole.mod` | [Whack-a-mole](#whack-a-mole-pad-18) | yes | no |
 
-"Clock: yes" means that the module follows the sequencer clock. Push **Play** to start it. Scroll also runs while
-the transport is stopped.
+"Clock: yes" means that the module follows the sequencer clock. Push **Play** to start it.
 
 ## Put the modules on the card
 
 1. Power the unit off and remove the microSD card. Put the card in a card reader. The USB drive of the unit does not
    show the card.
-2. At the root of the card, make a folder `Modules`. The name is not case-sensitive.
+2. At the root of the card, make a folder `modules`. Existing uppercase FAT folder and file names remain compatible.
 3. Copy the `.mod` files into that folder. Keep the file names. The number at the start sets the pad
    ([File names and pads](#file-names-and-pads)).
 4. Put the card back and power the unit on. The card must be present at power-on.
@@ -38,7 +36,7 @@ The picker only reads the card. It does not change your projects or samples.
 
 The picker shows up to 32 module files, on pads 1 to 32. Pad 1 is top left, pads 1 to 8 are the first row.
 
-* A module file is a file in the folder `Modules` with the extension `.mod` and a size of 26 to 15,360 bytes. Use
+* A module file is a file in the folder `modules` with the extension `.mod` and a size of 26 to 15,360 bytes. Use
   short names: up to 8 characters before `.mod`. The picker uses the short (8.3) name of a file. Hidden and system
   files are not shown.
 * A name that starts with two digits `01` to `32` (for example `07drums.mod`) puts the file on that pad.
@@ -46,58 +44,47 @@ The picker shows up to 32 module files, on pads 1 to 32. Pad 1 is top left, pads
 * A file without a number (or with `00` or `33` to `99`) goes on the lowest free pad.
 * The list order: first the files with a number, then the other files. Each group is in character order of the name.
 * With more than 32 files, only the first 32 in the list order are shown.
-* The colour of a pad comes from the name without the number. The number does not change the colour.
+* The colour hash uses the name without the number. When colours collide, the picker chooses unused colours
+  in pad order, so moving a file can change its final colour.
 
 ## Add modules with the web page
 
-Open the page `web/modules.html` in Chrome.
+Open the [loader](https://llcoolkm.github.io/arrhythmia/web/loader.html) in Chrome. It manages engines and modules
+on the microSD card over USB. The old `web/modules.html` address forwards to this page. Firmware installation
+uses the [separate installer](https://llcoolkm.github.io/arrhythmia/web/).
 
-![The module files web page: connect the unit, list the files on the card in the order of the picker with their pads, add all published modules, one published module or your own file, status](img/web-modules.png)
+The page requires Chrome with Web MIDI and SysEx, and arrhythmia-firmware with the card writer.
 
-The page writes module files to the card over USB, without a card reader. It requires Chrome with Web MIDI and
-SysEx, and a firmware with the card writer. Without the card writer, the page sends nothing to the card.
+1. Close other music applications. Connect the unit by USB, stop playback and select **Connect MIDI**.
+2. Under **Modules**, edit the staged assignments. Select a pad and choose its module, or drop a custom `.mod`
+   file into the pad panel. Use a short custom name: up to six characters, A to Z, 0 to 9, `_` or `-`; the loader adds
+   the two-digit pad number. The rows are **Visualizers** (Life, Rain, Balls, Stars, Lights Out), **Other** (Paint,
+   Euclid, Pulse), and **Games** (Snake, Whack-a-mole).
+3. **Reset to default modules** stages the default arrangement above. It does not change the card.
+4. **Write to card** checks the files and shows the exact writes and deletions. Confirm that preview to apply them.
+   A reset only removes numbered published module assignments whose bytes match the frozen release by size and CRC. Conflicts
+   stop the plan; unknown files stay. Use **Card files → List**, **Verify**, and **Delete** to inspect or explicitly
+   remove conflicts. The published 0.2.2 Euclid is also recognized and upgraded to the current module. Any failed
+   or unknown operation stops the remaining jobs without retry.
+5. Wait for the page to report the job result before starting another operation. Use **Disconnect** to release
+   the MIDI port before using another MIDI tool.
 
-1. **Connect the unit.** Close other music apps. Connect the unit by USB and stop playback. Select **Connect MIDI**,
-   select the port of the unit, then **Check unit**.
-2. **Modules on the card.** **List** shows the files in the folder `Modules`. **Verify** reads a file back and
-   compares it with the published file. **Delete** removes a file.
-3. **Add a module.** Push the button of a published module, or drop your own `.mod` file and give it a name. Then
-   **Write to card**. The name has 1 to 8 characters: A to Z, 0 to 9, `_` and `-`. The page adds `.MOD`. Start the
-   name with `01` to `32` to put the module on that pad ([File names and pads](#file-names-and-pads)). The published
-   modules keep their numbers.
-4. **Status.** The page shows the progress and the result of the last job.
+The firmware derives pad colours from names and an 11-colour palette. This loader previews those colours for the
+staged set. Other files on the card can change the result. A user-selected 16-colour palette needs additional
+firmware support and is deferred to 0.3.1; this version cannot save a chosen colour.
 
-A card command stops a running module.
-
-### Add all published modules
-
-**Add all published modules** puts all 11 published modules on the card with one push.
-
-1. Connect the unit and select **Check unit** (step 1 above). Stop playback.
-2. Select **Add all published modules**, then **OK** in the question.
-3. The page gets the 11 files from the web site. If it cannot get one of them, it stops and sends nothing to the unit.
-4. The page reads the list of files on the card.
-5. For each published module, the page examines the file with that name on the card:
-   * Same size and CRC as the published file: the page skips it.
-   * No such file, or other contents: the page writes the published file and reads it back.
-6. At the end, the status shows one line: the number of modules written, already on the card and failed. The list
-   shows the files on the card.
-
-If the unit refuses a request, or a request fails, the page stops at that module. It sends nothing more, and the
-status shows the error and the number of modules done. Remove the cause (for example, stop playback), then select
-**Add all published modules** again: the page skips the modules that are already on the card. If the status says
-that the outcome is unknown, select **Check status** first.
-
-Other files in the folder `Modules` stay on the card. A file with the name of a published module and other contents
-is replaced.
+Card commands run one job at a time and stop a running module. Module **List** and **Verify** can recover helper
+files left by an interrupted write, so they can change the card. The loader does not start modules; use the picker
+on the unit. **Check status** and the engine **Scan card** only read the card. See
+[Engines on track 8](synth.md#engines-on-track-8) for engine files, versions and pack selections.
 
 ## Start and stop a module
 
 **Shift + Sample Rec** opens the picker.
 
-![The module picker with the 11 module files: each pad with a file is lit in its own colour, Sample Rec is lit](img/module-picker.png)
+![The module picker with the 10 module files: each pad with a file is lit in its own colour, Sample Rec is lit](img/module-picker.png)
 
-* A pad with a file comes on in its own colour. Pads without a file stay dark. With no card, no folder `Modules` or no module file, no pad
+* A pad with a file comes on in its own colour. Pads without a file stay dark. With no card, no folder `modules` or no module file, no pad
   comes on.
 * Push a lit pad to start that module. The pad that loads blinks white.
 * A red pad means that the file did not load: it failed its checks, or the unit could not read it. The module does
@@ -126,24 +113,27 @@ Euclid, Life, Rain and Balls play notes on a selected target track. These rules 
 
 * The notes come from the Note view keyboard of the target track. The module uses the notes that the keyboard shows
   in the two octaves from the original pitch of the sample up. Degree 0 is the lowest of these notes. The higher
-  degrees go up through these notes. After the highest note, the count starts again at the lowest note.
-* With scales on (tracks 1 to 7), the notes are in the scale ([scales.md](scales.md)).
+  degrees go up through these notes. Life, Rain and Balls wrap after the highest note. Euclid’s note knob
+  stops at the lowest and highest choices instead of wrapping.
+* With scales on (tracks 1 to 8), the notes are in the scale ([scales.md](scales.md)).
 * If the module cannot read the keyboard of the track (for example a slice layout), it plays no notes on that track.
 * Each track plays one module note at a time. A new note on the same track ends the note before it.
-* The notes play the sound of the track only. They do not go to MIDI out, and the pattern does not record them.
-* On track 8, arrhythmia-firmware plays the synth ([synth.md](synth.md)).
+* The notes of Life, Rain and Balls play the sound of the track only. They do not go to MIDI out, and the pattern
+  does not record them. The notes of Euclid also go to MIDI out and to the recorder ([Euclid](#euclid-pad-10)).
+* On track 8, arrhythmia-firmware plays the FM synth when the pack selects the FM engine, and samples otherwise
+  ([synth.md](synth.md#engines-on-track-8)).
 
-Paint plays notes differently ([Paint](#paint-pad-1)).
+Paint plays notes differently ([Paint](#paint-pad-9)).
 
-## Paint (pad 1)
+## Paint (pad 9)
 
-Start: pad 1 in the picker.
+Start: pad 9 in the picker.
 
 ![Paint: pushed pads light in the selected colour and fade; each column plays its track](img/module-paint.png)
 
 Pads light where you push them, then fade. Each pad also plays a note.
 
-* **Pads.** A push lights the pad in the selected colour, brighter for a harder push. The light then fades.
+* **Pads.** A push lights the pad in the selected colour. The light then fades.
 * **Sound.** A push plays note 60 (the sample at its original pitch) on the track of the pad's column: column 1 plays
   track 1, column 8 plays track 8. The velocity is half the velocity of the push. The release of the pad sends the
   note off. A one-shot sample plays to its end.
@@ -153,39 +143,30 @@ Pads light where you push them, then fade. Each pad also plays a note.
 * The other buttons stay dim white.
 * Paint does not follow the clock. It runs immediately.
 
-## Euclid (pad 2)
+## Euclid (pad 10)
 
-Start: pad 2 in the picker.
+Four Euclidean rhythm rows, each up to 32 steps, play chosen target tracks. Start `10euclid.mod` from pad 10 in
+the picker. Overview shows all four rhythms; Track 1 to 4 opens a row's 32-step detail and its eight controls.
 
-![Euclid: four rhythm rows, hits in green, the current step in white, row 1 selected](img/module-euclid.png)
+In arrhythmia-firmware 0.3.0, **Rec** writes active writable rows into patterns and **Clear** undoes the last
+explicit write while Euclid remains open. **Keep stock Record off** for this workflow: Clear does not undo
+earlier live recording. All four assigned target patterns remain suppressed while Euclid is open, including
+those of rows that are off; live pad/MIDI notes and effect tails are not muted.
 
-Four rhythm rows of up to 8 steps. Each row spreads its hits as equally as possible over its steps (a Euclidean
-rhythm).
+<a id="euclid-views-and-pads"></a>
+<a id="euclid-macros"></a>
+<a id="euclid-clock-and-notes"></a>
+<a id="euclid-settings"></a>
+<a id="euclid-pattern-write"></a>
+<a id="write-a-beat-into-the-patterns"></a>
+<a id="euclid-lights"></a>
+<a id="record-on-older-hosts"></a>
 
-* **Pads.** Each pad row is one rhythm row. Push any pad of a row to select that row.
-* **Macros 1 to 6** change the selected row:
+Controls, feedback illustrations, writing, undo and older-host recording: [Euclid user guide](euclid.md).
 
-  | Macro | Value | Range | Start value |
-  |---|---|---|---|
-  | 1 | hits | 0 to the number of steps | row 1: 1, row 2: 2, row 3: 3, row 4: 4 |
-  | 2 | steps | 1 to 8 | 8 |
-  | 3 | rotation | 0 to steps - 1 | 0 |
-  | 4 | target track | 1 to 8 | row 1: track 1 to row 4: track 4 |
-  | 5 | degree | 0 to 20 | 0 |
-  | 6 | velocity | 1 to 127 | 96 |
+## Life (pad 1)
 
-* Rotation moves the hits to later steps.
-* A change of a value releases the notes that sound.
-* **Clock.** Push Play to start. One step is a sixteenth note. A note lasts half a step. Each bar starts all rows at
-  their first step. A row with fewer than 8 steps repeats in its own length in the bar.
-* If two rows play on the same track on the same step, the upper row plays.
-* **Lights.** While the transport runs, the hits are lit, the current step is white and the selected row has a blue
-  tint. Steps past the row length have no hit light, but keep the dim background and selected-row tint. While the
-  transport is stopped, the rows show dimly and pulse.
-
-## Life (pad 3)
-
-Start: pad 3 in the picker.
+Start: pad 1 in the picker.
 
 ![Life: living cells in green, the cell that plays in magenta](img/module-life.png)
 
@@ -205,9 +186,9 @@ bottom edge. A cell with 3 neighbours comes to life. A living cell with 2 or 3 n
   dimly.
 * At the start, three cells in the second row are alive.
 
-## Rain (pad 4)
+## Rain (pad 2)
 
-Start: pad 4 in the picker.
+Start: pad 2 in the picker.
 
 ![Rain: blue drops fall; a drop that lands in the bottom row flashes white and plays](img/module-rain.png)
 
@@ -229,9 +210,9 @@ Drops fall down the pads. A drop that lands plays a note.
   pulses dimly.
 * Stop clears all drops.
 
-## Balls (pad 5)
+## Balls (pad 3)
 
-Start: pad 5 in the picker.
+Start: pad 3 in the picker.
 
 ![Balls: two balls on the pads, Clear lit green](img/module-balls.png)
 
@@ -250,9 +231,9 @@ Up to four balls bounce on the pads. A ball that hits a wall plays a note.
 * **Lights.** Each ball has its own colour. Clear is lit green.
 * While the transport is stopped, the balls stay still.
 
-## Pulse (pad 9)
+## Pulse (pad 11)
 
-Start: pad 9 in the picker.
+Start: pad 11 in the picker.
 
 ![Pulse: one column lit on each eighth note](img/module-pulse.png)
 
@@ -267,9 +248,9 @@ A light show on the beat. Pulse makes no sound.
   * one row lights on each sixteenth note, from top to bottom.
 * The pattern changes every four bars. The colour changes every bar: red, yellow, green, cyan, blue, magenta.
 
-## Stars (pad 10)
+## Stars (pad 4)
 
-Start: pad 10 in the picker.
+Start: pad 4 in the picker.
 
 ![Stars: single red, green and blue stars on the pads, buttons and knob lights](img/module-stars.png)
 
@@ -302,9 +283,9 @@ The snake game. Snake makes no sound.
 * The buttons are dim white. They have no function.
 * Snake does not follow the clock.
 
-## Lights Out (pad 18)
+## Lights Out (pad 5)
 
-Start: pad 18 in the picker.
+Start: pad 5 in the picker.
 
 ![Lights Out: a puzzle with orange lit pads, Clear and Rec lit green](img/module-lights.png)
 
@@ -320,9 +301,9 @@ The Lights Out puzzle. Lights Out makes no sound.
 * Clear is lit green.
 * Lights Out does not follow the clock.
 
-## Whack-a-mole (pad 19)
+## Whack-a-mole (pad 18)
 
-Start: pad 19 in the picker.
+Start: pad 18 in the picker.
 
 ![Whack-a-mole: one yellow target pad, Clear and Rec green, Duplicate red](img/module-mole.png)
 
@@ -342,44 +323,3 @@ Hit the yellow pad before the next target comes on. Whack-a-mole makes no sound.
 * Clear and Rec are lit green, Duplicate is lit red.
 * The counts stop at 99.
 * Start and stop remove the target without a miss.
-
-## Scroll (pad 20)
-
-Start: pad 20 in the picker.
-
-![Scroll: the start of the text CIRCUS ARRHYTHMIA FM in amber on the pads, macro 1 lit for the speed, macro 2 lit in the colour](img/module-scroll.png)
-
-Text moves across the pads from right to left, one column per step. Scroll makes no sound.
-
-* **Text.** The characters are 4 pads high. A dark column follows each character. After the text, 8 dark columns
-  follow, then the text starts again. The text of the release file is CIRCUS ARRHYTHMIA FM. To change it, see
-  [Change the text](#change-the-text).
-* **Characters.** A to Z, 0 to 9, space and `. , ! ? ' - : /` and `&`.
-* **Macro 1:** speed. One column each half note, quarter note, eighth note, sixteenth note (start value) or
-  thirty-second note. Clockwise is faster. The light of macro 1 shows the speed.
-* **Macro 2:** colour: amber (start value), orange, red, pink, magenta, violet, blue, sky, cyan, mint, green, lime,
-  white, rainbow. With rainbow, each column has its own colour. The light of macro 2 shows the colour.
-* **Pads.** Push a pad to start the text again at the right edge.
-* **Clock.** Scroll runs at once. While the transport runs, the steps follow the sequencer clock and the tempo.
-  While the transport is stopped, the steps have the length that they have at approx. 120 BPM, and the Play
-  button blinks dim green.
-* The buttons are dark. They have no function.
-
-### Change the text
-
-The text is in the module file. `tools/scrolltext.py` changes it. It needs Python 3 and no compiler.
-
-1. Change the text and write a new file:
-
-       uv run python -I tools/scrolltext.py 20scroll.mod "HELLO WORLD" -o 21hello.mod
-
-2. Copy the new file to the folder `Modules` on the card ([Put the modules on the card](#put-the-modules-on-the-card)),
-   or write it with the web page as your own file ([Add modules with the web page](#add-modules-with-the-web-page)).
-3. Start it from its pad in the picker. The number at the start of the file name sets the pad, so different texts
-   can go on different pads.
-
-* The text has 1 to 120 characters, from the characters above. The tool changes lower-case letters to capitals and
-  refuses all other characters.
-* The file keeps its size. The tool also writes the new checksum of the file.
-* `uv run python -I tools/scrolltext.py 20scroll.mod --show` shows the text of a file.
-* The format of the text in the file: [developers.md](developers.md#text-field-of-the-scroll-module).

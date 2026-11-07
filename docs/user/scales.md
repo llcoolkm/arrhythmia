@@ -1,41 +1,42 @@
-# Circus Arrhythmia FM: scales on tracks 1 to 7
+# Circus Arrhythmia FM: scales on tracks 1 to 8
 
-Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
-Test status: see the [release notes](../../RELEASE-NOTES-0.2.2.md#test-status) and the
+Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
+Test status: see the [release notes](../../RELEASE-NOTES-0.3.0.md#known-limitations) and the
 [0.1.0 release notes](../../RELEASE-NOTES-0.1.0.md).
 
-Scales are in both images. In arrhythmia-firmware (build 7339), set them on the synth page. In
+Scales are in both images. In arrhythmia-firmware (build 7358), set them on the synth page. In
 arrhythmia-devkit (build 7228), set them over SysEx only.
 
 ## What it is
 
-With scales on, the **Note view** of a sample track plays a musical scale instead of the chromatic keyboard. All
+With scales on, the **Note view** of a track plays a musical scale instead of the chromatic keyboard. All
 pads that play are in key. Each pad row is one octave, from the key note to the key note above it. Each played pad
 lights. In 5-note and 6-note scales, the pads past the upper key note are dark and silent. For pads out of the range
 of the unit, refer to [Range](#range-dark-pads).
 
-* **Tracks 1 to 7**, the sample tracks. Scales are on or off per track.
+* **Tracks 1 to 7**, the sample tracks, and in arrhythmia-firmware **track 8**, whether it plays an engine or samples. Scales are on or off per
+  track.
 * **One scale and one key per project.** All scaled tracks use them. In arrhythmia-firmware, the chords of track 8
-  use the same scale and key ([synth.md](synth.md)). The keyboard of track 8 does not change.
+  use the same scale and key ([synth.md](synth.md)), also when the keyboard of track 8 is not scaled.
 * **Saved with the project.** The project stores the scale, the key and the scaled tracks. A project without scales
   opens with scales off.
 
 ## Turn scales on for a track (arrhythmia-firmware)
 
 1. Press **Shift + Track 8** to open the synth page.
-2. Press **Down** to show page 2 (scale).
-3. Press pad 1 to 7 of the top row to turn scales on or off for track 1 to 7. Each pad is below its track button.
-   A scaled track has a bright green pad. The other pads are dim. Pad 8 of the row has no function.
+2. With the FM engine, use **Up** or **Down** to show page 2 (scale). Without an engine, the scale page opens directly.
+3. Press pad 1 to 8 of the top row to turn scales on or off for track 1 to 8. Each pad is below its track button.
+   A scaled track has a bright green pad. The other pads are dim.
 4. Press a view or track button to close the page.
 
-On the synth page, Track 1 to 7 do not turn scales on or off. They close the page and select that track.
+On the synth page, Track 1 to 8 do not turn scales on or off. They close the page and select that track.
 
 The synth page: [synth.md](synth.md#the-synth-page).
 
 ## Choose the scale and the key (arrhythmia-firmware)
 
 1. Open the synth page (**Shift + Track 8**).
-2. Press **Down** to show page 2 (scale).
+2. With the FM engine, use **Up** or **Down** to show page 2 (scale). Without an engine, the scale page opens directly.
 3. Press a pad in the second row to select a scale. The row has eight violet pads, one per scale. The bright pad is
    the scale in use. From the left: major, natural minor, dorian, mixolydian, harmonic minor, major pentatonic,
    minor pentatonic, blues.
@@ -60,6 +61,9 @@ scales of the table below:
 `F0 00 20 29 00 60 0E 00 F7` reports the current setting, also on arrhythmia-firmware. The reply format is in
 [../dev/devkit-sysex.md](../dev/devkit-sysex.md).
 
+On arrhythmia-firmware, the command sets tracks 1 to 7 only and keeps the setting of track 8. Track 8 is set on the
+synth page.
+
 ## The scales
 
 Intervals are semitones above the key note. The notes are in the key of C. arrhythmia-firmware has the eight
@@ -80,7 +84,7 @@ scales with a pad number. arrhythmia-devkit has all ten.
 
 ## Play: the Note view of a scaled track
 
-Select a scaled track and press **Note**.
+Select a scaled track and press **Note**. The Note view of track 8 is the same as on tracks 1 to 7.
 
 ![The Note view of a scaled track at the default octave, in C major and in A minor pentatonic](img/scales-note-view.png)
 
@@ -154,7 +158,11 @@ octaves above the bottom-left pad. The top of the range cuts them off:
 * A pad held during a scale or key change stops its note when you release it. No note hangs.
 * Scales do not change Sample view pads, incoming MIDI notes or the sequencer.
 * A track with a sliced sample keeps its slices in the Note view when scales are on. Scales come back when slicing
-  is off.
+  is off. Track 8 ignores slice mode, so its scale stays.
+* Track 8 with scales on:
+  * Chords: the pressed pad is the root. With In key on, the chords are the chords of the scale.
+  * MIDI in on the channel of track 8 stays chromatic: each note plays as sent.
+  * The arp gets the notes of the held pads, so its notes are in the scale.
 * If the page blinks red, the unit was busy (for example saving) and nothing changed. Wait and press again.
 * After a change of scale or key, the scaled tracks change one at a time, within a few moments.
 * A scale change while the sequencer plays can lengthen the intervals of the MIDI clock that the unit sends. Devices

@@ -31,9 +31,10 @@ Conventions:
 | `0B` | `0B` | `<clocked> <running> <pulse> <bpm 2x7> <pulses 5x7> <starts 3x7> <stops 3x7>` | module clock status | DESIGN |
 | `0C` | `0C 00` status, `0C 01 t m` set | `<sub> <status> <why> <gen 3x7> <writes 3x7> <site> <m0..m7>` (26 bytes) | stored track modes in the project extension block | DESIGN |
 | `0D` | `0D` | `<fault> <last site> <timeouts 3x7> <site mask 2x7> <refused 3x7> <late 3x7> <pack failed>` (22 bytes) | DSP fault report | HW |
-| `0E` | `0E 00` status, `0E 01 scale root bits` set | `<sub> <status> <why> <sc> <scale> <root> <bits> <applied>` (16 bytes) | scales for tracks 1 to 7 | HW |
+| `0E` | `0E 00` status, `0E 01 scale root bits` set | `<sub> <status> <why> <sc> <scale> <root> <bits> <applied>` (16 bytes); T8SCALE builds add `<t8>` (17 bytes) | scales for tracks 1 to 7 (T8SCALE: and track 8) | HW (T8SCALE: EMU) |
 | `0F` | `0F` followed by a required nonce; format not published | counters; format not published | diagnostic report, read-only (arrhythmia-firmware 0.2). A request without a valid nonce gets no reply | HW |
-| `10` | `10 sub ...` (see the header of `patches/src/cardwrite.c`) | `sub <answer> <state> <job> <result> <fr> <got 3x7> <size 3x7> <info 5x7> <count>` (26 bytes); `10 06 i`: `06 i <12 ASCII bytes> <size 3x7>` | module files on the microSD card: write (staged, CRC- and header-checked, written in Main-loop steps through a temporary file, read back), delete, verify, list. Development profile `arrhythmia-firmware-arm-cardwrite` only (CARD_WRITE) | DESIGN |
+| `10` | `10 sub ...` (see the header of `patches/src/cardwrite.c`) | `sub <answer> <state> <job> <result> <fr> <got 3x7> <size 3x7> <info 5x7> <count>` (26 bytes); `10 06 i`: `06 i <12 ASCII bytes> <size 3x7>` | module files on the microSD card: write (staged, CRC- and header-checked, written in Main-loop steps through a temporary file, read back), delete, verify, list. Available in arrhythmia-firmware 0.3.0 (CARD_WRITE); not devkit. Engine transfers, selection writes and read-only card scans are available in arrhythmia-firmware 0.3.0 only; see [read-only inventory](loader-scan.md) and the source header for versioned formats. | DESIGN |
+| `11` | `11 00` status, `11 01 flags mode rate octaves gate` set | `<sub> <status> <block> <rec> <flags> <mode> <rate> <octaves> <gate> <held> <played 2x7> <not taken>` (21 bytes) | track 8 arpeggiator settings of the project; arrhythmia-firmware 0.3.0 (ARP), not devkit | DESIGN |
 | `7D` | `7D a4 a3 a2 a1 a0` | `<addr 5x7> <64 nibbles>`, or `<addr 5x7>` alone when refused | read 32 bytes of module ITCM | HW |
 | `7E` | `7E` | `<limit 5x7> <cursor 5x7>` | heap limit and cursor | DESIGN |
 | `7F` | `7F` | `<mode> <ok> <cursor 5x7> <frames 4x7> <module>` (20 bytes) | status | HW |
@@ -71,6 +72,8 @@ See [design/o1-fault-handling.md](design/o1-fault-handling.md) for the sites and
 **`0E` scales.** scale 0..9, root 0..11 (0 = C), bits = tracks 1..7 scaled (bit 0 = track 1). status 0 refused (bad
 arguments or no project), 1 ok, 2 busy, 3 read-only; why as for `0C`; sc 0 unset, 1 version 1, 2 unknown; `applied`
 lists the tracks whose keyboard already holds the current scale. See [design/scales.md](design/scales.md).
+T8SCALE builds (issue #34): `<bits>` and `<applied>` keep tracks 1..7; `<t8>` bit 0 = track 8 scaled, bit 1 = track 8
+applied. The set keeps track 8's bit (the synth page sets it).
 
 **`7D` read-back.** Address `a4..a0` as 5x7, 32-byte aligned. Serves only ITCM 0x00000100 .. 0x00003FFF (module RAM
 and code), and only while ITCM is enabled. Every other address, internal flash and the bootloader included, gets the

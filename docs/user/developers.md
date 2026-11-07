@@ -1,7 +1,7 @@
 # Circus Arrhythmia FM modules for developers
 
-Applies to Circus Arrhythmia FM 0.2.2 (firmware build 7339 and arrhythmia-devkit build 7228,
-unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.2.2.md). For the 0.1.1
+Applies to Circus Arrhythmia FM 0.3.0 (firmware build 7358 and arrhythmia-devkit build 7228,
+unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.3.0.md). For the 0.1.1
 image, see the [0.1.1 release notes](../../RELEASE-NOTES-0.1.1.md).
 
 A module is a small program in C that runs on the unit. It can take control of the pads, buttons and lights, play
@@ -24,21 +24,22 @@ Modules let your own code operate with the unit.
 
 ## Which image
 
-Both images have the module loader, the SD card picker, the development SysEx commands and ABI 3 (below).
+Both images have the module loader, the SD card picker, the development SysEx commands and the ABI 3 calls below.
+arrhythmia-firmware 0.3.0 advertises ABI 4 and adds the pattern-write service used by Euclid; devkit stays at ABI 3.
 
-| | arrhythmia-firmware (build 7339) | arrhythmia-devkit (build 7228) |
+| | arrhythmia-firmware (build 7358) | arrhythmia-devkit (build 7228) |
 |---|---|---|
 | Modules, picker, ABI 3 | yes | yes |
 | Picker layout | numbered pads (`NNname.mod` on pad NN), no built-in module | built-in paint on pad 1, card files on pads 2 to 32 |
 | Play while a module runs | always to the transport | to the module, if the module owns the controls |
 | DSP load meter (SysEx 08) | no: every request gets the refusal reply (status 0) | yes |
-| Track 8 | 4-operator FM synth with its synth page ([synth.md](synth.md)) | stock sample track |
+| Track 8 | samples, or the 4-operator FM synth with its synth page when the pack selects the FM engine ([synth.md](synth.md#engines-on-track-8)) | stock sample track |
 | Scales on tracks 1 to 7 | yes, set on the synth page or with SysEx 0E | yes, set with SysEx 0E only |
 | P-lock fix, DSP fault report (SysEx 0D) | yes | yes |
 
 Both images install with the same installer ([install.md](install.md)). The two have different build numbers, so a
-change between them always installs. Both are released in 0.2.2 and pinned by their SHA-256
-([release notes](../../RELEASE-NOTES-0.2.2.md#install)). arrhythmia-devkit 7228 is unchanged from 0.1.0.
+change between them always installs. Both are released in 0.3.0
+([release notes](../../RELEASE-NOTES-0.3.0.md#install)). arrhythmia-devkit 7228 is unchanged from 0.1.0.
 
 The DSP load meter gives per-core cycle counts of the DSP, read with SysEx 08. Read it only while the unit is idle
 (transport stopped, nothing loading). `tools/dspload.py` reads and prints it. arrhythmia-devkit answers only for the
@@ -127,7 +128,7 @@ arrhythmia-firmware, every SysEx 08 gets that refusal.
 * A stop, restart or replacement of the module, or `frame` returning 0, turns its clock off. The next start begins
   stopped. A module that ends gets no STOP.
 * A module that only follows Play and Stop needs no `input` entry.
-* In arrhythmia-firmware 7339, Play always goes to the transport. A module with `input` also receives the Play
+* In arrhythmia-firmware 7358, Play always goes to the transport. A module with `input` also receives the Play
   events. It must not use Play as its own control. In devkit 7228, an owning module receives Play instead of the
   transport.
 
@@ -142,13 +143,13 @@ module with `clock` gets a `CRM2` header. Other modules get a `CRM1` header. The
 
 ## Loading
 
-From the microSD card (picker layout and colours of arrhythmia-firmware 7339; devkit 7228 has built-in paint on
+From the microSD card (picker layout and colours of arrhythmia-firmware 7358; devkit 7228 has built-in paint on
 pad 1 and up to 31 card files on pads 2 to 32):
 
 1. Power the unit off and remove the card. Put the card in a card reader. The USB drive of the unit does not show
    the card.
-2. At the root of the card, make a folder `Modules` (not case-sensitive). Copy the module there with a short name
-   that ends in `.mod`, for example `stars.mod`. Case is not important: the picker lists the 8.3 short name.
+2. At the root of the card, make a folder `modules` (not case-sensitive). Copy the module there with a short name
+   that ends in `.mod`, for example `stars.mod`. Case is not important: the picker lists the 8.3 short name in lowercase.
 3. Put the card back and power the unit on. The card must be present at power-on.
 4. **Shift + Sample Rec** opens the picker. The pads with a file come on, each in its own colour. A red pad means
    that the file failed its checks, and nothing started. With no card or no module file, no pad comes on. Shift +
@@ -157,12 +158,13 @@ pad 1 and up to 31 card files on pads 2 to 32):
 
 The modules of the release and their controls: [modules.md](modules.md).
 
-The loader only reads the card. It never writes to the card and never touches the projects and samples of the unit.
+The module loader only reads the card. Separate card commands write files, and modules such as Euclid can change
+patterns through the host pattern-write service.
 
-**Naming.** The picker lists a file when its 8.3 short name ends in `.MOD`. Plain 8.3 names are best. A long name
-such as `My Paint.mod` shows under its short name (for example `MYPAIN~1.MOD`).
+**Naming.** The picker lists a file when its 8.3 short name ends in `.mod`. Plain 8.3 names are best. A long name
+such as `my paint.mod` shows under its short name (for example `mypain~1.mod`).
 
-**Numbered pads** (arrhythmia-firmware 7339):
+**Numbered pads** (arrhythmia-firmware 7358):
 
 * A file `NNname.mod`, with NN = `01` to `32`, goes on pad NN. Pad 1 is top left. Pads 1 to 8 are the first row.
 * The name part has a maximum of 6 characters, so that the name stays 8.3.
@@ -178,11 +180,11 @@ such as `My Paint.mod` shows under its short name (for example `MYPAIN~1.MOD`).
 11: orange, yellow, lime, green, mint, cyan, sky, blue, violet, magenta, pink. If an earlier pad has that colour,
 the pad gets the next free colour, until all 11 are in use. Red means a failed file. The pad that loads blinks white.
 
-**Play.** In arrhythmia-firmware 7339, Play always goes to the transport of the unit, in the picker and while a
+**Play.** In arrhythmia-firmware 7358, Play always goes to the transport of the unit, in the picker and while a
 module runs. A module that owns the controls also gets the Play button event. While a module with a clock entry
 waits for START, the Play button blinks dim green.
 
-**Built-in module.** arrhythmia-firmware 7339 has no built-in module. Paint is a card file, `01paint.mod`, in the
+**Built-in module.** arrhythmia-firmware 7358 has no built-in module. Paint is a card file, `09paint.mod`, in the
 release files. devkit 7228 keeps its built-in paint.
 
 The picker skips folders, hidden and system files, and files outside 26 bytes to 15 KB. A module in fast RAM starts
@@ -190,6 +192,51 @@ only if the unit loaded it after power-on.
 
 Over USB, for development: `tools/module.py` uploads a module, verifies it and starts it. Both images keep the
 development commands that it needs (SysEx 04, 05, 06, 0A, 0B, and 7D for the read-back).
+
+## Engines over USB
+
+arrhythmia-firmware only. For normal use, the [loader](https://llcoolkm.github.io/arrhythmia/web/loader.html)
+installs, updates and removes engine files, scans the actual card pack folders and writes engine selections.
+See [the engine guide](synth.md#engines-on-track-8). Stop playback and keep the unit idle during card operations.
+
+The host tool `tools/module.py` also has these `card` commands:
+
+| Command | Function |
+|---|---|
+| `card engine DEVICE PACK NAME` | Writes the `engine.cfg` of a pack. `NAME` is an engine name without `.dse`, or `none`. Use `default` for `engines/default.cfg`. |
+| `card engine-put DEVICE fm.dse` | Installs the release engine as `engines/fm.dse`, with header/CRC checks and read-back. |
+| `card engine-verify DEVICE fm` | Recovers interrupted helper files if needed, then verifies the engine; this can modify the card. |
+| `card engstatus DEVICE` | Prints the engine state. Read-only. |
+
+Use only a pack target identified by the unit's completed card scan. Raw selector 0 has no established mapping to
+the factory pack; do not invent pack names or pad numbers. Selection changes apply at the next pack load. Load
+packs on the unit in the stock Packs view. Save first: loading a pack discards unsaved project edits.
+
+Own paths and selection text are lowercase: `engines/<name>.dse`, `engine.cfg`, `engines/default.cfg`, `<name>.dse`
+or `none`. Existing uppercase FAT names remain compatible. Selection writes reserve the `.cft` / `.cfo` helper
+names. Engine replacement stages a new file and retains the old one. After interruption, resolve the job outcome
+before another write. Recovery of engine helper files happens on the next put or verify of the same name, not at
+boot. Until recovery, a missing engine makes the pack play samples. The loader's read-only scan does not invoke
+`engine-verify`. The [scan reference](../dev/loader-scan.md) describes framing, row limits and selection states.
+
+`fm.dse` version 1.0.0 is independent of firmware 0.3.0. Its CRE2 build word at byte 24 is marked semantic version
+`0x80010000`; unmarked legacy words mean unknown version. DSP identity `0x300` is a separate field. Engine admission
+checks ABI 207, base `0xFE80`, engine kind and body integrity. Version comparison does not replace those checks.
+The release file is 14,906 bytes, SHA-256 `236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad`,
+whole-file CRC32 `2eb146fe`, body CRC32 `5a7949bd`. A checksum difference alone establishes no version ordering.
+
+### Project selection over MIDI
+
+This is the existing stock interface, separate from pack loading. Enable Program Change RX in Setup (pad 29,
+purple), then send Program Change on channel 16: `CF pp`, with `pp` 0 to 63 for displayed project 1 to 64 in the
+current pack. For example `CF 00` selects project 1. Other channels can have track-specific meanings. Values 64 to
+127 can queue during playback and are outside this immediate-selection procedure.
+
+Project loading discards unsaved edits, including when selecting an empty slot. Start stopped and idle, with no
+module or card job, and save or deliberately discard the current edits first. Send one request and confirm the
+loaded slot and contents on the unit. Stock Program Change has no per-request acknowledgement or established
+loaded-status query; a successful MIDI send does not prove completion. An uncertain request must not be retried
+automatically. These idle conditions are caller precautions.
 
 SysEx 7D (`F0 00 20 29 00 60 7D a4 a3 a2 a1 a0 F7`, 32 bytes per reply) reads only the module memory: ITCM
 `0x00000100` to `0x00003FFF` (module RAM `0x100` to `0x3FF`, module code from `0x400`), 32-byte aligned, while ITCM is
@@ -203,9 +250,9 @@ The host table is at the fixed flash address `0x0806A570`. Check it before a cal
 | Word | Content |
 |---|---|
 | 0 | magic `'CRH1'` (0x31485243) |
-| 1 | ABI version: 3 |
+| 1 | ABI version: 4 in firmware 7358; 3 in devkit 7228 |
 | 2 | `host_note` |
-| 3 | address of the built-in module; 0 in arrhythmia-firmware 7339; devkit 7228 keeps built-in paint |
+| 3 | address of the built-in module; 0 in arrhythmia-firmware 7358; devkit 7228 keeps built-in paint |
 | 4 | `host_note_port` |
 | 5 | `host_param` |
 | 6 | `host_ui` |
@@ -235,55 +282,30 @@ uint32_t host_midi(uint32_t msg);
 * All calls only queue the request. They return 1 if the request is in the queue. The queue has 8 slots, shared by
   all calls. The unit handles a maximum of 2 router calls per Main pass (no fixed rate per millisecond). Note offs
   are never lost.
-* In arrhythmia-firmware, `host_note(7, ...)` and `host_note_port(7, ...)` play the track 8 synth. In
-  arrhythmia-devkit, they play the sample of track 8, as on stock.
+* In arrhythmia-firmware, `host_note(7, ...)` and `host_note_port(7, ...)` play the selected track 8 engine,
+  or samples when none is selected. In arrhythmia-devkit, they play the sample of track 8, as on stock.
 
 ## Examples and source
 
-The folder `modules/` holds the source of the eleven release modules and the shared header `module_common.h`:
-`paint.c`, `euclid.c`, `life.c`, `rain.c`, `balls.c`, `pulse.c`, `stars.c`, `scroll.c`, `snake.c`, `lights.c` and
-`mole.c`. The
+The folder `modules/` holds the source of the ten release modules and the shared header `module_common.h`:
+`paint.c`, `euclid.c`, `life.c`, `rain.c`, `balls.c`, `pulse.c`, `stars.c`, `snake.c`, `lights.c` and `mole.c`. The
 built `.mod` files are release assets. The module files web page also has them
 ([add modules with the web page](modules.md#add-modules-with-the-web-page)).
 
-* Build a module from its source, for example `01paint.mod`:
+* Build a module from its source, for example `09paint.mod`:
 
-      uv run python -I tools/build_module.py modules/paint.c build/01paint.mod
+      uv run python -I tools/build_module.py modules/paint.c build/09paint.mod
 
 * In arrhythmia-devkit, paint is also compiled into the image as the built-in module.
 * `modules/stars.c` builds to a 164-byte module with the SHA-256
-  `fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27`. Copy a built module to `Modules` on the card
+  `fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27`. Copy a built module to `modules` on the card
   and select it with **Shift + Sample Rec** ([Loading](#loading)).
 
-The ARM part of both images and the whole arrhythmia-devkit image rebuild from the published sources. The DSP source
-of the arrhythmia-firmware image 7339 is in `tools/dspvoice207m4/`, so the full arrhythmia-firmware image also
-rebuilds from source, on Linux (tested on Ubuntu x86-64 only). Refer to
-[the rebuild steps](../README.md#rebuilding-the-images) and
-[tools/dspvoice207m4/README.md](../../tools/dspvoice207m4/README.md). `tools/dspvoice/` holds the DSP voice source of
+The ARM part of both images and the whole arrhythmia-devkit image rebuild from the published sources. The current firmware
+7358 and the separate FM engine rebuild on Linux (tested on Ubuntu x86-64 only). Refer to
+[the 0.3.0 rebuild steps](../README.md#rebuild-030-firmware-7358-and-fmdse) and the
+[FM DSP source](../../tools/dspvoice207live/README.md). `tools/dspvoice/` holds the DSP voice source of
 the 0.1.1 image.
-
-## Text field of the scroll module
-
-`20scroll.mod` keeps its text in one fixed field in the code. A tool changes the text without a compiler
-(`tools/scrolltext.py`, [modules.md](modules.md#change-the-text)). To change it in another tool:
-
-1. Find the first 4 bytes `TXT:` (`54 58 54 3A`) in the file. The text can also contain `TXT:`, so use the first
-   occurrence only. The offset can change between builds: search for the bytes, do not use a fixed offset.
-2. The 124 bytes after `TXT:` are the field. Write the text there (1 to 120 bytes) and set the remaining bytes of
-   the field to `00`. Do not change the bytes outside the field.
-3. Set bytes 8 to 11 (the CRC field of the header) to `00`. Calculate the CRC-32 (zlib, the CRC of PNG and ZIP) of
-   the whole file. Write it at offset 8, little-endian.
-
-| Item | Value |
-|---|---|
-| Field | `TXT:`, then 124 bytes |
-| Text | 1 to 120 bytes, then `00` to the end of the field |
-| Characters | `A` to `Z`, `0` to `9`, space, `. , ! ? ' - : / &` (ASCII) |
-| File size | unchanged |
-| Checksum | CRC-32 at offset 8, as in [the file format](../dev/modules-reference.md#file-format) |
-
-The module reads the text when it starts. It shows `a` to `z` as capitals and every other byte that is not in the
-font as a space. It stops at the first `00` or after 120 bytes.
 
 ## Safety
 

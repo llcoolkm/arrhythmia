@@ -2,7 +2,7 @@
 
     uv run python -I tools/export_public.py OUTDIR [--ref HEAD] [--deny-file export-deny.json]
                                            [--firmware-dir DIR] [--bootloader FILE] [--allow-email ADDR] [--dry-run]
-                                           [--web-modules DIR]
+                                           [--web-modules DIR] [--fm-engine FILE]
 
 Copies only allow-listed paths (ALLOW, every file by name, minus EXCLUDE) as committed at --ref (never the working tree),
 each to its own path or the one PUBLISH_AS names (docs/user/README.md becomes the export's README.md), and only after
@@ -53,9 +53,11 @@ if it is byte-identical to the committed one (refusal names the two SHA-256 pref
 the same repository (worktrees share no ignored files).
 
 --web-modules DIR: the release's module files (the release assets, e.g. a release packet's release/) go to
-web/modules/ of the export, for the module loader page web/modules.html. Exactly the files the page lists (its PUBLISHED
+web/modules/ of the export, for the combined loader page web/loader.html. Exactly the files the page lists (its PUBLISHED
 array) are taken from DIR; each must be there, pass tools/build_module.py check and every check above, or nothing is
-written. Without it, an export that holds web/modules.html has no web/modules/ (a note says so).
+written. Without it, an export that holds web/loader.html has no web/modules/ (a note says so).
+--fm-engine FILE adds only the own-source fm.dse bound by the loader page metadata. Its header,
+version, complete file hash, size, CRC and byte provenance are checked before anything is exported.
 
 OUTDIR must not exist or be empty, and must not lie inside this repository or any of its worktrees.
 """
@@ -71,9 +73,15 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import syx  # noqa: E402
 import build_module  # noqa: E402
+import engine_file  # noqa: E402
 
-WEB_PAGE = "web/modules.html"          # the module loader page and the folder its published modules are fetched from
+WEB_PAGE = "web/loader.html"
 WEB_MODULES = "web/modules"
+WEB_ENGINE = "web/engines/fm.dse"
+# Independently rebuilt own-source asset: the sole reviewed match is eleven zero
+# words plus two own startup words. Bind the exception to this exact file/range.
+FM_ASSET_SHA = "236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad"
+FM_MATCH = (0x287F, 39, "a5016d4eeffa0aaa5addf573fbf558cc518609f3698203d36aca11274e369b5b")
 
 # Published paths, every one by name (release plan §2.1; D7): a new file anywhere stays private until it is listed here
 # (public-maps review, 2026-10-19: tools/, patches/src/, release/ and web/ too, not only docs/
@@ -82,22 +90,22 @@ WEB_MODULES = "web/modules"
 # the DSP meter's own program listing, which tools/dspmeter.py builds arrhythmia-devkit's DSP layer from.
 # modules/stars.c is the one published example module (master, 2026-10-19); the other examples stay private.
 PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
-               "docs/user/synth.md",
-               "docs/user/scales.md", "docs/user/developers.md", "docs/user/midi-export.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
+               "docs/user/synth.md", "docs/user/euclid.md", "changelog.md",
+               "docs/user/scales.md", "docs/user/developers.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
                "docs/user/img/synth-macros.png",
-               "docs/user/img/synth-page-lights.png",
+               "docs/user/img/synth-page-lights.png", "docs/user/img/synth-page-arp.png",
                "docs/user/img/module-picker.png",
                "docs/user/img/web-modules.png",
                "docs/user/img/module-paint.png",
-               "docs/user/img/module-euclid.png",
+               "docs/user/img/module-euclid.png", "docs/user/img/module-euclid-values.png",
+               "docs/user/img/module-euclid-pages.png", "docs/user/img/module-euclid-record.png",
                "docs/user/img/module-life.png",
                "docs/user/img/module-rain.png",
                "docs/user/img/module-balls.png",
                "docs/user/img/module-pulse.png",
                "docs/user/img/module-stars.png",
-               "docs/user/img/module-scroll.png",
                "docs/user/img/module-snake.png",
                "docs/user/img/module-lights.png",
                "docs/user/img/module-mole.png")
@@ -107,20 +115,21 @@ PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flash
                    "docs/dev/dsp-meter-and-budget.md", "docs/dev/maps.md", "docs/dev/audio-capture.md",
                    "docs/dev/rhythm-vs-tracks.md", "docs/dev/design/project-extension-block.md",
                    "docs/dev/design/plock-fix.md", "docs/dev/design/scales.md",
-                   "docs/dev/design/o1-fault-handling.md")
+                   "docs/dev/design/o1-fault-handling.md", "docs/dev/loader-scan.md")
 PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py", "tests/test_web_installer.mjs",
                 "tests/test_patch_transport.py", "tests/test_export_public.py", "tests/test_build_module.py",
                 "tests/test_capture.py", "tests/test_flash_mock.py", "tests/test_norbackup.py",
                 "tests/test_module_readback.py", "tests/test_web_modules.py", "tests/test_web_modules.mjs",
-                "tests/test_midiexport.py", "tests/test_web_export.py", "tests/test_web_export.mjs",
-                "tests/test_unitread.py")
+                "tests/test_lowercase_host.py", "tests/test_engine_semver.py", "tests/test_engine_export.py",
+                "tests/test_web_loader.py", "tests/test_web_loader.mjs", "tests/test_web_loader_browser.mjs", "tests/test_web_loader_modules.mjs")
 PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
-                "tools/crpatch.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
+                "tools/crpatch.py", "tools/crbc.py", "tools/engine_file.py", "tools/rel030_release.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
                 "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
-                "tools/norbackup.py", "tools/patch.py", "tools/scrolltext.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py",
-                "tools/crsong.py", "tools/midiexport.py", "tools/smf.py", "tools/unitread.py")
-PUBLIC_SRC = ("patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
+                "tools/norbackup.py", "tools/patch.py", "tools/syx.py", "tools/voicestack.py", "tools/wavio.py")
+PUBLIC_SRC = ("patches/src/arp.c", "patches/src/arp.h", "patches/src/pwrite.c",
+              "patches/src/carddsp.c", "patches/src/enginepack.c", "patches/src/enginepack.h", "patches/src/enginelist.c", "patches/src/crbc.h",
+              "patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/devkit_a2.c", "patches/src/devkit_abi3.c", "patches/src/devkit_o1.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
               "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/ad_life207.h", "patches/src/plockfix.c", "patches/src/scales.c",
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
@@ -128,7 +137,7 @@ PUBLIC_SRC = ("patches/src/cardwrite.c", "patches/src/a1_cmd.c", "patches/src/de
               "patches/src/core0feed.c", "patches/src/core0feed.h", "patches/src/fm_patch.h", "patches/src/tune_pitch.h",
               "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c", "modules/module_common.h",
               "modules/snake.c", "modules/life.c", "modules/balls.c", "modules/euclid.c", "modules/rain.c",
-              "modules/mole.c", "modules/lights.c", "modules/pulse.c", "modules/scroll.c")
+              "modules/mole.c", "modules/lights.c", "modules/pulse.c")
 # DSP voice source of arrhythmia-firmware 0.1.1 (build 7261): our assembly, generators, adapter, builder, the line
 # assembler frontend and its licence notices, and the test; exactly the files that tools/dspvoice/source-manifest.json
 # names, plus the manifest itself.
@@ -161,11 +170,17 @@ PUBLIC_DSPVOICE207 = ('tests/test_dspvoice207_source.py',
 PUBLIC_DSPVOICE207RC = ('tests/test_dspvoice207rc_source.py', 'tools/dspvoice207rc/README.md', 'tools/dspvoice207rc/NOTICE.md', 'tools/dspvoice207rc/build.py', 'tools/dspvoice207rc/instrument.asm', 'tools/dspvoice207rc/source-manifest.json')
 PUBLIC_DSPVOICE207REL = ('tests/test_dspvoice207rel_source.py', 'tools/dspvoice207rel/README.md', 'tools/dspvoice207rel/NOTICE.md', 'tools/dspvoice207rel/build.py', 'tools/dspvoice207rel/instrument.asm', 'tools/dspvoice207rel/source-manifest.json')
 PUBLIC_DSPVOICE207M4 = ('tests/test_dspvoice207m4_source.py', 'tools/dspvoice207m4/README.md', 'tools/dspvoice207m4/NOTICE.md', 'tools/dspvoice207m4/build.py', 'tools/dspvoice207m4/instrument.asm', 'tools/dspvoice207m4/source-manifest.json', 'tools/dspvoice207m4/release.py', 'tools/dspvoice207m4/release-manifest.json', 'tools/dspvoice207m4/RELEASE.md', 'tests/test_dspvoice207m4_release.py')
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "web/index.html", "web/modules.html", "web/export.html")
+PUBLIC_DSPVOICE207LIVE = ("tools/dspvoice207live/build.py", "tools/dspvoice207live/instrument.asm",
+                         "tools/dspvoice207live/live.asm", "tools/dspvoice207live/README.md",
+                         "tools/dspvoice207live/NOTICE.md", "tools/dspvoice207live/source-manifest.json",
+                         "tests/test_dspvoice207live_source.py")
+PUBLIC_REL030_REBUILD = ("tools/rel030release/README.md", "tools/rel030release/source-manifest.json",
+                        "tools/rel030release/test_release.py", "tools/rel030release/update_manifest.py")
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "release/v0.3.0.json", "web/index.html", "web/modules.html", "web/loader.html", "web/module-assets.json")
 ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md",
-          "RELEASE-NOTES-0.2.2.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+          "RELEASE-NOTES-0.2.2.md", "RELEASE-NOTES-0.3.0.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
-         + PUBLIC_DSPVOICE207REL + PUBLIC_DSPVOICE207M4)
+         + PUBLIC_DSPVOICE207REL + PUBLIC_DSPVOICE207M4 + PUBLIC_DSPVOICE207LIVE + PUBLIC_REL030_REBUILD)
 # Allow-listed files published under another name (source path -> published path). The public README is
 # docs/user/README.md, published at the export root; this repo's own root README.md is private (DENY_PATHS).
 PUBLISH_AS = {"docs/user/README.md": "README.md"}
@@ -625,6 +640,7 @@ def check_file(path, data, cfg, index, allow_emails, allow=ALLOW, exclude=EXCLUD
 
     def raw_ok(start, length):
         return (is_text(data[start:start + length]) or reviewed(data)(start, length)
+                or reviewed_engine_match(path, data, start, length)
                 or any(a <= start and start + length <= b for a, b in dht))
 
     hit = index.find(data, raw_ok)
@@ -687,8 +703,42 @@ def page_modules(text):
     return names
 
 
+def reviewed_engine_match(path, data, start, length):
+    first, size, digest = FM_MATCH
+    return (path == WEB_ENGINE and start >= first and start + length <= first + size
+            and hashlib.sha256(data).hexdigest() == FM_ASSET_SHA
+            and hashlib.sha256(data[first:first + size]).hexdigest() == digest)
+
+
+def page_engine(text, data):
+    """Validate the explicit own-engine asset against the frozen loader page."""
+    match = re.search(r"/\*\s*published-engines:\s*(.*?)\*/", text, re.S)
+    try:
+        rows = json.loads(match[1]) if match else None
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ValueError("exactly one published engine is required")
+        row = rows[0]
+        if row.get("name") != "fm.dse" or type(row.get("size")) is not int:
+            raise ValueError("expected lowercase fm.dse and integer size")
+        if len(data) != row["size"] or hashlib.sha256(data).hexdigest() != row["sha256"]:
+            raise ValueError("engine size/SHA-256 differs from the page")
+        import zlib
+        if f"{zlib.crc32(data):08x}" != row["crc32"].lower():
+            raise ValueError("engine whole-file CRC differs from the page")
+        header = engine_file.parse(data)
+        if (header["magic"], header["kind"], header["abi"], header["base"], header["version"]) != (
+                "CRE2", 1, 0x207, 0xFE80B6B5, row["version"]):
+            raise ValueError("engine compatibility/version differs from the page")
+        if header["version"] is None:
+            raise ValueError("published engine must carry its semantic version")
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        raise Refused(f"{WEB_ENGINE}: {error}") from None
+    return row
+
+
 def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloader_paths=None, allow=ALLOW,
-           allow_emails=(), dry_run=False, log=print, exclude=EXCLUDE, publish_as=None, web_modules=None):
+           allow_emails=(), dry_run=False, log=print, exclude=EXCLUDE, publish_as=None, web_modules=None,
+           fm_engine=None):
     repo = Path(git(repo, "rev-parse", "--show-toplevel").strip())
     t = check_target(repo, target)
     # #13: resolve --ref ONCE to a full commit id; policy, tree and provenance all read that commit (a branch or HEAD
@@ -746,6 +796,19 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
             files.append((dest, "100644", data))
     elif page is not None:
         log(f"note: {WEB_PAGE} is exported without --web-modules: {WEB_MODULES}/ stays empty")
+    if fm_engine is not None:
+        if page is None:
+            raise Refused(f"--fm-engine: {WEB_PAGE} is not exported")
+        source = Path(fm_engine)
+        if source.is_symlink() or not source.is_file():
+            raise Refused(f"--fm-engine: {source} is not a regular file")
+        data = source.read_bytes()
+        page_engine(page.decode("utf-8"), data)
+        for rule, detail in check_file(WEB_ENGINE, data, cfg, index, allow_emails, allow, exclude):
+            findings.append((WEB_ENGINE, rule, detail))
+        files.append((WEB_ENGINE, "100644", data))
+    elif page is not None:
+        log(f"note: {WEB_PAGE} is exported without --fm-engine: {WEB_ENGINE} stays absent")
     dests = {}
     for path, _, _ in files:
         dests.setdefault(published(path, publish_as), []).append(path)
@@ -779,10 +842,11 @@ def cli(argv=None):
     ap.add_argument("--allow-email", action="append", default=[])
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--web-modules")
+    ap.add_argument("--fm-engine", help="the explicitly pinned own-source fm.dse asset for the loader page")
     a = ap.parse_args(argv)
     try:
         export(a.repo, a.outdir, a.ref, a.deny_file, a.firmware_dir, a.bootloader, ALLOW, a.allow_email, a.dry_run,
-               web_modules=a.web_modules)
+               web_modules=a.web_modules, fm_engine=a.fm_engine)
     except Refused as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1

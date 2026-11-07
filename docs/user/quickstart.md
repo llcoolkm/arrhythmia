@@ -8,8 +8,11 @@
    downloaded file and press **Install**.
 5. **Confirm.** Press **Play** on the unit when it flashes. The installation takes approximately half a minute. The
    unit then restarts.
-6. **Play.** Play pads on track 8 to hear the FM synth. Macro 6 sets the FM depth.
-7. **Select a sound.** Open the Sample view of track 8 and tap the pads of rows 3 and 4. Each tap selects a sound
+6. **Add the FM engine.** Open the [loader](https://llcoolkm.github.io/arrhythmia/web/loader.html), connect and
+   scan the card. Add the published `fm.dse` and select it for a pack
+   ([engines](synth.md#engines-on-track-8)). Save project edits, then load the pack on the unit in the stock Packs view.
+7. **Play.** Play pads on track 8 to hear the FM synth. Macro 6 sets the FM depth.
+8. **Select a sound.** Open the Sample view of track 8 and tap the pads of rows 3 and 4. Each tap selects a sound
    and plays it. Press Down for the same 16 sounds under the second algorithm ([synth](synth.md)).
 
 Troubleshooting, the return to stock and all other procedures: [install guide](install.md).

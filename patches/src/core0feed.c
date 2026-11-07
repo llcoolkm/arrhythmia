@@ -33,6 +33,10 @@
 
 static void ad_barrier(struct a1 *a);
 static void a1_close(struct a1 *a);
+#if CARD_DSP
+struct q0;
+static void card_dsp_live(struct q0 *q);     /* carddsp.c */
+#endif
 static void release_all(struct a1 *a, uint32_t why);
 static void all_off(struct a1 *a, uint32_t why, uint32_t project);
 static void a1_release(struct a1 *a, uint32_t src, int32_t note);
@@ -206,6 +210,9 @@ static uint32_t q0_refresh(struct a1 *a)
     q0_rd(Q0_CONS, 2, r);
     q->t_read = TICK();
     if (r[1] || ((q->prod - r[0]) & M24) > Q0_CAP) {
+#if CARD_DSP
+        card_dsp_live(0);                     /* carddsp.c: a card engine's liveness failed */
+#endif
         q0_fail(a);
         return 0;
     }
@@ -316,7 +323,7 @@ static void q0_tidy(struct a1 *a)
                 i--;
             }
             t = (int32_t)i;
-            tone = nq_at(a, i)->w1 & VC_TONE_MASK;
+            tone = VC_TONE_KEY(nq_at(a, i)->w0, nq_at(a, i)->w1);
         } else if (k == VK_ONSET) {
             t = -1;
         }
@@ -359,7 +366,7 @@ static void q0_book(struct a1 *a, uint32_t w0, uint32_t *w1, uint32_t t)
         a->c_kill++;
 #if CORE0_TONE
     } else if (k == VK_TONE) {
-        q->tone_pub = *w1 & VC_TONE_MASK;
+        q->tone_pub = VC_TONE_KEY(w0, *w1);
         q->c_tone++;
 #endif
     }
@@ -559,12 +566,32 @@ static uint32_t q0_tune(void)
  * epoch, ALL OFF, project) issues the current values even when unchanged, because an epoch drops the DSP's caches. */
 enum { TONE_KNOB, TONE_NOTE, TONE_BAR };
 
+#if ENGINE_PACK
+/* The live FM tone variant (A0B000 | feedback) goes out only while the resident engine is the pinned FM that implements
+ * it. Published kind FM (1), resident engine healthy, and its body CRC (struct eo r_crc, the resident body, not the
+ * candidate's c_crc) equal to FM_LIVE_BODY_CRC; everything else (historical FM, SID, stock) gets A08000 exactly as
+ * before. */
+#define FM_LIVE_BODY_CRC 0x5A7949BDu    /* resident FM body CRC required for the live-feedback packet */
+__attribute__((noinline)) static uint32_t engine_live_tone_ok(struct a1 *a)
+{
+    struct eo *e = (struct eo *)EO_AT;       /* a published engine implies the block is initialised (hook_boot) */
+    return a && a->eng == 1u && e->r_pair == R_ENGINE && !e->r_fault && e->r_crc == FM_LIVE_BODY_CRC;
+}
+#endif
+
 static uint32_t q0_tone_read(void)
 {
     uint32_t ch = pl_channel(rw(PL_R_CELL), A1_T);
     if (!ch)
         return Q0->tone_iss != TONE_NONE ? Q0->tone_iss : 0u | 127u << 7;
+#if ENGINE_PACK
+    uint32_t key = (PL_GET(ch, 11) & 0x7Fu) | (PL_GET(ch, 12) & 0x7Fu) << 7 | (PL_GET(ch, 13) & 0x7Fu) << 14;
+    if (engine_live_tone_ok(a1()))            /* the effective macro 1 (plocks and base restores included) */
+        key |= TONE_LIVE | syn_fb_of_p6(PL_GET(ch, 6) & 0x7Fu) << 21;
+    return key;
+#else
     return (PL_GET(ch, 11) & 0x7Fu) | (PL_GET(ch, 12) & 0x7Fu) << 7 | (PL_GET(ch, 13) & 0x7Fu) << 14;
+#endif
 }
 
 static void q0_tone(struct a1 *a, uint32_t want, uint32_t mode)
@@ -573,6 +600,9 @@ static void q0_tone(struct a1 *a, uint32_t want, uint32_t mode)
     uint32_t now = TICK();
     int32_t t = -1;
     uint32_t behind = 0;
+#if ENGINE_PACK
+    uint32_t w0 = want & TONE_LIVE ? VC_TONE_LIVE_W0 | (want >> 21 & 0x7Fu) : VC_TONE_W0;   /* the key says which */
+#endif
     for (uint32_t i = 0; i < a->nq_n; i++) {
         uint32_t k = nq_at(a, i)->kind;
         if (k == VK_TONE)
@@ -584,10 +614,18 @@ static void q0_tone(struct a1 *a, uint32_t want, uint32_t mode)
         struct a1q *e = nq_at(a, (uint32_t)t);
         if (mode == TONE_BAR)
             e->w0 |= TONE_BAR_MARK;
+#if ENGINE_PACK
+        if (VC_TONE_KEY(e->w0, e->w1) != want) {
+            e->w1 = want & VC_TONE_MASK;
+            q->c_tone_coal++;
+        }
+        e->w0 = w0 | (e->w0 & TONE_BAR_MARK); /* the variant in force now (the gate can have changed) */
+#else
         if (e->w1 != want) {
             e->w1 = want;
             q->c_tone_coal++;
         }
+#endif
         q->tone_iss = want;
         return;
     }
@@ -607,11 +645,19 @@ static void q0_tone(struct a1 *a, uint32_t want, uint32_t mode)
             a->c_overflow++;
             return;
         }
+#if ENGINE_PACK
+        nq_push(a, w0 | TONE_BAR_MARK, want & VC_TONE_MASK, VK_TONE, a->pepoch);
+#else
         nq_push(a, VC_TONE_W0 | TONE_BAR_MARK, want & VC_TONE_MASK, VK_TONE, a->pepoch);
+#endif
         ad_drain(a);
         return;
     }
+#if ENGINE_PACK
+    put_n(a, w0, want & VC_TONE_MASK, a->pepoch);
+#else
     put_n(a, VC_TONE_W0, want & VC_TONE_MASK, a->pepoch);
+#endif
 }
 #endif
 
@@ -917,6 +963,10 @@ static void q0_deferred(struct a1 *a)
         for (uint32_t i = 0; i < q->noff; i++)
             a1_release_at(a, q->off[i] >> 8, q->off[i] & 0x7Fu, q->offsnap[i]);
         q->noff = 0;
+#if ARP
+        ARP_P->took = 0;                      /* a replayed off's MIDI-out leg went at its arrival: its decision is not
+                                                 the decision of the event that flushed it */
+#endif
     }
     if (d & DEF_STOP)
         release_all(a, WHY_STOP);
@@ -939,6 +989,9 @@ static void q0_service(struct a1 *a)
     struct q0 *q = Q0;
     if (q->defer)
         q0_deferred(a);
+#if CARD_DSP
+    card_dsp_live(q);                         /* carddsp.c: a card engine's liveness (bookkeeping only) */
+#endif
     if (q->ph == Q_CLOSED || q->ph == Q_QUAR)
         return;
     if (o1_faulted()) {                       /* O1 quarantine: closed, no further queue access, no healing */
@@ -1105,14 +1158,11 @@ shut:                                         /* uncertain: closed until a DSP l
 /* ---- bulk SHI intervals (o1wait.c wrappers, Main task) ------------------------------------------------------------- */
 
 #if CORE0_BENCH
-/* Bench, runtime bulk (any bulk interval that begins after the queue has been OPEN since the latest DSP load,
- * whatever the phase now: OPEN, recovery, a new admission). This path is UNQUALIFIED and excluded from the allowed
- * bench stimuli (no runtime content loading while the synth is open). What the
- * ARM does is a DIAGNOSTIC, not containment: it requests a new epoch (REQ = ACK + 1; the DSP's reset hard-clears its
- * voices) and waits a bounded Q0_SILENCE_MS (plus a poll backstop) for the ACK. ACKed: c_silence. Not ACKed, or the
- * request impossible (our bus transaction in flight, O1): c_loud, and the stock transfer PROCEEDS anyway (a timeout
- * is not containment). Then recovery and exclusion until the next DSP load. Main task,
- * outside any lock and hold; reads and the REQ write keep the addressing policy (q0_rd / q0_wr1 invalidate the cache). */
+/* Request silence before a bulk interval that begins after this queue has opened since the latest DSP load.
+ * The request uses a new epoch and waits up to Q0_SILENCE_MS with a poll backstop. An accepted ACK increments c_silence;
+ * a timeout or fault increments c_loud. The transfer proceeds either way, so this request cannot guarantee silence.
+ * Recovery builds may reinitialize after an ACK with FAULT 0; other cases remain excluded until a DSP load.
+ * Main task, outside locks and holds; q0_rd / q0_wr1 invalidate the address cache. */
 static void q0_silence(struct a1 *a)
 {
     struct q0 *q = Q0;
@@ -1169,7 +1219,7 @@ static void q0_bulk_enter(void)
     }
 #endif
     if (q->busy & B_BUS)
-        q->c_mid++;                           /* a bulk entry inside a queue hold: never expected (test asserts 0) */
+        q->c_mid++;                           /* unexpected bulk entry inside a queue hold */
 #if CORE0_BENCH
     if (!q->bulk) {
         q->bst &= (uint8_t)~BST_LIVE;
@@ -1224,15 +1274,13 @@ static void q0_bulk_leave(void)
     if (q->bulk && !--q->bulk) {
 #endif
 #if CORE0_BULK_EXCLUDE
-        /* Bench policy: bulk preservation of the DSP voice / filter state and tables is not established, so the synth
-         * path claims none. Any bulk interval excludes it until the next DSP load: an open queue takes one epoch
-         * recovery (the DSP hard-clears every voice, so nothing is left sounding), and admission then stays closed
-         * at the ACK; a queue not yet open just closes. */
+        /* Bulk exclusion policy: close admission after a transfer. An open queue requests epoch recovery;
+         * a queue not yet open closes directly. The bench and recovery options below refine this policy. */
 #if CORE0_BENCH
         /* Startup content: the composition restore's transfers follow the DSP ready tail. A
          * bulk interval that began before the queue was EVER OPEN since the latest DSP load published nothing and found
          * nothing of ours sounding, and admission restarts after it, so the epoch reset that opens the queue comes
-         * after the transfer: it does not exclude. The DSP side stays unproven.
+         * after the transfer: it does not exclude.
          * After any OPEN (also during a recovery or a new admission): the runtime rule, excluded. */
         if (!(q->bst & BST_LIVE)) {           /* never OPEN since the latest DSP load: genuine startup */
             if (q->ph == Q_HEADER || q->ph == Q_REQ_PH) {
@@ -1344,7 +1392,15 @@ static void q0_telem(const uint8_t *m, uint32_t len)
     volatile uint8_t r[TELEM_LEN];            /* every byte is written below */
     header(r, 0x0F);
     uint32_t quiet = q0_quiet(a), flt = o1_faulted();
+#if ENGINE_OPT
+#if ENGINE_PACK
+    uint32_t loaded = (q->ph != Q_CLOSED || q->excl) && eo_res_engine();   /* the stock pair: "not loaded" */
+#else
+    uint32_t loaded = (q->ph != Q_CLOSED || q->excl) && A_ENG(a);   /* no engine: "not loaded" */
+#endif
+#else
     uint32_t loaded = q->ph != Q_CLOSED || q->excl;
+#endif
     uint32_t st = (flt || q->ph == Q_QUAR || !loaded) ? 2u : (q->bulk || q->busy || !quiet) ? 1u : 0u;
 #if CORE0_RECOVER
     uint32_t w[12];
@@ -1437,7 +1493,15 @@ __attribute__((noinline)) static uint32_t q0_meter_st(void)
         return 2u;
     struct q0 *q = Q0;
     uint32_t quiet = q0_quiet(a), flt = o1_faulted();
+#if ENGINE_OPT
+#if ENGINE_PACK
+    uint32_t loaded = (q->ph != Q_CLOSED || q->excl) && eo_res_engine();   /* the stock pair: "not loaded" */
+#else
+    uint32_t loaded = (q->ph != Q_CLOSED || q->excl) && A_ENG(a);   /* no engine: "not loaded" */
+#endif
+#else
     uint32_t loaded = q->ph != Q_CLOSED || q->excl;
+#endif
     return (flt || q->ph == Q_QUAR || !loaded) ? 2u : (q->bulk || q->busy || !quiet) ? 1u : 0u;
 }
 

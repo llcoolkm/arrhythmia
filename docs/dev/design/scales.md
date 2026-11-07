@@ -16,7 +16,8 @@ checked (below).
   scale), the row above one octave higher. 5-note scales leave the two right-hand pads of each row dark and silent,
   blues the rightmost one. Up and Down still move by an octave. Root pads are lit in the colour the stock Note view
   gives its C pads, and every played pad lights itself (a root also its twin at the end of the neighbouring row).
-* Nothing else changes: Sample view pads, slice layouts, MIDI in, sequencer playback, track 8's keyboard.
+* Nothing else changes: Sample view pads, slice layouts, MIDI in, sequencer playback, track 8's keyboard. T8SCALE
+  builds also scale track 8's keyboard by bit 7; see the [track 8 scale controls](../../user/scales.md).
 * Recording and step entry store the note that was played. A later change of scale, root or bit does not touch
   recorded notes: playback keeps its pitches.
 * A held key releases the note it started, even if the scale changes while it is held. Verified on hardware with

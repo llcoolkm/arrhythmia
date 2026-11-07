@@ -74,7 +74,9 @@ typedef void (*encode_fn)(void *frame, uint32_t *src);
 #define STOCK_FS_TRIM       ((fn4)0x08064513u)      /* trim commit */
 #define STOCK_FS_STOP       ((fn4)0x08064481u)      /* capture stop */
 #define STOCK_PACK_ACCESS   ((fn4)0x08040E29u)      /* pack access check */
-#define STOCK_SLOT_UPLOAD   ((fn4)0x08053E8Du)      /* slot upload, 0 = failed */
+#define STOCK_SLOT_UPLOAD   ((fn4)0x08053E8Du)      /* slot upload, 0 = empty or failed */
+#define STOCK_SLOT_READ     ((uint32_t (*)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t))0x0804603Bu)
+                                                    /* content read (ctx, offset, buf, n, 0, 0) */
 #define STOCK_SX_UPLOAD     ((fn4)0x080536D3u)      /* SysEx sample upload */
 #define STOCK_SX_READ       ((fn4)0x08053691u)      /* SysEx sample read-back */
 #define STOCK_BULK_READ     ((fn4)0x08031431u)      /* bulk read */
@@ -369,13 +371,22 @@ uint32_t hook_fs_length(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     return o && o->pack_failed ? 0 : STOCK_FS_LENGTH(a, b, c, d);
 }
 
+#if ENGINE_PACK && !FAR_PART
+static void ep_slot_err(uint32_t bad);       /* enginepack.c: the slot outcome (12.5) */
+#endif
+
 uint32_t hook_fs_alloc(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
 #if CORE0_RECOVER                             /* allocator validation: a page outside the pool is refused (0 = exhausted) */
     if (o1_faulted())
         return o1_refuse();
     uint32_t r = STOCK_FS_ALLOC(a, b, c, d);
-    return r && q0_alloc_bad(r) ? 0 : r;
+    r = r && q0_alloc_bad(r) ? 0 : r;
+#if ENGINE_PACK && !FAR_PART                  /* no page for the slot upload's own call: the slot fails (12.5, E5) */
+    uint32_t ra = (uint32_t)__builtin_return_address(0);
+    ep_slot_err(!r && (ra == EP_ALLOC_SITE1 || ra == EP_ALLOC_SITE2));
+#endif
+    return r;
 #else
     return o1_faulted() ? o1_refuse() : STOCK_FS_ALLOC(a, b, c, d);        /* 0 = exhausted: the upload fails */
 #endif
@@ -429,13 +440,23 @@ uint32_t hook_fs_stop(uint32_t obj, uint32_t b, uint32_t c, uint32_t d)
 
 /* ---- 3. quarantine: pack and SysEx sample transfer call sites ------------------------------------------------------- */
 
+#if ENGINE_PACK && !FAR_PART                  /* the per-pack engine transaction (enginepack.c, main blob) */
+static uint32_t ep_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d);
+static void ep_slot(uint32_t r);
+static void ep_done(void);
+#endif
+
 uint32_t hook_pack_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
     if (o1_faulted()) {
         o1_refuse();
         return 1;                             /* the pack load fails before any DSP traffic */
     }
+#if ENGINE_PACK && !FAR_PART
+    uint32_t r = ep_access(a, b, c, d);       /* the stock check inside, then the engine selection and load */
+#else
     uint32_t r = STOCK_PACK_ACCESS(a, b, c, d);
+#endif
 #if CORE0_RECOVER                             /* the whole pack load is ONE bulk interval, closed in o1_pack_result
                                                  (the pack loader returns early only when this is 1) */
     if (r != 1)
@@ -463,8 +484,27 @@ static uint32_t slot_upload(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 
 uint32_t hook_slot_upload(uint32_t a, uint32_t b, uint32_t c, uint32_t d)   /* pack loader loop */
 {
+#if ENGINE_PACK && !FAR_PART
+    uint32_t r = slot_upload(a, b, c, d);
+    ep_slot(r);                               /* the slot accounting of the publish predicate (12.5) */
+    return r;
+#else
     return slot_upload(a, b, c, d);
+#endif
 }
+
+#if ENGINE_PACK && !FAR_PART
+/* the slot upload's two content reads (0x08053EC6 header, 0x08054016 chunks): the stock read, its two stack arguments
+ * passed on as given, the result returned unchanged and observed for the slot outcome (12.5) */
+uint32_t hook_slot_read(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e5, uint32_t e6)
+{
+    uint32_t r = STOCK_SLOT_READ(a, b, c, d, e5, e6);
+    ep_slot_err((r & 0xFF) == 2 || (b && (r & 0xFF)));
+    return r;
+}
+uint32_t hook_slot_read2(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e5, uint32_t e6)
+    __attribute__((alias("hook_slot_read")));
+#endif
 
 uint32_t hook_slot_job(uint32_t a, uint32_t b, uint32_t c, uint32_t d)      /* single-slot job */
 {
@@ -494,6 +534,9 @@ static uint32_t __attribute__((used, noinline)) o1_pack_result(void)
 {
 #if CORE0_RECOVER
     q0_bulk_leave();                          /* the pack interval opened in hook_pack_access */
+#endif
+#if ENGINE_PACK && !FAR_PART
+    ep_done();                                /* the publish (12.5) */
 #endif
     return o1_faulted() ? 0 : 1;
 }

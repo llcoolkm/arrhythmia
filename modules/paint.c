@@ -140,7 +140,7 @@ void input(uint8_t *leds, uint32_t kind, uint32_t index, uint32_t value)
     struct ram *r = (struct ram *)MOD_RAM;
     if (kind == EV_PAD && index < 32 && (value >> 8)) {
         uint32_t v = value & 0xFF;
-        r->level[index] = (uint16_t)((64 + (v >> 2)) << 8);   /* 64..127, harder is never dimmer */
+        r->level[index] = (uint16_t)((v < 64 ? 64 : v >> 1) << 8);
         hue_rgb(r->hue, &r->rgb[3 * index]);
         play(index & 7, v >= 2 ? v >> 1 : 1);
     } else if (kind == EV_PAD && index < 32)

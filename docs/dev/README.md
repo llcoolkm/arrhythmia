@@ -34,6 +34,7 @@ Where a page says "one unit", no second unit was available. Figures without a ma
 | [flashing.md](flashing.md) | the `.syx` format, the update protocol, the install rule, device identity queries |
 | [backup-and-recovery.md](backup-and-recovery.md) | NOR backup over USB, microSD backup, going back to stock |
 | [devkit-sysex.md](devkit-sysex.md) | every Arrhythmia SysEx command (`F0 00 20 29 00 60 cc`) with its reply |
+| [loader-scan.md](loader-scan.md) | read-only streamed pack/engine listing, row format and engine removal |
 | [modules-reference.md](modules-reference.md) | module file format, host table (ABI 3), clock, picker, rules for module code |
 | [dsp-meter-and-budget.md](dsp-meter-and-budget.md) | DSP memory and what Arrhythmia uses, the cycle budget, measured load |
 | [maps.md](maps.md) | LED, input and macro knob maps |

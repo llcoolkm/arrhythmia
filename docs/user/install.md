@@ -1,11 +1,11 @@
 # Circus Arrhythmia FM install guide
 
-Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit build 7228). Test status is in the
-[release notes](../../RELEASE-NOTES-0.2.2.md).
+Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358 (arrhythmia-devkit build 7228). Known limitations are in
+the [release notes](../../RELEASE-NOTES-0.3.0.md).
 
 | Image | Build | SHA-256 of the patched `.syx` (pinned) |
 |---|---|---|
-| arrhythmia-firmware | 7339 | `7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822` |
+| arrhythmia-firmware | 7358 | `adfd566c1c28d3f9f1484ac44e343d08b3fc7c1638e91b07b2265540af8a852d` |
 | arrhythmia-devkit | 7228 | `66e1872c45b742992bdead24ebcbaffb9634d13b0a2db36caf5f2d1e6dd8354d` |
 
 ## Before you install
@@ -22,7 +22,7 @@ Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit bu
 >
 > 1. **Copy the microSD card.** This is the necessary backup. Turn the unit off and remove the card. Put the card
 >    in a card reader. Copy the whole card to your computer with a plain file copy. The card holds your packs
->    (folder `Rhythm`) and modules (folder `Modules`). The card is not visible over USB.
+>    (folder `Rhythm`) and modules (folder `modules`). The card is not visible over USB.
 > 2. **The firmware needs no backup.** The official firmware is always available for a new installation
 >    ([Going back to stock](#going-back-to-stock)).
 > 3. **Optional, Linux only: a copy of the internal content storage of the unit.** This storage holds the projects,
@@ -39,7 +39,7 @@ Applies to Circus Arrhythmia FM 0.2.2, firmware build 7339 (arrhythmia-devkit bu
 
 ## Install with the web page
 
-Requires Chrome on Windows or Linux.
+Requires Chrome on Windows or Linux. Edge is not tested.
 
 1. Close Novation Components and all other music applications. Connect the unit by USB and turn it on.
 2. Open https://llcoolkm.github.io/arrhythmia/web/ in Chrome. Allow MIDI access when Chrome asks. Press
@@ -51,7 +51,7 @@ Requires Chrome on Windows or Linux.
 6. The pads light white and green, then Play flashes. Press **Play** on the unit within 60 seconds. To abort, press
    Cancel on the page.
 7. A loading bar fills the pads two times, in approximately half a minute. Do not disconnect the cable. The unit
-   restarts. The page shows build 7339 (arrhythmia-firmware) or 7228 (arrhythmia-devkit).
+   restarts. The page shows build 7358 (arrhythmia-firmware) or 7228 (arrhythmia-devkit).
 
 If an error occurs, follow the message on the page. If the result is unknown, wait, connect again and press
 **Check unit** before a new attempt.
@@ -65,15 +65,15 @@ Requires Python 3.12 (standard library only). Run the commands from the top fold
 
 1. Patch the official file (here named `circuit-rhythm-5706.syx`). For arrhythmia-firmware:
 
-       python3 -I tools/crpatch.py apply release/v0.2.2.json circuit-rhythm-5706.syx Arrhythmia-firmware-7339.syx --build firmware
+       python3 -I tools/crpatch.py apply release/v0.3.0.json circuit-rhythm-5706.syx Arrhythmia-firmware-7358.syx --build firmware
 
    For arrhythmia-devkit, use `--build devkit` and the name `Arrhythmia-devkit-7228.syx`. The tool refuses an
    incorrect input file. It prints the SHA-256 of the output file. This value must agree with the table above.
 2. Find the MIDI device of the unit with `amidi -l` (for example `hw:3,0,0`, which is `/dev/snd/midiC3D0`).
 3. Stop all running modules (Shift + Sample Rec). Keep the unit idle. Send the patched file:
 
-       python3 -I tools/flash.py /dev/snd/midiC3D0 Arrhythmia-firmware-7339.syx \
-           --expect-sha256 7aadbde0811a77b23c05a06fca34c36d27d98c98945f3f587bb8d7ccf63fc822
+       python3 -I tools/flash.py /dev/snd/midiC3D0 Arrhythmia-firmware-7358.syx \
+           --expect-sha256 adfd566c1c28d3f9f1484ac44e343d08b3fc7c1638e91b07b2265540af8a852d
 
    For arrhythmia-devkit, use `Arrhythmia-devkit-7228.syx` and its SHA-256 from the table.
 4. When the tool prints "HEADER sent", press the flashing **Play** on the unit within 60 seconds. Only Play
@@ -86,32 +86,44 @@ Requires Python 3.12 (standard library only). Run the commands from the top fold
        amidi -p hw:3,0,0 -S 'F0 00 20 29 00 70 F7' -d -t 2
 
    The reply is `F0 00 20 29 00 70`, five bootloader bytes, five firmware bytes, `40 02 F7`. The last three firmware
-   bytes give the build number: `00 39 2B` is 7339 (arrhythmia-firmware), `00 38 3C` is 7228 (arrhythmia-devkit),
+   bytes give the build number: `00 39 3E` is 7358 (arrhythmia-firmware), `00 38 3C` is 7228 (arrhythmia-devkit),
    `00 2C 4A` is 5706 (stock).
+
+## Add the FM engine
+
+arrhythmia-firmware contains no engine. Track 8 plays the samples of its pack until a pack selects the FM engine.
+
+1. Download `fm.dse` from the release page: <https://github.com/llcoolkm/arrhythmia/releases>.
+2. Open the [loader](https://llcoolkm.github.io/arrhythmia/web/loader.html), add the published engine and select
+   it for a pack ([Engines on track 8](synth.md#engines-on-track-8)). Save edits, then load the pack in the unit's Packs view.
 
 ## Check that it works
 
-With arrhythmia-firmware:
+With arrhythmia-firmware, before the FM engine is added:
+
+1. Select track 8 and play some pads. The samples of the pack sound.
+2. Load a factory project. Tracks 1 to 7 sound as on stock.
+3. Turn on scales for track 1 ([scales.md](scales.md)) and play its Note view. All lit pads are in key.
+
+With arrhythmia-firmware, after the FM engine is added and its pack is loaded:
 
 1. Select track 8 and play some pads. The FM synth sounds.
 2. Open the Sample view of track 8 and tap the pads of rows 3 and 4. Each tap plays a different sound
    ([synth.md](synth.md#choosing-a-sound-the-sample-view)).
 3. Press Shift + Track 8 to open the synth page. Set notes per press to 3 and play a pad. A chord sounds.
 4. Close the page. On track 8, turn macro 2 (attack) and macro 3 (decay). The sound of new notes changes.
-5. Set macro 6 (FM depth) above 0 and turn macro 1 (feedback). The tone of new notes changes.
-6. On the synth page, turn macro 1 (tune). The pitch of new notes changes.
+5. Set macro 6 (FM depth) above 0. Hold a pad and turn macro 1 (feedback). The tone changes while the note sounds.
+6. On page 1 of the synth page, turn macro 1 (tune). The pitch of new notes changes.
 7. Send MIDI notes on channel 8. Up to 4 notes play together.
-8. Load a factory project. Tracks 1 to 7 sound as on stock.
-9. Change to another pack and back, then play track 8. The synth plays after the load
+8. Change to another pack and back, then play track 8. The synth plays after the load
    ([Loading samples](synth.md#loading-samples-while-the-unit-runs)).
-10. Turn on scales for track 1 ([scales.md](scales.md)) and play its Note view. All lit pads are in key.
 
-With arrhythmia-devkit, track 8 is a stock sample track. Do steps 8 and 10 only (scales over SysEx, refer to
-[scales.md](scales.md)).
+With arrhythmia-devkit, track 8 is a stock sample track. Do the first list, steps 2 and 3 only (scales over SysEx,
+refer to [scales.md](scales.md)).
 
-Modules: put the module files of the release (for example `01paint.mod`) into the folder `Modules` at the root of
-the card. Use a card reader or the module files web page ([modules.md](modules.md)). Shift + Sample Rec opens the
-picker. `01paint.mod` is on pad 1. arrhythmia-firmware has no built-in module.
+Modules: put the module files of the release (for example `09paint.mod`) into the folder `modules` at the root of
+the card. Use a card reader or the loader ([modules.md](modules.md)). Shift + Sample Rec opens the
+picker. `09paint.mod` is on pad 9. arrhythmia-firmware has no built-in module.
 
 On both images, the fault report is clean after a correct installation:
 
@@ -123,7 +135,7 @@ The reply starts `F0 00 20 29 00 60 0D`. The next byte is 0 when there is no fau
 ## Switching between the two images
 
 Use the installer again and select the other image. No other step is necessary. The two images have different
-build numbers (7339 and 7228). The unit installs every build whose number is different from the running build.
+build numbers (7358 and 7228). The unit installs every build whose number is different from the running build.
 Projects, samples and settings stay. arrhythmia-devkit keeps the synth settings of track 8 in the project but does
 not use them. arrhythmia-firmware uses them again after the return.
 
@@ -150,15 +162,15 @@ Confirm with **Play** as during an installation. After the installation, the ver
   at a time. Components can stop responding until the installer tab is closed.
 
 Bootloader mode (hold **Sample Rec + Sample + Note** while you turn the unit on) is not necessary to go back to
-stock. It shows the installed firmware build on the pads, rows 3 and 4, as hex digits (for example `73 39` for
-build 7339). Press **Play** to leave it.
+stock. It shows the installed firmware build on the pads, rows 3 and 4, as hex digits (for example `73 58` for
+build 7358). Press **Play** to leave it.
 
 Rules:
 
 * Stop all running modules before an installation (Shift + Sample Rec). A module covers the pads, and the flashing
   Play is then not visible.
 * The unit installs only a build that is different from the running build. A restart in 2 or 3 seconds with the old
-  build in the version reply means that the unit skipped the installation. arrhythmia-firmware (7339),
+  build in the version reply means that the unit skipped the installation. arrhythmia-firmware (7358),
   arrhythmia-devkit (7228) and stock (5706) have different build numbers, so each change between them installs.
 * A real installation keeps the unit off USB for approximately 10 seconds. After it, check the version
   ([Install from the Linux command line](#install-from-the-linux-command-line), step 6). Stock ends in `00 2C 4A`

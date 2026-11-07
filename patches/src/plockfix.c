@@ -240,6 +240,11 @@ static void pl_capture(struct plk *p, uint32_t E, uint32_t t, uint32_t k, uint32
 #define LEGACY_FM206_ARM 0              /* original VERSION 206 controls, only for its rebuild profile */
 #endif
 
+#if ENGINE_OPT && defined(SYNTH) && SYNTH
+static uint32_t t8_eng(void);                 /* notetap.c: a synth engine is resident (track 8 is ours) */
+#else
+#define t8_eng() 1
+#endif
 #if defined(AD_LIVE) && AD_LIVE
 /* AD build: Clear + macro 3 on track 8 resets Length to 64/0 instead of the stock default 127/127. The macro page
  * sends the reset through the dispatcher as a turn does (src 1, LSB id 16t + 15, then MSB 16t + 2); while hook_macro
@@ -387,7 +392,7 @@ uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
 {
     struct plk *p = plk();
     uint32_t c = in_sram(page, 0x68) ? rw(page + 0x20) : 0;
-    uint32_t arm = p && AD_CLR_KNOB(k) && c && rw(page) == PL_MACRO_VT && *(volatile uint16_t *)(page + 0x44) == 16u * AD_CLR_T &&
+    uint32_t arm = p && AD_CLR_KNOB(k) && c && t8_eng() && rw(page) == PL_MACRO_VT && *(volatile uint16_t *)(page + 0x44) == 16u * AD_CLR_T &&
                    in_sram(c, 0x14) && in_sram(rw(c + 0xC), 4) && in_sram(rw(c + 0x10), 4) && (*pl_el(c, 0) & 1);
     if (arm)
         p->ad_clr = 1;
@@ -522,7 +527,7 @@ void hook_lockplay(uint32_t player, uint32_t pattern, uint32_t step, uint32_t pu
 #if defined(AD_LIVE) && AD_LIVE
     struct plk *p = plk();
     uint32_t quiet = 0;
-    if (p && in_sram(player, 0x150) && rw(player) == PL_PLAYER_VT && step <= 31) {
+    if (p && in_sram(player, 0x150) && rw(player) == PL_PLAYER_VT && step <= 31 && t8_eng()) {
         uint32_t ids0 = rw(player + 0x40), n0 = *(volatile uint8_t *)(player + 0x3C);
         if (n0 <= 12 && ((ids0 >= FLASH_START && ids0 <= FLASH_END - 24) || in_sram(ids0, 24)))
             quiet = ad_quiet_lanes(p, player, pattern, step, pulse, n0, ids0);

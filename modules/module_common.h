@@ -1,6 +1,7 @@
 /* Shared ABI-3 module helpers. No firmware writes or stock calls. Keyboard lookup is
  * the guarded stock-5706 chain used by scales.c: actual table pitches, not C major.
- * Unsupported/slice layouts fail silent. Output uses engine-only note_port(rec=0).
+ * Unsupported/slice layouts fail silent. Output uses engine-only note_port(rec=0);
+ * a module that defines MC_NOTE_REC 1 before the include uses the pad path (rec=1).
  * One accepted note per track; release on STOP, restart and before changing tracks.
  * Host ring is eight entries: keep callers to a few events per pulse. Clocked
  * modules follow stock transport only: press Play to run. Never use Play as a module control.
@@ -12,6 +13,9 @@
 #define MC_RAM 0x100u
 #define MC_LEDS 224u
 #define MC_NO_NOTE 255u
+#ifndef MC_NOTE_REC
+#define MC_NOTE_REC 0u
+#endif
 static inline void mc_led_table(volatile uint8_t *t) {
     t[0] = 37; t[1] = 38; t[2] = 39;      t[3] = 24; t[4] = 25; t[5] = 26;
     t[6] = 100; t[7] = 101; t[8] = 102;   t[9] = 103; t[10] = 88; t[11] = 89;
@@ -69,7 +73,7 @@ static inline uint32_t mc_note_port(uint32_t t,uint32_t n,uint32_t v) {
     const volatile uint32_t *h=(const volatile uint32_t *)0x0806a570u;
     if(t>7||n>115||v>127||h[0]!=0x31485243u||h[1]<3)return 0;
     uint32_t fn=h[4]; if(!(fn&1)||fn<0x08000001u||fn>=0x08080000u)return 0;
-    return ((uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t))fn)(t,n,v,0);
+    return ((uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t))fn)(t,n,v,MC_NOTE_REC);
 }
 struct mc_notes { uint8_t held[8],note[8]; };
 static inline void mc_note_off(struct mc_notes *s,uint32_t t) {
@@ -133,4 +137,46 @@ static inline void mc_transport_led(const struct mc_transport *t,uint8_t *leds) 
     uint32_t phase=t->blink<94?t->blink:188-t->blink;
     leds[179]=(uint8_t)(2+phase/8); /* slow, dim 'press Play to run' hint */
 }
+/* ---- Host abi 4: write to pattern and sequencer silence (opt-in) ----------------------------------------------
+ * A module opts in with MC_CAPABILITY(caps, mailbox): caps MC_CAP_PW (requests) and/or MC_CAP_SE (silence), the
+ * mailbox three words of its own RAM: handshake, silence ('SE' << 16 | track mask), busy (written by the host: bit
+ * t = track t is silenced and its pattern still holds a note; do not play on t while it is set). tools/build_module.py appends the capability trailer; with
+ * MC_CAP_PW the request block (struct mc_pw_req) is the ITCM directly after the image (mc_pw_block()). Without the
+ * trailer the host never reads or writes module RAM. Only on hosts with abi >= 4 (mc_abi()); older hosts ignore it.
+ * Handshake word: tag << 24 | seq << 16 | low. Write the block only while the word is 0 or 'D', then 'P' (from
+ * input or frame); wait for 'D' with the same seq (low = result); 'T' = taken, outcome not yet known. Withdraw an
+ * untaken request by writing 0 over 'P'. Never touch the block while the word is 'P' or 'T'. */
+#define MC_CAP_PW 1
+#define MC_CAP_SE 2
+#define MC_STR2(x) #x
+#define MC_STR(x) MC_STR2(x)
+#define MC_CAPABILITY(caps, mbox) __asm__(".pushsection .text\n.balign 4\n.global mc_cap\n.type mc_cap,%object\n" \
+    "mc_cap: .word (" MC_STR(caps) ") | ((" MC_STR(mbox) ") << 16)\n.size mc_cap,4\n.popsection")
+#define MC_PW_P 0x50u
+#define MC_PW_T 0x54u
+#define MC_PW_D 0x44u
+#define MC_PW_MAGIC 0x51525750u            /* 'PWRQ' */
+#define MC_SE_MAGIC 0x5345u                /* 'SE' */
+enum { MC_PW_OK = 1, MC_PW_BUSY, MC_PW_CONFLICT, MC_PW_INVALID, MC_PW_NOTRACK, MC_PW_FAULT };
+enum { MC_PW_READ = 1, MC_PW_WRITE, MC_PW_UNDO };
+struct mc_pw_ent {                         /* one track: five request fields per step */
+    uint8_t track, pattern, flags, status;
+    uint16_t old_set, new_set;             /* end | start << 8 */
+    uint8_t old[32][5], neu[32][5];
+};
+struct mc_pw_req {
+    uint32_t magic;
+    uint8_t op, n, seq, zero;
+    uint32_t gen, zero2;
+    struct mc_pw_ent e[4];
+};
+_Static_assert(sizeof(struct mc_pw_req) == 1328, "request block layout");
+static inline uint32_t mc_abi(void) {
+    const volatile uint32_t *h=(const volatile uint32_t *)0x0806a570u;
+    return h[0]==0x31485243u?h[1]:0;
+}
+static inline volatile struct mc_pw_req *mc_pw_block(void) {
+    return (volatile struct mc_pw_req *)(0x400u+*(volatile uint32_t *)0x404u);
+}
+static inline void mc_dmb(void) { __asm__ volatile("dmb" ::: "memory"); }
 #endif

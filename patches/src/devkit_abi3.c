@@ -196,7 +196,12 @@
 #endif
 #if SCALES                              /* scales (patches/src/scales.c): struct sc, the lowest block */
 #define SC_SIZE         0x20u
-#if defined(NOTETAP) && CORE0_SYNTH
+#if defined(NOTETAP) && CORE0_SYNTH && ARP  /* arpeggiator (patches/src/arp.c): struct arp between struct q0 and
+                                                 struct sc; struct sc stays the lowest block */
+#include "arp.h"
+#define ARP_AT          (Q0_AT - ARP_SIZE)
+#define SC_AT           (ARP_AT - SC_SIZE)
+#elif defined(NOTETAP) && CORE0_SYNTH
 #define SC_AT           (Q0_AT - SC_SIZE)
 #elif defined(NOTETAP)
 #define SC_AT           (A1_AT - SC_SIZE)       /* 0x2004F0C0..0x2004F0DF */
@@ -207,6 +212,23 @@
 #endif
 #undef HEAP_FLOOR
 #define HEAP_FLOOR      SC_AT
+#endif
+#if ENGINE_PACK                         /* engine-optional per-pack state: struct eo (enginepack.h), the lowest block */
+#if !SCALES
+#error "ENGINE_PACK builds on the 0.2.2 configuration (SCALES: struct sc is the block above struct eo)"
+#endif
+#define EO_SIZE         0x30u
+#define EO_AT           (SC_AT - EO_SIZE)
+#define WD_SIZE         0x20u           /* struct wd (enginepack.h): watchdog and load timing, below struct eo */
+#define WD_AT           (EO_AT - WD_SIZE)
+#undef HEAP_FLOOR
+#define PK_SIZE         0x10u           /* remote pack request, below the watchdog block */
+#define PK_AT           (WD_AT - PK_SIZE)
+#define PK_STATE        (*(volatile uint8_t *)(PK_AT + 12u))
+#define LIST_SIZE       0x240u         /* read-only card inventory: owned SRAM, never module ITCM */
+#define LIST_AT         (PK_AT - LIST_SIZE)
+#define LIST_ACTIVE     (*(volatile uint8_t *)(LIST_AT + 2u))
+#define HEAP_FLOOR      LIST_AT
 #endif
 #define TRANSPORT_VT    0x080683E0u     /* transport object check */
 #define EV_START        1u
@@ -263,6 +285,9 @@
                                            task (patches/src/cardwrite.c). 0 everywhere else: every existing profile
                                            keeps its bytes */
 #define CARD_WRITE      0
+#endif
+#ifndef REMOTE_PACK_LOAD
+#define REMOTE_PACK_LOAD 0             /* private bench only; shipping images have no remote loader */
 #endif
 #define PICK_V2         (!BUILTIN_MODULE)   /* 0.2.1 picker: numbered pads, name colours, Play to the transport,
                                                Play LED blink (docs/user/developers.md); 0 keeps every older profile */
@@ -439,6 +464,21 @@ static void clock_reply(void);
 static void cw_sysex(struct state *s, const uint8_t *m, uint32_t len);
 static void cw_main(struct state *s);
 #endif
+#if ENGINE_PACK && !FAR_PART
+#if REMOTE_PACK_LOAD
+static void ep_remote_cmd(struct state *s, const uint8_t *m, uint32_t len);
+static void ep_remote_main(struct state *s);
+#endif
+#if CARD_INVENTORY
+static void el_cancel(void);
+static void el_cmd(struct state *s, const uint8_t *m, uint32_t len);
+static void el_main(struct state *s);
+#endif
+static void ep_status(const struct state *s);  /* enginepack.c: cmd 10 0B, the engine status (read-only) */
+#endif
+#if ARP
+static void arp_sysex(struct state *s, const uint8_t *m, uint32_t len);
+#endif
 #ifdef TRACKMODES
 static void tm_boot(void);
 static void tm_sysex(struct state *s, const uint8_t *m, uint32_t len);
@@ -507,6 +547,9 @@ void hook_boot(void)
 #endif
 #if SCALES
         sc_boot();
+#endif
+#if ENGINE_PACK
+        *(volatile uint32_t *)EO_AT = 0x31504F45u;  /* EO_MAGIC (enginepack.h): the per-pack state, all else 0 */
 #endif
         ctl[0] = HEAP_FLOOR;
     }
@@ -980,6 +1023,13 @@ static void retire(struct state *s)
 /* The loader is reading the folder or loading a file: a FatFs object of ours may be open, MOD_RAM is in use. */
 static uint32_t ld_busy(const struct state *s)
 {
+#if ENGINE_PACK && CARD_INVENTORY
+    if (LIST_ACTIVE == 1) return 1;
+#endif
+#if ENGINE_PACK && REMOTE_PACK_LOAD
+    if ((uint32_t)PK_STATE - 1u < 2u)
+        return 1;                            /* queued/running remote pack operation reserves loader access */
+#endif
 #if CARD_WRITE
     return s->ld_phase == LD_SCAN || s->ld_phase == LD_LOAD || s->ld_phase == LD_JOB;
 #else
@@ -993,6 +1043,13 @@ static uint32_t ld_busy(const struct state *s)
  * suspension; ITCM checked by the caller. */
 static void picker_open(struct state *s)
 {
+#if ENGINE_PACK && CARD_INVENTORY
+    if (LIST_ACTIVE == 1) return;
+#endif
+#if ENGINE_PACK && REMOTE_PACK_LOAD
+    if ((uint32_t)PK_STATE - 1u < 2u)
+        return;
+#endif
     volatile struct pick *p = PICK;
 #if CARD_WRITE
     if (s->ld_phase == LD_JOB)
@@ -1374,8 +1431,35 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
         return;
     }
 #if CARD_WRITE
+#if ENGINE_PACK && !FAR_PART
+#if REMOTE_PACK_LOAD
+    if (cmd == 0x10 && len >= 9 && m[7] == 0x10) {
+        ep_remote_cmd(s, m, len);
+        return;
+    }
+#endif
+#if CARD_INVENTORY
+    if (cmd == 0x10 && len >= 9 && (m[7] == 0x11 || m[7] == 0x12)) {
+        el_cmd(s, m, len);
+        return;
+    }
+#endif
+    if (cmd == 0x10 && len == 9 && m[7] == 0x0B) {
+        ep_status(s);                           /* read-only: no session, no job, its own reply */
+        return;
+    }
+#endif
     if (cmd == 0x10) {
+#if ENGINE_PACK && !FAR_PART && CARD_INVENTORY
+        if (len == 9 && m[7] == 0x7F) el_cancel();
+#endif
         cw_sysex(s, m, len);
+        return;
+    }
+#endif
+#if ARP
+    if (cmd == 0x11) {
+        arp_sysex(s, m, len);
         return;
     }
 #endif
@@ -1773,16 +1857,47 @@ static uint32_t file_b(uint32_t mine)
 }
 
 /* "1:/MODULES" at d (11 bytes); returns its length. Plain stores: the hook code has no data sections. */
+#if ENGINE_PACK
+static uint32_t dir_path(volatile char *d)
+{
+    d[0] = '1'; d[1] = ':'; d[2] = '/'; d[3] = 'm'; d[4] = 'o'; d[5] = 'd'; d[6] = 'u'; d[7] = 'l'; d[8] = 'e';
+    d[9] = 's'; d[10] = 0;
+    return 10;
+}
+#else
 static uint32_t dir_path(volatile char *d)
 {
     d[0] = '1'; d[1] = ':'; d[2] = '/'; d[3] = 'M'; d[4] = 'O'; d[5] = 'D'; d[6] = 'U'; d[7] = 'L'; d[8] = 'E';
     d[9] = 'S'; d[10] = 0;
     return 10;
 }
+#endif
 
 /* The 8.3 name of the entry in fi if it is a module file: not a directory, label, system or hidden entry, size
  * within [header + 2, MOD_MAX], short name ending in ".MOD" made of characters valid in a path segment. The short
  * name is altname, or fname when FatFs left altname empty (no long name: fname is then the short name). */
+#if ENGINE_PACK
+static uint32_t mod_name(const volatile uint8_t *fi, volatile char *out)
+{
+    uint32_t size = fi[0] | fi[1] << 8 | fi[2] << 16 | (uint32_t)fi[3] << 24;
+    if ((fi[FI_ATTR] & AM_SKIP) || size < HDR1 + 2 || size > MOD_MAX)
+        return 0;
+    const volatile uint8_t *n = fi[FI_ALT] ? fi + FI_ALT : fi + FI_NAME;
+    uint32_t len = 0;
+    for (; len < NAME_LEN && n[len]; len++) {
+        uint8_t c = n[len];
+        if (c <= 0x20 || c >= 0x7F || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"'
+                || c == '<' || c == '>' || c == '|')
+            return 0;
+    }
+    if (len < 5 || len >= NAME_LEN || n[len - 4] != '.' || (n[len - 3] | 32) != 'm' || (n[len - 2] | 32) != 'o'
+            || (n[len - 1] | 32) != 'd')
+        return 0;
+    for (uint32_t i = 0; i < NAME_LEN; i++)
+        out[i] = i < len ? (char)(n[i] >= 'A' && n[i] <= 'Z' ? n[i] + 32 : n[i]) : 0;
+    return 1;
+}
+#else
 static uint32_t mod_name(const volatile uint8_t *fi, volatile char *out)
 {
     uint32_t size = fi[0] | fi[1] << 8 | fi[2] << 16 | (uint32_t)fi[3] << 24;
@@ -1803,6 +1918,7 @@ static uint32_t mod_name(const volatile uint8_t *fi, volatile char *out)
         out[i] = i < len ? (char)n[i] : 0;
     return 1;
 }
+#endif
 
 static int name_cmp(const volatile char *a, const volatile char *b)
 {
@@ -2195,6 +2311,9 @@ void hook_main(uint32_t timers)
     clock_poll(s);
     drain(s);
     loader(s);
+#if ENGINE_PACK && !FAR_PART && CARD_INVENTORY
+    el_main(s);
+#endif
 #if SCALES
     sc_main(s);
 #endif

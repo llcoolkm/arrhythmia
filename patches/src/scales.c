@@ -1,4 +1,4 @@
-/* Scales for the sample tracks 1..7 (build switch SCALES). Included by arrhythmia.c after devkit_abi3.c,
+/* Scales for the sample tracks 1..7, and track 8 in T8SCALE builds (build switch SCALES; T8SCALE, issue #34). Included by arrhythmia.c after devkit_abi3.c,
  * trackmodes.c and plockfix.c, before synthpage.c and notetap.c (both use the project-wide scale in SCALES builds).
  *
  * The Note view of every track plays from a per-track keyboard table (128 entries: the note of every keyboard pad
@@ -9,13 +9,15 @@
  * pads of a root light together. No other note is held twice: the Note view lights a sounding note only at its
  * reverse-map index and that index's partner, so a non-root duplicate would light the wrong pad. Playback of the
  * table is unchanged: each held pad releases exactly the note it started, so a scale change while a pad is held
- * cannot strand a note; a held step takes the table's note. Slice layouts and track 8 are never touched. MIDI in and
+ * cannot strand a note; a held step takes the table's note. Slice layouts and track 8 are never touched (T8SCALE: track
+ * 8 is the eighth track, bit 7; its unscaled layout is chromatic and ignores slice mode). MIDI in and
  * sequencer playback do not read the table (they light their notes through the same reverse map and partner).
  *
  * Settings: a versioned sub-record in the T1 block's reserved area (block + 0x288, 16 bytes), written only through
  * tm_edit (BUSY first, live-tail check, CRC):
  *   +0 'S' +1 'C' magic, +2 version 1, +3 scale 0..SYN_SCALES-1 (synth_settings.h), +4 root 0..11 (0 = C),
- *   +5 bit t = track t + 1 scaled (t = 0..6; bit 7 reserved, written 0), +6..+15 reserved (0 on creation, preserved).
+ *   +5 bit t = track t + 1 scaled (t = 0..6; bit 7 reserved, written 0; T8SCALE: bit 7 = track 8, set by the page
+ *   only, kept by the 0E set), +6..+15 reserved (0 on creation, preserved).
  *   All 16 zero = unset: scale and root fall back to track 8's record 7 (+6 scale 0/1, +7 root), no track scaled.
  *   Any other content = unknown: same fallback, nothing scaled, every edit refused (READONLY).
  * Runtime copy: struct sc (SC_SIZE bytes at SC_AT, the new lowest reservation; hook_boot lowers the heap limit to it),
@@ -26,7 +28,8 @@
  * service): attach to the boot project if no apply was seen (tm_attach and its gates), then rebuild AT MOST ONE
  * keyboard whose layout differs from the settings (sc_sync; all seven converge within seven passes).
  * SysEx 0E (debug, Main task): 0E 00 status; 0E 01 scale root bits: set all three (one tm_edit).
- *   reply F0 00 20 29 00 60 0E <sub> <status> <why> <sc> <scale> <root> <bits> <applied> F7 (16 bytes): status TS_*,
+ *   reply F0 00 20 29 00 60 0E <sub> <status> <why> <sc> <scale> <root> <bits> <applied> F7 (16 bytes; T8SCALE: then
+ *   <t8> before F7, 17 bytes, bit 0 track 8 scaled, bit 1 applied; bits / applied keep tracks 1..7): status TS_*,
  *   why = T1 TM_*, sc 0 unset / 1 v1 / 2 unknown, scale/root/bits as decoded, applied = tracks whose keyboard holds
  *   the scaled table of the current settings now (partial while the layouts converge).
  */
@@ -38,7 +41,13 @@
 #define SC_SCALE        3u
 #define SC_ROOT         4u
 #define SC_BITS         5u
+#if T8SCALE                             /* issue #34: track 8 too (bit 7); its unscaled layout is always chromatic */
+#define SC_TRACKS       8u              /* tracks 1..8 (t = 0..7) */
+#define SC_BITMASK      0xFFu
+#else
 #define SC_TRACKS       7u              /* tracks 1..7 (t = 0..6); track 8 is the synth's */
+#define SC_BITMASK      0x7Fu
+#endif
 #define SC_MAGIC_RT     0x31524353u     /* "SCR1": runtime block initialised by hook_boot */
 #define NV_VT           0x08067248u     /* note-view handler check */
 #define KB_VT           0x080696F4u     /* keyboard object check; layout hook site */
@@ -62,7 +71,11 @@ struct sc {
     uint8_t rec_scale, rec_root;              /* record 7 fallback, decoded at the same time */
     uint8_t applied[SC_TRACKS];               /* diagnostic: layout last reconciled, 0 unscaled, else 1 + scale * 12 + root
                                                  (decisions read the keyboard objects, never this) */
-    uint8_t builds, restores;                 /* scaled builds / unscaled rebuilds by sc_sync or the observer (mod 256) */
+    uint8_t builds;                           /* scaled builds by sc_sync or the observer (mod 256) */
+#if !T8SCALE                                  /* T8SCALE: the eighth applied byte takes its place (the block is full;
+                                                 a larger block moves the heap floor, +200 B of ARM) */
+    uint8_t restores;                         /* unscaled rebuilds by sc_sync (mod 256) */
+#endif
     uint8_t next;                             /* sc_sync's round-robin start: the track after the last one rebuilt */
 };
 _Static_assert(sizeof(struct sc) <= SC_SIZE, "scales runtime block must fit");
@@ -140,7 +153,7 @@ static uint32_t sc_root(void)
 static uint32_t sc_bits(void)
 {
     volatile struct sc *c = sc();
-    return c && sc_status(c->sub) == SC_V1 ? c->sub[SC_BITS] & 0x7Fu : 0;
+    return c && sc_status(c->sub) == SC_V1 ? c->sub[SC_BITS] & SC_BITMASK : 0;
 }
 
 /* tm_edit callback (live block, scheduler suspended, after the BUSY gate): arg = op | a << 8 | b << 16 | c << 24.
@@ -168,13 +181,13 @@ static uint32_t sc_edit_cb(volatile uint8_t *b, uint32_t arg)
     if (op == SC_OP_ALL) {
         p[SC_SCALE] = (uint8_t)x;
         p[SC_ROOT] = (uint8_t)y;
-        p[SC_BITS] = (uint8_t)z;
+        p[SC_BITS] = (uint8_t)(T8SCALE ? (z & 0x7F) | (p[SC_BITS] & 0x80) : z);   /* T8SCALE: track 8 kept */
     } else if (op == SC_OP_SCALE) {
         p[SC_SCALE] = (uint8_t)x;
     } else if (op == SC_OP_ROOT) {
         p[SC_ROOT] = (uint8_t)x;
     } else if (op == SC_OP_TOGGLE) {
-        p[SC_BITS] = (uint8_t)((p[SC_BITS] ^ 1u << x) & 0x7F);
+        p[SC_BITS] = (uint8_t)((p[SC_BITS] ^ 1u << x) & SC_BITMASK);
     } else {                                  /* the page's minor pad: natural minor <-> major */
 #if PG_NAV                                    /* as it shows: a stored Phrygian (shown as minor) goes to major */
         p[SC_SCALE] = sc_map(p[SC_SCALE]) == SYN_MINOR ? SYN_MAJOR : SYN_MINOR;
@@ -214,10 +227,11 @@ static uint32_t sc_kb(uint32_t t)
     return kb;
 }
 
-/* 1 if the track's slice setting is off, i.e. the chromatic layout is used. */
-static uint32_t sc_chromatic(uint32_t kb)
+/* 1 if track t's unscaled layout is the chromatic one: its slice setting is off, or t is track 8 (T8SCALE: track 8
+ * ignores slice mode, notetap.c ad_noslice_kb). */
+static uint32_t sc_chromatic(uint32_t kb, uint32_t t)
 {
-    return obs_byte(link(kb, 0x198), 0xC) == 0;
+    return (T8SCALE && t == 7 && t8_eng()) || obs_byte(link(kb, 0x198), 0xC) == 0;
 }
 
 /* Write the scaled table into keyboard object kb, in the chromatic table's format but with ONE ROW PER OCTAVE and
@@ -282,9 +296,9 @@ static void sc_sig(uint32_t scale, uint32_t root, uint8_t *sig)
 /* 1 if the layout the keyboard object holds now is the wanted one (read from the object, nothing remembered): a
  * slicing track holds the slice layout whatever its bit (the observer hook rescales it when slicing ends);
  * otherwise want 0 = the chromatic table (index 0x30 empty), want != 0 = the scaled table of sig. */
-static uint32_t sc_holds(uint32_t kb, uint32_t want, const uint8_t *sig)
+static uint32_t sc_holds(uint32_t kb, uint32_t t, uint32_t want, const uint8_t *sig)
 {
-    if (!sc_chromatic(kb))
+    if (!sc_chromatic(kb, t))
         return 1;
     const volatile uint8_t *k = (const volatile uint8_t *)(kb + KB_TABLE);
     if (!want)
@@ -302,6 +316,9 @@ static uint32_t sc_holds(uint32_t kb, uint32_t want, const uint8_t *sig)
  * latest setting supersedes anything not yet built, and a reconstructed or project-changed keyboard is seen as it
  * is. The scan starts after the track rebuilt last (round robin), so all seven converge within seven passes of the
  * last change. */
+#if T8SCALE
+static void ad_chrom_kb(uint32_t kb);         /* notetap.c: clear, chromatic layout, notify */
+#endif
 static void sc_sync(void)
 {
     volatile struct sc *c = sc();
@@ -315,13 +332,20 @@ static void sc_sync(void)
         uint32_t want = bits >> t & 1 ? on : 0, kb = sc_kb(t);
         if (!kb)
             continue;
-        if (!sc_holds(kb, want, sig)) {
+        if (!sc_holds(kb, t, want, sig)) {
             if (want) {
                 sc_build(kb, scale, root);
                 c->builds++;
             } else {
+#if T8SCALE
+                if (t == 7 && t8_eng())
+                    ad_chrom_kb(kb);          /* track 8: the chromatic layout whatever its slice setting */
+                else
+#endif
                 KB_REBUILD(kb);               /* back to the unscaled layout (chromatic or slice) */
+#if !T8SCALE
                 c->restores++;
+#endif
             }
             c->applied[t] = (uint8_t)want;
             c->next = (uint8_t)(t + 1 == SC_TRACKS ? 0 : t + 1);
@@ -357,7 +381,7 @@ uint32_t hook_kb_obs(uint32_t kb, uint32_t obs, uint32_t flags, uint32_t d)
     for (uint32_t t = 0; t < SC_TRACKS; t++) {
         if (sc_kb(t) != kb)
             continue;
-        if ((sc_bits() >> t & 1) && (flags & 0x1000u) && sc_chromatic(kb)) {   /* rebuilt chromatic just now */
+        if ((sc_bits() >> t & 1) && (flags & 0x1000u) && sc_chromatic(kb, t)) {   /* rebuilt chromatic just now */
             uint32_t scale = sc_scale(), root = sc_root();
             sc_build(kb, scale, root);
             c->builds++;
@@ -379,7 +403,7 @@ static uint32_t sc_applied_mask(void)
         return 0;
     sc_sig(sc_scale(), sc_root(), sig);
     for (uint32_t t = 0; t < SC_TRACKS; t++)
-        if ((bits >> t & 1) && (kb = sc_kb(t)) && sc_chromatic(kb) && sc_holds(kb, 1, sig))
+        if ((bits >> t & 1) && (kb = sc_kb(t)) && sc_chromatic(kb, t) && sc_holds(kb, t, 1, sig))
             m |= 1u << t;
     return m;
 }
@@ -391,13 +415,13 @@ static void sc_sysex(struct state *s, const uint8_t *m, uint32_t len)
     uint32_t sub = len >= 9 ? m[7] : 0xFF, status = TS_REFUSED;
     if (len == 9 && sub == 0x00)
         status = tm_attach(s) && tm()->store ? TS_OK : TS_REFUSED;
-    else if (len == 12 && sub == 0x01)
+    else if (len == 12 && sub == 0x01)         /* T8SCALE: sets tracks 1..7; track 8's bit is kept (page only) */
         status = sc_edit(s, SC_OP_ALL | (uint32_t)m[8] << 8 | (uint32_t)m[9] << 16 | (uint32_t)m[10] << 24);
     else
         return;                               /* malformed: no reply */
     volatile struct sc *c = sc();
     struct tm *t = tm();
-    volatile uint8_t r[16];
+    volatile uint8_t r[16 + T8SCALE];
     header(r, 0x0E);
     r[7] = (uint8_t)sub;
     r[8] = (uint8_t)status;
@@ -405,9 +429,17 @@ static void sc_sysex(struct state *s, const uint8_t *m, uint32_t len)
     r[10] = (uint8_t)(c ? sc_status(c->sub) : SC_UNSET);
     r[11] = (uint8_t)sc_scale();
     r[12] = (uint8_t)sc_root();
+#if T8SCALE                                   /* SysEx data bytes are 7-bit: track 8 in its own byte */
+    uint32_t bits = sc_bits(), ap = sc_applied_mask();
+    r[13] = (uint8_t)(bits & 0x7F);
+    r[14] = (uint8_t)(ap & 0x7F);
+    r[15] = (uint8_t)(bits >> 7 | ap >> 7 << 1);
+    r[16] = 0xF7;
+#else
     r[13] = (uint8_t)sc_bits();
     r[14] = (uint8_t)sc_applied_mask();
     r[15] = 0xF7;
+#endif
     uint32_t out[2] = {(uint32_t)r, sizeof r};
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }

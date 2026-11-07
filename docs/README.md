@@ -6,12 +6,15 @@ firmware file on your own computer. No Novation code or firmware is included in 
 ## For users
 
 * [README.md](../README.md): what Arrhythmia is, the two images, and the risks.
-* [user/quickstart.md](user/quickstart.md): install in six steps.
+* [user/quickstart.md](user/quickstart.md): install and add the FM engine.
 * [user/install.md](user/install.md): the full install guide: backup, other download methods, the command line,
   checking, switching images, going back to stock and troubleshooting.
 * [user/synth.md](user/synth.md): the track 8 FM synth, its settings and its known issues.
-* [user/scales.md](user/scales.md): scales on tracks 1 to 7.
-* [user/modules.md](user/modules.md): the modules on the microSD card: copy, start, stop, and the controls of each.
+* [user/scales.md](user/scales.md): scales on tracks 1 to 8.
+* [user/euclid.md](user/euclid.md): the four-row rhythm editor, its controls, pattern write and undo.
+* [user/modules.md](user/modules.md): use the combined loader or a card reader to add modules, then start, stop and control them.
+* [../changelog.md](../changelog.md): the 0.3.0 change summary and earlier release history.
+* [../RELEASE-NOTES-0.3.0.md](../RELEASE-NOTES-0.3.0.md): the 0.3.0 release notes: changes since 0.2.2, known limitations, install.
 * [../RELEASE-NOTES-0.2.2.md](../RELEASE-NOTES-0.2.2.md): the 0.2.2 release notes: changes since 0.2.1, test status, known issues.
 * [../RELEASE-NOTES-0.2.1.md](../RELEASE-NOTES-0.2.1.md): the 0.2.1 release notes.
 * [../RELEASE-NOTES-0.2.0.md](../RELEASE-NOTES-0.2.0.md): the 0.2 release notes: changes since 0.1.1, test status, known issues.
@@ -30,9 +33,45 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## Rebuilding the images
 
-`release/v0.2.2.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
-installer and embeds it. `release/v0.2.1.json`, `release/v0.2.0.json`, `release/v0.1.1.json` and
-`release/v0.1.0.json` are the earlier releases.
+`release/v0.3.0.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
+installer and embeds it. Earlier release JSON files remain as historical records.
+
+### Rebuild 0.3.0 firmware 7358 and fm.dse
+
+Use the official firmware 5706 `.syx` file, Python 3.12, `clang` and the LLVM tools. Run from the repository root:
+
+```sh
+mkdir -p firmware build
+# Copy your official file to firmware/circuit-rhythm-5706.syx first.
+python3 -I tools/syx.py unpack firmware/circuit-rhythm-5706.syx build/circuit-rhythm-5706.bin
+python3 -I tools/rel030_release.py --stock firmware/circuit-rhythm-5706.syx --fm /path/to/fm.dse --out build/rel030-new
+```
+
+`--fm` takes the release's 14,906-byte `fm.dse`, SHA-256
+`236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad`. The output directory must not exist.
+The builder checks the official input and source pins, compiles twice in fresh processes and checks byte equality.
+The integrated firmware hashes are pinned below. A rebuild does not establish hardware qualification.
+The firmware `.syx` SHA-256 is `adfd566c1c28d3f9f1484ac44e343d08b3fc7c1638e91b07b2265540af8a852d`;
+the decoded image SHA-256 is `a45b7df13361c8a0e341be1082d66b8e5f4a439972996fe999126adf7cf77f39`.
+The FM file remains separate, for the card; it is not joined into flash. Its engine version is 1.0.0, independent of
+firmware 0.3.0.
+See [the public rebuild reference](../tools/rel030release/README.md) for the output files and checks.
+
+To build `fm.dse` from its own source instead, first build the
+[pinned line assembler](../tools/dspvoice/toolchain/README.md#dsp-line-assembler), then run:
+
+```sh
+python3 -I tools/dspvoice207live/build.py --stock firmware/circuit-rhythm-5706.syx --assembler build/dspvoice-toolchain/dspasm --out build/fm-live-new
+python3 -I tools/rel030_release.py --stock firmware/circuit-rhythm-5706.syx --fm build/fm-live-new/fm.dse --out build/rel030-source-new
+```
+
+The assembler needs Git, CMake and a C++17 compiler; obtaining its pinned source uses the network. The FM component
+contains own-source code and generated tables. Complete DSP streams, decoded firmware, patched `.syx` files and
+intermediate stock inputs contain official firmware material and must remain local. The
+[FM source reference](../tools/dspvoice207live/README.md) distinguishes these artifacts.
+A successful rebuild does not establish hardware, listening or DSP headroom qualification.
+
+### Historical 0.2.x rebuilds and devkit 7228
 
 The 0.2 ARM source and the FM DSP source are published. With the official firmware 5706 file as the only firmware input, the complete 0.2 firmware image 7323
 (and the 0.2.1 and 0.2.2 images 7329 and 7339, steps 6 and 7) rebuilds from this tree on the checked Linux toolchain. The ARM part builds from `patches/src/`. The DSP part (the FM

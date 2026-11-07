@@ -545,7 +545,7 @@ def module_blob(size, seed):
 def test_web_modules():
     page = b"<script>const PUBLISHED = ['01aa.mod', '02bb.mod'];</script>\n"
     with tempfile.TemporaryDirectory() as tmp:
-        repo = make_repo(tmp, {"web/modules.html": page})
+        repo = make_repo(tmp, {ep.WEB_PAGE: page})
         mods = Path(tmp) / "assets"
         mods.mkdir()
         want = {"01aa.mod": module_blob(300, 101), "02bb.mod": module_blob(1000, 102)}
@@ -594,6 +594,31 @@ def test_web_modules():
         except ep.Refused:
             continue
         raise AssertionError(bad)
+
+
+def test_web_engine():
+    import hashlib
+    import engine_file
+    import zlib
+    blob = engine_file.make(bytes(12), 1, 0x80010000, 0x207, 0xFE80B6B5)
+    row = dict(name="fm.dse", size=len(blob), sha256=hashlib.sha256(blob).hexdigest(),
+               crc32=f"{zlib.crc32(blob):08x}", version="1.0.0")
+    page = ("/* published-engines: " + json.dumps([row]) + " */").encode()
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = make_repo(tmp, {ep.WEB_PAGE: page})
+        source = Path(tmp) / "fm.dse"
+        source.write_bytes(blob)
+        files, _ = run(tmp, repo, fm_engine=source)
+        assert ep.WEB_ENGINE in files
+        assert (Path(tmp) / "out" / ep.WEB_ENGINE).read_bytes() == blob
+        source.write_bytes(blob[:-1])
+        try:
+            run(tmp, repo, Path(tmp) / "refused", fm_engine=source)
+        except ep.Refused:
+            pass
+        else:
+            raise AssertionError("accepted an altered engine asset")
+        assert not (Path(tmp) / "refused").exists()
 
 
 def main():
