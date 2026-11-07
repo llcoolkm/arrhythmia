@@ -55,6 +55,8 @@ versions read from the card. Legacy unmarked engine files have an unknown versio
 prove that a file is older. The firmware checks engine ABI, load base, kind and body integrity before loading;
 a version number alone does not establish compatibility with future firmware.
 
+The track 8 engine interface (CRE2 container, queue ABI 0x207, load base, kind and base id) is defined only by the published source and tools; a written, stable interface specification is in development.
+
 ### Select the FM engine with a card reader
 
 1. Turn the unit off and remove the card. Make a backup first ([install.md](install.md#back-up-first)).
@@ -389,5 +391,3 @@ Details: [release notes, known limitations](../../RELEASE-NOTES-0.3.0.md#known-l
 * High notes lose the character of the family.
 * A note released before its attack ends can produce a small tick.
 * The end of a fading note has a small rounding artefact at a very low level.
-* The engine interface is defined by the published source and tools only; no separate specification describes
-  what an engine body must implement. A written, stable engine interface specification is in development.

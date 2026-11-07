@@ -107,6 +107,8 @@ synth page, an expanded Euclid module, and a combined engine and module loader.
 
 ## Known limitations
 
+* The track 8 engine interface (CRE2 container, queue ABI 0x207, load base, kind and base id) is defined only by the published source and tools; a written, stable interface specification is in development.
+
 * **Voice count and voice stealing are not measured.** The number of physical voices of the FM synth on the unit,
   and which voice a new note takes when all are busy, are not measured.
 * **DSP headroom is not measured.** The headroom with four voices and live feedback is not measured on the unit.
@@ -118,10 +120,6 @@ synth page, an expanded Euclid module, and a combined engine and module loader.
 * **Euclid also uses the stock recorder.** Keep Record off before opening Euclid for pattern writing. If Record
   is already armed, live notes are recorded while Play runs. Clear undoes the last explicit Rec write, not earlier
   live recording ([controls and limits](docs/user/euclid.md)).
-* **The engine interface is defined by source and tools only.** The engine file container, its queue interface
-  number 207, load base, kind and base id are checked by the firmware and written by the published tools, but no
-  separate specification describes what an engine body must implement. A written, stable engine interface
-  specification is in development.
 * All known limitations of [0.2.2](RELEASE-NOTES-0.2.2.md#known-issues) and earlier stay.
 
 ## Test status
