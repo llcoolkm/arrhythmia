@@ -389,3 +389,5 @@ Details: [release notes, known limitations](../../RELEASE-NOTES-0.3.0.md#known-l
 * High notes lose the character of the family.
 * A note released before its attack ends can produce a small tick.
 * The end of a fading note has a small rounding artefact at a very low level.
+* The engine interface is defined by the published source and tools only; no separate specification describes
+  what an engine body must implement. A written, stable engine interface specification is in development.

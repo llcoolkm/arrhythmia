@@ -118,6 +118,10 @@ synth page, an expanded Euclid module, and a combined engine and module loader.
 * **Euclid also uses the stock recorder.** Keep Record off before opening Euclid for pattern writing. If Record
   is already armed, live notes are recorded while Play runs. Clear undoes the last explicit Rec write, not earlier
   live recording ([controls and limits](docs/user/euclid.md)).
+* **The engine interface is defined by source and tools only.** The engine file container, its queue interface
+  number 207, load base, kind and base id are checked by the firmware and written by the published tools, but no
+  separate specification describes what an engine body must implement. A written, stable engine interface
+  specification is in development.
 * All known limitations of [0.2.2](RELEASE-NOTES-0.2.2.md#known-issues) and earlier stay.
 
 ## Test status
