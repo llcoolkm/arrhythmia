@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.1
+
+Changes since 0.3.0. Full installation details, test status and limitations are in the
+[release notes](RELEASE-NOTES-0.3.1.md).
+
+### Added
+
+* Engine ABI 3: a written, stable interface for track 8 engines ([engines for developers](docs/user/engines-dev.md)).
+* General engine admission: every engine file that passes the checks loads; no list of approved engines.
+* Engine-defined controls on the Sample view of track 8 and on synth page 4, saved per project.
+* Cycle meter: refusal of a declaration of 0 or above the platform budget, overrun counts, and the largest block
+  in `card engstatus`.
+* Measured platform budget E of 65,626 DSP cycles per block for platform 1.
+* Author rule: the instruction sequence restrictions of Appendix A of the DSP56300 Family Manual, with a listing check.
+* FM engine `fm.dse` 2.0.0 for engine ABI 3, 15,346 bytes; it installs over USB. Its output equals FM 1.0.0 in the
+  reference scenes in the emulator.
+
+### Changed
+
+* `fm.dse` 1.0.0 and other engine files for 0.3.0 are refused. Install `fm.dse` 2.0.0.
+* FM ALL OFF keeps the control values.
+
 ## 0.3.0
 
 Changes since 0.2.2. Full installation details, test status and limitations are in the

@@ -9,6 +9,7 @@ files on the unit's microSD card (images with SysEx cmd 10, CARD_WRITE).
     uv run python -I tools/module.py card engine /dev/snd/midiC3D0 <pack 1..31 | default> <NAME | none>
     uv run python -I tools/module.py card engstatus /dev/snd/midiC3D0
     uv run python -I tools/module.py card engine-put /dev/snd/midiC3D0 fm.dse [NAME]
+    uv run python -I tools/module.py card engine-put --check fm.dse [NAME]
     uv run python -I tools/module.py card engine-verify /dev/snd/midiC3D0 NAME
 
 Writes the module 32 bytes per SysEx (cmd 04), reads ITCM back through the dump command (7D) and compares, then
@@ -31,8 +32,9 @@ without their own pointer).
 Through engine.cft and engine.cfo, recovered as the module files are. The engine file itself is not written here.
 card engine-put (engine-optional firmware only, cmd 10 0E / 0F) puts an engine file on the card as
 1:/engines/name.dse (NAME 1..8 of a-z 0-9, not default; default: the file name). The file is refused before the unit
-is touched unless it is one exact CRE2 file (tools/engine_file.py show) for queue ABI 0x207 and the base contract,
-at most 15,360 bytes; the unit checks the same at commit, writes name.dst, reads it back, renames the old file to
+is touched unless it is a statically eligible CRE3 file for the generated USB policy, or a legacy CRE2 file
+for queue ABI 0x207 and the base contract on older firmware, at most 15,360 bytes. Runtime CRE3 admission
+remains the unit's decision. At commit the unit validates the container, writes name.dst, reads it back, renames the old file to
 name.dso and name.dst over name.dse, then this tool reads the card file back (size and CRC-32). A refused request
 leaves the card unchanged. A cut power or a lost connection during a put leaves name.dse old or new, or for a moment
 absent with the old file kept complete as name.dso: a pack pointing to NAME then plays its stock sample (fail-safe)
@@ -40,7 +42,7 @@ until the helpers are settled, which happens at the start of the NEXT engine-put
 (not at boot). After an interrupted put, resolve any uncertain job outcome before starting another job. Once
 resolved, a newly authorised engine-put or engine-verify of the same name performs helper recovery. The verify (cmd
 10 0F) is such a job: it runs that recovery first and can rename or delete name.dst / name.dso; it is not a read-only
-check. engine-put also needs tools/engine_file.py and tools/crbc.py beside this tool.
+check. Keep the exported engine validation helpers and USB policy beside this tool.
 card engstatus (engine-optional firmware only, cmd 10 0B) prints the engine state, read-only: the unit opens no
 session, starts no job and writes nothing. Its first line is the mode: "stock ... normal" only with the stock pair
 resident, nothing published, the queue closed and nothing needing attention; it is the ARM's record, not the DSP's
@@ -124,7 +126,7 @@ def upload_msgs(blob):
             b"".join(bytes((b >> 4, b & 0x0F)) for b in part) + b"\xF7"
 
 
-def read_reply(fd, cmd, timeout=2.0):
+def read_reply(fd, cmd, timeout=2.0, prefix=PRE):
     buf, deadline = b"", time.monotonic() + timeout
     while time.monotonic() < deadline:
         if select.select([fd], [], [], 0.05)[0]:
@@ -132,7 +134,7 @@ def read_reply(fd, cmd, timeout=2.0):
                 buf += bytes(b for b in os.read(fd, 4096) if b < 0xF8)
             except BlockingIOError:
                 pass
-        i = buf.find(PRE + bytes([cmd]))
+        i = buf.find(prefix + bytes([cmd]))
         j = buf.find(b"\xF7", i) if i >= 0 else -1
         if i >= 0 and j >= 0:
             return buf[i:j + 1]
@@ -213,10 +215,22 @@ def _engine_file():
     return engine_file
 
 
-def engine_check(blob):
-    """What the unit admits at 10 0E's commit: one exact CRE2 file (header, length, body CRC; engine_file.parse) with
-    the queue ABI 0x207, the base contract id and a kind 1..15, at most ENGINE_MAX bytes. ValueError otherwise (also
-    when the engine-file helper is missing)."""
+def engine_check(blob, *, app_build=None):
+    """Validate CRE3 USB eligibility, or legacy CRE2 files for older firmware.
+
+    Static eligibility does not grant runtime admission on the connected unit.
+    """
+    if app_build is not None or blob[:4] == b'CRE3':
+        import cre3_check
+        policy = cre3_check.policy()
+        release = policy['release_version']
+        production = app_build is None or app_build >= policy['minimum_app_build']
+        if blob[:4] == b'CRE3':
+            if not production:
+                raise ValueError(f"CRE3 engine files require firmware {release} or newer.")
+            return cre3_check.check(blob)
+        if blob[:4] == b'CRE2' and production:
+            raise ValueError(f"FM 1.0.0 (CRE2) does not run on firmware {release}. Install fm.dse 2.0.0.")
     engine_file = _engine_file()
     h = engine_file.parse(blob)
     engine_file.need(h["magic"] == "CRE2", "not CRE2 (convert a CRE1 file first: tools/engine_file.py convert)")
@@ -264,10 +278,20 @@ def decode_card_row(raw):
     def text(a, b):
         return raw[a:b].split(b"\0", 1)[0].decode("utf-8", "strict")
     values = struct.unpack_from("<7I", raw, 60)
+    abi3 = None
+    if raw[0] == 2 and raw[88]:
+        if raw[88] != 3 or raw[91]:
+            raise ValueError("unknown engine inventory extension")
+        abi3 = dict(preload_check=raw[89], control_count=raw[90], runtime_check_14="NOT_RUN",
+                    header_crc=struct.unpack_from("<I", raw, 92)[0])
+    build = values[2]
+    version = f"{build >> 16 & 255}.{build >> 8 & 255}.{build & 255}" if build & 0xFF000000 == 0x80000000 else None
     return dict(type=raw[0], selector=raw[1], pad=raw[2], flags=raw[3], own_state=raw[4],
                 source=raw[5], effective_state=raw[6], compatibility=raw[7], name=text(8, 32),
                 own_name=text(32, 40), effective_name=text(40, 48), filename=text(48, 60),
-                version=_engine_file().decode_semver(values[2]) if raw[0] == 2 and raw[7] == 1 else None,
+                version=version if raw[0] == 2 and raw[7] == 1 else None,
+                validation_format=("CRE3" if abi3 else "CRE2") if raw[0] == 2 else None,
+                engine_format=("CRE3" if abi3 else "CRE2") if raw[0] == 2 and raw[7] == 1 else None, abi3=abi3,
                 **dict(zip(("size", "crc", "build", "kind", "abi", "base", "body_crc"), values)))
 
 
@@ -366,7 +390,7 @@ class Card:
 
     def engine_put(self, blob, name):
         """cmd 10 0E: the engine file 1:/engines/name.dse = blob (staged and read back as card write; the unit checks
-        the whole-file CRC-32 and the CRE2 header, writes name.dst, reads it back, renames over name.dse with the old
+        the whole-file CRC-32 and container header, writes name.dst, reads it back, renames over name.dse with the old
         one as name.dso), then read back from the card (10 0F). Returns (size, CRC)."""
         engine_check(blob)
         self.stage(blob, name, b"\x0E")
@@ -474,18 +498,18 @@ EP_PTR = ["none", "pack", "pack (.CFO)", "default", "default (.CFO)"]
 EP_SEL = ["stock", "engine armed", "core-1 suppression armed"]
 EP_FL = ["own load", "retry", "abort", "pushed", "was engine", "refreshed", "slot error"]
 EP_QPH = ["closed", "header", "request", "open", "recover", "quarantine", "init", "init wait"]
-EP_KIND = ["stock", "FM", "SID"]
+EP_KIND = ["stock", "FM", "reserved"]
 EP_EO = ("<I4B4BI2BHIHH4BI4B8s", "magic phase tf sel c0out r_pair r_kind r_fault judged r_crc c_pack c_kind att c_crc "
          "rgen c_words n_trav n_ok n_fail fl bad_crc verdict ptr busy loads c_name")
 EP_EO_MAGIC, EP_TRY, EP_BAD, EP_CBR2 = 0x31504F45, 0x59525443, 0x44414243, 0x32524243
 EP_WD = ("<4I4HH2B2H", "last t0 t1 c1at dsp0 dsp1 age gap feeds open c1 wmax n")   # struct wd (layout 2), ticks (ms)
-EP_LEN = {1: 163, 2: 203, 3: 223}                                                   # 10 0B layout version -> length
+EP_LEN = {1: 163, 2: 203, 3: 223, 4: 248, 5: 253}                                           # 10 0B layout version -> length
 M32 = 0xFFFFFFFF
 
 
 def decode_engstatus(r):
-    """The engine status reply (cmd 10 0B, 'E' layouts 1/2/3, 163/203/223 bytes) as a dict. Layout 2 adds watchdog
-    timing; layout 3 adds the pack-load record. Absent records are None. ValueError for foreign, noncanonical or
+    """The engine status reply (cmd 10 0B, 'E' layouts 1..4) as a dict. Layout 2 adds watchdog
+    timing; layout 3 adds the pack-load record; layout 4 adds cached ABI3 health. Absent records are None. ValueError for foreign, noncanonical or
     incorrectly sized replies."""
     if not r or r[:8] != PRE + bytes([CARD, 0x0B]):
         raise ValueError("no engine status reply")
@@ -498,8 +522,9 @@ def decode_engstatus(r):
     if any(x > 0x7F for x in r[1:-1]):
         raise ValueError("engine status: a data byte is not 7-bit")
     starts = [11 + 5 * i for i in range(28)] + [157] + ([162 + 5 * i for i in range(8)] if r[9] >= 2 else [])
-    pack_starts = [202 + 5 * i for i in range(4)] if r[9] == 3 else []
-    if any(r[k] > 0x0F for k in starts + pack_starts): # 5 x 7 bits hold 35: a canonical u32 has a top digit <= 0x0F
+    pack_starts = [202 + 5 * i for i in range(4)] if r[9] >= 3 else []
+    health_starts = [222 + 5 * i for i in range(6 if r[9] >= 5 else 5)] if r[9] >= 4 else []
+    if any(r[k] > 0x0F for k in starts + pack_starts + health_starts): # 5 x 7 bits hold 35: a canonical u32 has a top digit <= 0x0F
         raise ValueError("engine status: a word is not a canonical 32-bit value")
     if r[10] > 0x1F:
         raise ValueError(f"engine status: unknown flags {r[10]:#x}")
@@ -514,10 +539,24 @@ def decode_engstatus(r):
         seq, started, finished, packed = (g7(r[k:k + 5]) for k in pack_starts)
         pack_load = dict(started=started, finished=finished,
                          **_pack_fields(seq, *struct.pack("<I", packed)))
+    abi3_health = None
+    if health_starts:
+        mismatch, overrun, poll_at, flags, last_check = (g7(r[k:k + 5]) for k in health_starts[:5])
+        armed, reason, started, reserved = struct.pack("<I", flags)
+        if mismatch > 0xFFFFFF or overrun > 0xFFFFFF or armed > 1 or started > 1 or reason > 4 or reserved or last_check > 255:
+            raise ValueError("engine status: noncanonical ABI3 health record")
+        abi3_health = dict(mismatch=mismatch, overrun=overrun, poll_at=poll_at,
+                           armed=bool(armed), reason=reason, started=bool(started), last_check=last_check)
+        if r[9] >= 5:
+            normal_max = g7(r[health_starts[5]:health_starts[5]+5])
+            if normal_max > 0xFFFFFF: raise ValueError("engine status: noncanonical normal-span maximum")
+            abi3_health['normal_max'] = normal_max
+            abi3_health['normal_max_scope'] = 'Main cached since-load normal-block span maximum; F included; poll_at is ARM poll time'
     return dict(version=r[9], flags=f, engine_pack=bool(f & 1), engine_flash=bool(f & 2), itcm=bool(f & 4),
                 eo_ok=bool(f & 8), a1_ok=bool(f & 16), eo=eo, eo_words=words[:12], itcm_words=words[12:],
                 marker=words[12:20], cbr2=words[20:28], pub=r[151], tok=r[152], ld_phase=r[153], q_ph=r[154],
-                q_busy=r[155], q_excl=r[156], tick=g7(r[157:162]), wd_words=wdw, wd=wd, pack_load=pack_load)
+                q_busy=r[155], q_excl=r[156], tick=g7(r[157:162]), wd_words=wdw, wd=wd, pack_load=pack_load,
+                abi3_health=abi3_health)
 
 
 def _name(table, i):
@@ -545,6 +584,9 @@ def engstatus_mode(d):
         att.append("a Main call holds the token")
     if d["ld_phase"] == 5:
         att.append("a card job runs")
+    health = d.get("abi3_health")
+    if e["r_pair"] == 1 and health and (not health["armed"] or health["reason"]):
+        att.append("ABI3 runtime health unready")
     if e["r_pair"] == 0 and d["pub"] == 0:
         mode = "stock"
         if d["q_ph"] != 0:
@@ -588,6 +630,16 @@ def describe_engstatus(d):
         out.append(f"slots (last samples phase): {e['n_trav']} traversed, {e['n_ok']} ok, {e['n_fail']} failed, "
                    f"{(e['n_trav'] - e['n_ok'] - e['n_fail']) & 0xFF} empty")
     out.append(f"published: {_name(EP_KIND, d['pub'])}" + ("" if d["a1_ok"] else " (no a1 record)"))
+    health = d.get("abi3_health")
+    if health:
+        reasons = ("none", "read/write unconfirmed", "stack mismatch", "trial overrun",
+                   "declared cycle budget exceeds the platform meter range (24-bit)")
+        out.append(f"ABI3 cached health: armed {health['armed']}, reason {reasons[health['reason']]}, "
+                   f"mismatch {health['mismatch']}, overrun {health['overrun']}, last poll {health['poll_at']} ticks; "
+                   f"last pre-load check {health['last_check']} (runtime check 14 is separate)")
+        if 'normal_max' in health:
+            out.append(f"ABI3 cached normal-span maximum: {health['normal_max']} cycles since load, F included; "
+                       f"last ARM poll {health['poll_at']} ticks")
     out.append(f"core-0 queue: {_name(EP_QPH, d['q_ph'])}, busy {d['q_busy']}, excluded {d['q_excl']}")
     tok = [n for k, n in ((1, "Main call"), (2, "Content job")) if d["tok"] & k]
     out.append(f"token: {', '.join(tok) or 'free'}; card writer: {'a job runs' if d['ld_phase'] == 5 else 'idle'} "
@@ -638,6 +690,16 @@ def fd_xfer(fd):
     return xfer
 
 
+def app_build(fd):
+    """Read the application build before choosing an engine file format."""
+    prefix = PRE[:5]
+    write_all(fd, prefix + b"\x70\xf7", time.monotonic() + 2.0)
+    reply = read_reply(fd, 0x70, prefix=prefix)
+    if not reply or len(reply) < 17 or any(value >= 128 for value in reply[1:-1]):
+        raise CardError("no valid firmware version reply")
+    return g7(reply[13:16])
+
+
 def card_main(args):
     if len(args) < 2 or args[0] not in ("write", "delete", "verify", "list", "engine", "engstatus", "engine-put",
                                         "engine-verify"):
@@ -654,13 +716,20 @@ def card_main(args):
         except ValueError as e:
             sys.exit(f"{rest[0]}: {e}")
     elif op == "engine-put":
+        check_only = dev == "--check"
         if not 1 <= len(rest) <= 2:
             sys.exit(__doc__)
-        blob = open(rest[0], "rb").read()
+        with open(rest[0], "rb") as stream:
+            blob = stream.read()
         name = rest[1].lower() if len(rest) == 2 else default_name(rest[0])
         try:
-            engine_check(blob)
             engine_name(name)
+            if check_only:
+                import cre3_check
+                info = engine_check(blob, app_build=cre3_check.policy()["minimum_app_build"])
+                print(f"{name}.dse: {info['engine_format']}, {len(blob)} bytes, static checks passed")
+                return
+            engine_check(blob)
         except ValueError as e:
             sys.exit(f"{rest[0]}: {e}")
     elif op == "engine-verify":
@@ -719,13 +788,14 @@ def card_main(args):
             card.req(b"\x7F")
             print(f"1:/engines/{name}.dse: {size} bytes, CRC {crc:08x} (the job settled {name}.dst / {name}.dso first)")
         elif op == "engine-put":
+            engine_check(blob, app_build=app_build(fd))
             size, crc = card.engine_put(blob, name)
             print(f"wrote 1:/engines/{name}.dse: {size} bytes, CRC {crc:08x}, read back from the card and matched "
                   "(a pack pointing to it loads it from its next load)")
         else:
             for n, size in card.list():
                 print(f"{n.lower():12s} {size:6d}")
-    except (CardError, OSError) as e:
+    except (CardError, OSError, ValueError) as e:
         sys.exit(f"card {op}: {e}")
     finally:
         os.close(fd)

@@ -3,7 +3,11 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 const html=fs.readFileSync(new URL('../web/loader.html',import.meta.url),'utf8');
 const part=n=>html.slice(html.indexOf(`/* ${n} BEGIN */`),html.indexOf(`/* ${n} END */`));
-const {ML,LL}=new Function(part('MLCORE')+'\n'+part('LLCORE')+'\nreturn {ML,LL};')();
+const {ML,LL,CRE3USB}=new Function(part('MLCORE')+'\n'+part('LLCORE')+'\nreturn {ML,LL,CRE3USB};')();
+const releasePolicy=JSON.parse(fs.readFileSync(new URL('../tools/abi3_usb_policy.json',import.meta.url),'utf8'));
+assert.equal(CRE3USB.policy.minimum_app_build,releasePolicy.minimum_app_build);
+assert.equal(CRE3USB.policy.release_version,releasePolicy.release_version);
+const legacyBuild=releasePolicy.minimum_app_build-1;
 const asset={size:14906,crc:0x2EB146FE,build:0x80010000,version:'1.0.0',kind:1,abi:0x207,base:0xFE80B6B5};
 const engine={type:2,compatible:1,file:'fm.dse',...asset};
 function packet(sub,n,index=0,b=new Uint8Array(96),o={}) {
@@ -99,9 +103,12 @@ assert.match(html,/<p class="sub">Track 8 instrument<\/p>/);
 assert.doesNotMatch(html,/loaded with pack|Empty pads start nothing/);
 assert.throws(()=>LL.checkEngine(new Uint8Array(35)),/header/);
 const fake=new Uint8Array(35),d=new DataView(fake.buffer);d.setUint32(0,0x32455243,true);d.setUint32(4,1,true);
-assert.throws(()=>LL.checkEngine(fake),/incompatible/);
+assert.throws(()=>LL.checkEngine(fake, legacyBuild),/incompatible/);
 d.setUint32(12,0x207,true);d.setUint32(16,0xFE80B6B5,true);d.setUint32(20,1,true);
-assert.throws(()=>LL.checkEngine(fake),/body CRC/);
+assert.throws(()=>LL.checkEngine(fake, legacyBuild),/body CRC/);
+const upgrade = `FM 1.0.0 (CRE2) does not run on firmware ${releasePolicy.release_version}. Install fm.dse 2.0.0.`;
+assert.throws(()=>LL.checkEngine(fake), {message: upgrade});
+await assert.rejects(LL.put({run(){throw Error('must validate first');}},fake), {message: upgrade});
 // Check status reads only cmd 10 00, even when the previous write outcome was unknown.
 const sent=[],link=new ML.Link(m=>{sent.push([...m]);link.feed(Uint8Array.from([...ML.PRE,0x10,0,1,3,1,1,0,...ML.p7(0,3),...ML.p7(0,3),...ML.p7(0,5),0,0xF7]));});
 const card=new ML.Card(link,{ctx:{pending:{op:'write',what:'Write'}},settleMs:1});
@@ -109,7 +116,11 @@ await card.reconcile();assert.deepEqual(sent.map(m=>m[7]),[0]);assert.equal(card
 await assert.rejects(card.write(new Uint8Array(35),'x'));
 const badCard={run(){throw Error('must validate first');}};await assert.rejects(LL.put(badCard,new Uint8Array(35)),/header/);
 if(process.argv[2]) {
- const fm=new Uint8Array(fs.readFileSync(process.argv[2]));assert.equal(LL.checkEngine(fm).version,'1.0.0');
+ const fm=new Uint8Array(fs.readFileSync(process.argv[2])), expected=process.argv[3] || '1.0.0';
+ const target = expected === '1.0.0' ? legacyBuild : undefined;
+ assert.equal(LL.checkEngine(fm,target).version,expected);
+ if(expected === '1.0.0')assert.throws(()=>LL.checkEngine(fm),{message:upgrade});
+ else assert.throws(()=>LL.checkEngine(fm,legacyBuild), {message: `CRE3 engine files require firmware ${releasePolicy.release_version} or newer.`});
  function writerRig(corrupt=false) {
   let phase=0,job=0,got=0,size=0,crc=0;const sent=[],stage=new Uint8Array(fm.length);
   const link=new ML.Link(m=>{
@@ -129,11 +140,11 @@ if(process.argv[2]) {
   });
   return {card:new ML.Card(link,{drainMs:1,pollMs:1,replyMs:20}),sent,stage};
  }
- const good=writerRig();await LL.put(good.card,fm);assert.deepEqual(good.stage,fm);
+ const good=writerRig();await LL.put(good.card,fm,target);assert.deepEqual(good.stage,fm);
  const subs=good.sent.filter(m=>m[6]===0x10).map(m=>m[7]);
  assert.deepEqual(subs.slice(-5),[3,0,15,0,127]);
  assert.equal(good.sent.filter(m=>m[6]===0x7D).length,Math.ceil(fm.length/32));
- const bad=writerRig(true);await assert.rejects(LL.put(bad.card,fm),/read back correctly/);
+ const bad=writerRig(true);await assert.rejects(LL.put(bad.card,fm,target),/read back correctly/);
  assert.ok(!bad.sent.some(m=>m[6]===0x10 && [3,127].includes(m[7])),'bad staged readback stops before commit and END');
  assert.ok(bad.card.ctx.pending);
  const del=writerRig();await LL.remove(del.card);assert.deepEqual(del.sent.map(m=>m[7]),[19,0,127]);

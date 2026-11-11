@@ -9,7 +9,7 @@ import struct
 BASE, FLASH_END = 0x08010000, 0x08080000
 STOCK_SHA256 = 'd5b9ff5dadf2e284f80d69ecb7087486cf0df315a697bed8272af9de0e90df15'
 STOCK_SYX_SHA256 = '11d604a6b6bef0d41378da03718658c7fe9c959ac24e7fef6563796b9932afaf'
-PTR_CORE0, PTR_CORE1 = 0x08031658, 0x08031660
+CORE0_STREAM_POINTER, CORE1_STREAM_POINTER = 0x08031658, 0x08031660
 STREAM0, STREAM1 = 0x0801A838, 0x080101F0
 STOCK_CORE0_WORDS, STOCK_CORE1_WORDS = 8173, 14187
 TERMINATOR = 0x100
@@ -88,7 +88,7 @@ def pinned_streams(image):
     if sha(image) != STOCK_SHA256:
         raise ValueError('input image is not the pinned stock firmware')
     pointers = [struct.unpack_from('<I', image, p - BASE)[0]
-                for p in (PTR_CORE0, PTR_CORE1)]
+                for p in (CORE0_STREAM_POINTER, CORE1_STREAM_POINTER)]
     if pointers != [STREAM0, STREAM1]:
         raise ValueError('input stream pointers differ')
     streams = []

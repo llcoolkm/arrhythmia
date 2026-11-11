@@ -46,9 +46,9 @@ def layer(image, streams):
         sys.exit("stream hashes do not match the manifest")
     if man.get("firmware_image") is not False or not man.get("core0_stream_unchanged"):
         sys.exit("unexpected manifest flags")
-    if (man["core1_pointer_address"], man["core1_pointer"]) != (m.PTR_CORE1, m.STREAM1):
+    if (man["core1_pointer_address"], man["core1_pointer"]) != (m.CORE1_STREAM_POINTER, m.STREAM1):
         sys.exit("core 1 placement differs from the stock select-1 pointer")
-    if (man["core0_pointer_address"], man["core0_old_pointer"]) != (m.PTR_CORE0, m.STREAM0):
+    if (man["core0_pointer_address"], man["core0_old_pointer"]) != (m.CORE0_STREAM_POINTER, m.STREAM0):
         sys.exit("core 0 pointer address / old target differ from the stock pointer table")
     stock0, stock1 = m.stock_streams(image)
     old_end0 = m.STREAM0 + 6 + 3 * m.STOCK_CORE0_WORDS
@@ -67,7 +67,7 @@ def layer(image, streams):
     if at0 + len(s0) != man["core0_stream_end"] or at0 + len(s0) > m.FLASH_END or at0 % 4:
         sys.exit("core 0 placement")
     # the two stream starts are referenced only by the pointer table (aligned literal scan of the whole image)
-    for start, ptr in ((m.STREAM0, m.PTR_CORE0), (m.STREAM1, m.PTR_CORE1)):
+    for start, ptr in ((m.STREAM0, m.CORE0_STREAM_POINTER), (m.STREAM1, m.CORE1_STREAM_POINTER)):
         at = [m.BASE + i for i in range(0, len(image) - 3, 4) if struct.unpack_from("<I", image, i)[0] == start]
         if at != [ptr]:
             sys.exit(f"stream start {start:#x} referenced at {[hex(x) for x in at]}, expected only {ptr:#x}")
@@ -75,7 +75,7 @@ def layer(image, streams):
     patches = []
     for a, b in m._runs([i for i in range(len(s1)) if s1[i] != old1[i]]):
         patches.append((m.STREAM1 + a, old1[a:b], s1[a:b], "core 1 voice stream (select 1; Arrhythmia DSP voice code, source not yet published)"))
-    patches.append((m.PTR_CORE0, struct.pack("<I", m.STREAM0), struct.pack("<I", at0), "core 0 stream pointer"))
+    patches.append((m.CORE0_STREAM_POINTER, struct.pack("<I", m.STREAM0), struct.pack("<I", at0), "core 0 stream pointer"))
     patches.append((at0, b"\xff" * len(s0), s0, f"core 0 stream, stock {m.STOCK_CORE0_WORDS} words, relocated"))
     info = {"streams": os.path.relpath(streams, ROOT), "profile": man["profile"], "wire_abi_frozen": man["wire_abi_frozen"],
             "core1_sha256": man["core1_sha256"], "core0_sha256": man["core0_stock_stream_sha256"],

@@ -4,6 +4,8 @@
 """
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
 import flash  # noqa: E402
@@ -87,4 +89,12 @@ def main(path):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if len(sys.argv) > 1:
+        main(sys.argv[1])
+    else:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "fixture.syx"
+            version = bytes((0, 0, 0, 7, 3, 1))
+            image = bytes(range(256)) * 16
+            path.write_bytes(syx.build(image, bytes((1, 0x63)) + version, bytes((0,)) + version))
+            main(str(path))

@@ -1,0 +1,13 @@
+{
+  "format": "cre3-usb-policy/1",
+  "platform_id": 1,
+  "queue_abi": 768,
+  "memory_grants": 7,
+  "offered_capabilities": 32,
+  "shim_crc32": 2960114900,
+  "cycle_limit": 65626,
+  "max_bytes": 15360,
+  "envelope_state": "measured",
+  "release_version": "0.3.1",
+  "minimum_app_build": 7388
+}

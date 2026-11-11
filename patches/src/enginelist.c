@@ -3,6 +3,9 @@
  * Files are reopened for each bounded piece: no shared FIL retained between passes.
  * Never runs recovery, populate, a DSP load, or any FatFs call with a dirty volume.
  * Wire rows are 96 bytes, nibble encoded; see tools/module.py decode_card_row. */
+#if ENGINE_ABI3
+#include "cre3scan.h"
+#endif
 #define EL_ROWS 64u
 #define EL_BYTES 96u
 #define EL_SEEK ((uint32_t (*)(uint32_t, uint32_t))0x080223D9u)
@@ -15,7 +18,12 @@ struct el {
     uint16_t seen;
     uint16_t pad;
     uint32_t off, whole, body, last;
-    uint32_t dir[16], fi[40];
+    uint32_t dir[16];
+#if ENGINE_ABI3
+    union {uint32_t fi[40];union cre3_scan_scratch scan;};
+#else
+    uint32_t fi[40];
+#endif
     char path[64];
     uint8_t row[EL_BYTES];
 };
@@ -158,9 +166,56 @@ static void el_entry(void)
         l->step = EL_FILE;
     }
 }
+#if ENGINE_ABI3
+/* One reopened file piece per pass; the final extra byte checks exact EOF. */
+static void el_cre3_file(void)
+{
+    struct el *l=EL;uint8_t *r=l->row;r[88]=3;
+    uint32_t fil=file_b(0),got=0;
+    uint8_t b[PIECE];
+    uint32_t rc=fil?F_OPEN(fil,l->path,FA_READ):1;
+    if(rc) {r[7]=rc==FR_NO_FILE || rc==FR_NO_PATH?4:3;r[89]=18;goto done;}
+    uint32_t size=link(fil,FIL_FSIZE),n=l->off>size?0:size-l->off;
+    if(n>PIECE)n=PIECE;
+    if(!l->off)el_word(r+60,size);
+    if(size>=32768) {F_CLOSE(fil);r[7]=2;r[88]=3;r[89]=1;goto done;}
+    rc=size!=*(uint32_t *)(r+60) || l->off>size;
+    if(!rc && l->off)rc=EL_SEEK(fil,l->off);
+    if(!rc)rc=F_READ(fil,(uint32_t)b,n,&got) || got!=n;
+    if(!rc && l->off+got==size) {
+        uint8_t extra;uint32_t more=0;
+        rc=F_READ(fil,(uint32_t)&extra,1,&more) || more;
+    }
+    uint32_t closed=F_CLOSE(fil);
+    if(rc || closed) {r[7]=3;r[89]=18;l->flags|=2;goto done;}
+    struct cre3_platform p=cd3_platform();p.composition_ok=l->current==6;
+    if(!l->off) {
+        cre3_scan_first(&l->scan.file,b,got,size,&p);
+        r[88]=3; /* ABI3 verdict namespace; the scan never runs check14. */
+        if(got>=64) {
+            el_word(r+68,cre3_u32(b+28));el_word(r+72,b[24]);
+            el_word(r+76,cre3_u32(b+20));el_word(r+80,cre3_u32(b+16));
+            el_word(r+84,cre3_u32(b+12));r[90]=b[26];el_word(r+92,cre3_u32(b+60));
+        }
+    }
+    l->whole=cre3_crc(l->whole,b,got);
+    cre3_scan_piece(&l->scan.file,b,l->off,got);l->off+=got;
+    if(l->off<size)return;
+    el_word(r+64,~l->whole);
+    r[89]=(uint8_t)cre3_scan_finish(&l->scan.file,&p);r[7]=r[89]?2:1;
+done:
+    l->step=EL_ENGINE_READ;l->ready=1;l->count++;
+}
+#endif
 static void el_step(void)
 {
     struct el *l = EL;
+#if ENGINE_ABI3
+    if(l->step==EL_DEFAULT && l->current<6) {
+        cre3_scan_composition(&l->scan.decoder,&l->current,&l->whole,&l->body,&l->off);
+        return;
+    }
+#endif
     uint8_t *fi = (uint8_t *)l->fi;
     uint32_t rc;
     if (l->step == EL_DEFAULT) {
@@ -190,6 +245,9 @@ static void el_step(void)
             } else el_end(0);
         } else el_entry();
     } else {
+#if ENGINE_ABI3
+        el_cre3_file();
+#else
         uint8_t *r = l->row;
         uint32_t fil = file_b(0), got = 0;
         volatile uint32_t bw[PIECE / 4];
@@ -222,6 +280,7 @@ static void el_step(void)
             if (~l->body != *(uint32_t *)(r + 84)) r[7] = 2;
             l->step = EL_ENGINE_READ; l->ready = 1; l->count++;
         }
+#endif
     }
 }
 static void el_main(struct state *s)

@@ -87,7 +87,7 @@ def final_firmware(arm, core0, core1, stock_ref):
             got[lo:hi] = data[lo:hi]
         if bytes(got) != data:
             raise ValueError('ARM input changed a stock DSP stream outside the far blob')
-    for pointer in (a.PTR_CORE0, a.PTR_CORE1):
+    for pointer in (a.CORE0_STREAM_POINTER, a.CORE1_STREAM_POINTER):
         off = pointer-a.BASE
         if arm[off:off+4] != stock[off:off+4]:
             raise ValueError('ARM input already changes a stream pointer')
@@ -100,12 +100,12 @@ def final_firmware(arm, core0, core1, stock_ref):
     image.extend(b'\xff' * max(0, at+len(core0)-len(image)))
     image[a.STREAM1-a.BASE:a.STREAM1-a.BASE+len(core1)] = core1
     image[at:at+len(core0)] = core0
-    struct.pack_into('<I', image, a.PTR_CORE0-a.BASE, rel.CORE0_AT)
+    struct.pack_into('<I', image, a.CORE0_STREAM_POINTER-a.BASE, rel.CORE0_AT)
     struct.pack_into('<H', image, 0x1CA, LABEL)
     image.extend(b'\xff' * (-len(image)%4))
     image = bytes(image)
     allowed = ((a.STREAM1-a.BASE, a.STREAM1-a.BASE+len(core1)),
-               (at, at+len(core0)), (a.PTR_CORE0-a.BASE, a.PTR_CORE0-a.BASE+4), (0x1CA, 0x1CC))
+               (at, at+len(core0)), (a.CORE0_STREAM_POINTER-a.BASE, a.CORE0_STREAM_POINTER-a.BASE+4), (0x1CA, 0x1CC))
     padded_arm = arm+b'\xff'*(len(image)-len(arm))
     if any(before != after and not any(lo <= i < hi for lo,hi in allowed)
            for i,(before,after) in enumerate(zip(padded_arm,image))):

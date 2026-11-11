@@ -185,6 +185,9 @@ static void tm_apply(uint32_t P, uint32_t site)
     sc_copy(why == TM_OK ? b : 0);            /* the scales sub-record's runtime copy (scales.c) */
 #endif
     t->gen++;
+#if ENGINE_ABI3 && !FAR_PART
+    abi3_controls_commit();
+#endif
     RESUME_ALL();
 }
 

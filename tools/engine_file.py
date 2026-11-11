@@ -4,13 +4,14 @@
     python3 -I tools/engine_file.py fm RELEASE.bin out.dse            FM: cut the engine region of a released flat
                                                                       image (P:0x2000..), header it (queue ABI 0x207)
     python3 -I tools/engine_file.py reheader in.dse out.dse           a CRE2 file: the base id only
-    python3 -I tools/engine_file.py convert in.dse out.dse --kind fm|sid --abi N [--build N]
+    python3 -I tools/engine_file.py convert in.dse out.dse --kind fm --abi N [--build N]
                                                                       a stage-1 CRE1 file to CRE2
     python3 -I tools/engine_file.py show file.dse
+    python3 -I tools/engine_file.py inspect3|check3 file.dse
 
 The 32-byte little-endian header ('CRE2'):
     +0 magic   +4 words   +8 CRC-32 (zlib) of the body   +12 queue ABI   +16 base id (CRBC, tools/crbc.py)
-    +20 kind (1 FM, 2 SID)   +24 file build (information only)   +28 zero
+    +20 kind (1 FM, 2 reserved)   +24 file build (information only)   +28 zero
 then `words` 24-bit big-endian P words for P:0x2000 onwards. Kind, file build and queue ABI are separate fields.
 
 A marked CRE2 file build encodes the engine's independent semantic version: bit 31 is 1,
@@ -30,6 +31,7 @@ written to a temporary file in its directory and moved into place (os.replace), 
 existing output untouched and IN = OUT is safe. A reheader proves identity only: composed-pair bootstrap, queue and
 render qualification of the result are separate and still required.
 """
+import json
 import os
 import struct
 import sys
@@ -145,9 +147,41 @@ def _opts(a, allowed):
     return o
 
 
+def inspect_cre3(path, *, details):
+    """Read the file and report its static eligibility for this release."""
+    import cre3_check
+
+    with open(path, 'rb') as stream:
+        data = stream.read()
+    info = cre3_check.parse(data) if details else {}
+    checks = dict(static_eligible=True, runtime_check_14='NOT_RUN', device_admissible=False, errors=[])
+    try:
+        cre3_check.check(data)
+    except ValueError as exc:
+        checks.update(static_eligible=False, errors=[str(exc)])
+    if details:
+        info.pop('body')
+        info['checks'] = checks
+        print(json.dumps(info, sort_keys=True, indent=2))
+        return 0
+    print(json.dumps(checks, sort_keys=True, indent=2))
+    return int(not checks['static_eligible'])
+
+
 def main(a):
     """The CLI: every input read and checked and the result built before the output is touched. Returns the code."""
     try:
+        if a and a[0] in ("inspect3", "check3"):
+            need(len(a) == 2, f"{a[0]} FILE")
+            return inspect_cre3(a[1], details=a[0] == "inspect3")
+        if a and a[0] in ("make3", "wrap3", "rewrap3"):
+            try:
+                import abi3_file
+            except ModuleNotFoundError as exc:
+                if exc.name != "abi3_file":
+                    raise
+                raise ValueError("CRE3 authoring tools are unavailable in this checkout.") from None
+            return abi3_file.cli(a)
         if a[:1] == ["fm"] and len(a) == 3:
             out = make(fm_body(open(a[1], "rb").read()), KINDS["fm"], QUEUE_ABI, QUEUE_ABI)
         elif a[:1] == ["reheader"] and len(a) == 3:
@@ -165,7 +199,7 @@ def main(a):
         else:
             print(__doc__, file=sys.stderr)
             return 2
-    except (ValueError, OSError) as x:
+    except (ValueError, OSError, KeyError, TypeError, struct.error) as x:
         print(f"refused: {x}", file=sys.stderr)
         return 1
     write_atomic(a[2], out)

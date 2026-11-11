@@ -3,8 +3,7 @@
     uv run python -I tests/test_capture.py
 
 No device is touched: the live-path tests use a regular file or a fake class as the MIDI port and a Python script
-as the recorder. The regression reproductions are
-test_codex_repro_*.
+as the recorder. Regression reproductions use the test_repro_ prefix.
 """
 import asyncio
 import copy
@@ -221,7 +220,7 @@ def test_alignment_and_metrics(d):
     assert all(abs(h["residual_samples"]) <= 1 for h in r["hits"]), [h["residual_samples"] for h in r["hits"]]
 
 
-def test_codex_repro_silence_floor(d):
+def test_repro_silence_floor(d):
     """Exact 2/4/6 s hits, digital-silent lead; the floor was measured over the whole file (-12.04 dBFS)."""
     p, s = take(d, "x", offsets(2, [0, 0, 0]), [1, 1, 1], noise=0)
     r = ca.analyse(p, s, window_s=.2)
@@ -290,14 +289,14 @@ def test_tail_figures(d):
 
 # ---------------------------------------------------------------- comparisons (fixes D, E)
 
-def test_codex_repro_cosine_only(d):
+def test_repro_cosine_only(d):
     """Cosine .995 passes the shape flag but NRMSE is .0999 after optimal gain."""
     c = ca.compare([[1., 0.]], 0, [[.995, (1 - .995 ** 2) ** .5]], 0, 0, 2, 0)
     assert c["cosine_ge_0.99"] and abs(c["nrmse_after_gain"] - 0.0998749) < 1e-6, c
     assert not c["nrmse_le_0.05"] and not c["shape_and_level_ok"] and c["scope"].startswith("diagnostic")
 
 
-def test_codex_repro_rate_mismatch(d):
+def test_repro_rate_mismatch(d):
     """against() accepted a 44.1 kHz analysis against a 48 kHz one."""
     p, s = take(d, "x", offsets(2, [0, 0, 0]), [1, 1, 1], noise=0)
     r = ca.analyse(p, s, window_s=.2)
@@ -405,7 +404,7 @@ def edit_meta(s, **capture_fields):
     json.dump(m, open(s, "w"))
 
 
-def test_codex_gate_recorder_faults(d):
+def test_gate_recorder_faults(d):
     """Item 1: overruns/xruns, pump errors and short recordings invalidate a take; the text is kept."""
     p, s = take(d, "A", offsets(2.3, [0, 0, 0]), [1, 1, 1], kind="short")
     a = ca.analyse(p, s)
@@ -426,7 +425,7 @@ def test_codex_gate_recorder_faults(d):
     assert any("planned 12.0 s" in x for x in ca.analyse(p3, s3)["capture"]["reasons"])
 
 
-def test_codex_gate_silence_with_notes(d):
+def test_gate_silence_with_notes(d):
     """Item 2: 'silence' (notes sent, silent fixture) is a silent-audio control like 'no-note'."""
     p, s = take(d, "sil", [], [], source="silence")
     r = ca.analyse(p, s)
@@ -445,7 +444,7 @@ def test_codex_gate_silence_with_notes(d):
     assert nn["control_silent"] and nn["stimulus_notes"]["note_on_events"] == 0
 
 
-def test_codex_gate_extra_onset(d):
+def test_gate_extra_onset(d):
     """Item 3: an unexplained extra onset fails the verdict."""
     p, s = take(d, "A", offsets(2.3, [0, 0, 0]), [1, 1, 1])
     a = ca.analyse(p, s)
@@ -481,7 +480,7 @@ def render_json(path, wav, frames=None, **over):
     json.dump(m, open(path, "w"))
 
 
-def test_codex_gate_metadata_required(d):
+def test_gate_metadata_required(d):
     """Item 4: no verdict without validated metadata on both sides; render provenance adapter for emulator output."""
     p, s = take(d, "A", offsets(2.3, [0, 0, 0]), [1, 1, 1], kind="short")
     a = ca.analyse(p, s)
@@ -523,7 +522,7 @@ def test_codex_gate_metadata_required(d):
     assert json.load(open(out))["against"]["whole_take"]["pass"] is False
 
 
-def test_codex_hitsets_symmetric(d):
+def test_hitsets_symmetric(d):
     """Third review item 1: hit-ID sets must be equal on both sides, in both directions; duplicates rejected."""
     a = ca.analyse(*take(d, "ha", offsets(2.3, [0, 0, 0]), [1, 1, 1], kind="short"))
     b = ca.analyse(*take(d, "hb", offsets(2.3, [0, 0, 0]) + [9 * RATE], [1, 1, 1, 1],
@@ -546,7 +545,7 @@ def test_codex_hitsets_symmetric(d):
         assert not w["pass"] and any("duplicate" in r for r in w["reasons"]), w
 
 
-def test_codex_render_bounds(d):
+def test_render_bounds(d):
     """Third review item 2: render provenance values are validated, not just present."""
     p, s = take(d, "A", offsets(2.3, [0, 0, 0]), [1, 1, 1])
     a = ca.analyse(p, s)
@@ -1993,7 +1992,10 @@ def test_live_path_with_fakes(d):
         b"".join(bytes.fromhex(e["bytes"]) for e in meta["stimulus"]["events"])
     assert sent == expect and all(s["sent"] for s in meta["settings"]["sent"] + meta["stimulus"]["events"])
     assert all(abs(e["late_ms"]) < 20 for e in meta["stimulus"]["events"])
-    assert meta["git"]["commit"] and meta["dsp_reads"].startswith("none") and meta["capture"]["arrival_log"]
+    in_checkout = os.path.exists(os.path.join(capture.ROOT, ".git"))
+    assert bool(meta["git"]["commit"]) == in_checkout
+    assert bool(meta["git"]["branch"]) == in_checkout
+    assert meta["dsp_reads"].startswith("none") and meta["capture"]["arrival_log"]
     assert meta["source"]["selected_by"] == "operator on the unit" and meta["source"]["slot_ui"] == "A1"
     assert any("duration" in x for x in meta["protocol_deviations"])          # the fast test schedule is recorded
     r = ca.analyse(wav, side, window_s=0.2)

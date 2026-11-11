@@ -87,7 +87,7 @@ release image. Percent of the 163,840-cycle block.
 
 Rough sizes for new voices (our estimates): a subtractive voice (one band-limited oscillator, a 2- or 4-pole filter,
 envelope, amplifier) costs about 1,000 to 1,600 instructions per block; eight of them 5 to 8 % of a block. A
-three-voice SID-style engine is 2 to 4 % at 48 kHz.
+reserved three-voice design was estimated at 2 to 4 % at 48 kHz.
 
 ### What was tested on 7261
 

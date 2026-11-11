@@ -204,7 +204,7 @@ The host tool `tools/module.py` also has these `card` commands:
 | Command | Function |
 |---|---|
 | `card engine DEVICE PACK NAME` | Writes the `engine.cfg` of a pack. `NAME` is an engine name without `.dse`, or `none`. Use `default` for `engines/default.cfg`. |
-| `card engine-put DEVICE fm.dse` | Installs the release engine as `engines/fm.dse`, with header/CRC checks and read-back. |
+| `card engine-put DEVICE FILE.dse` | Installs an engine file as `engines/<name>.dse`. Before the write, the unit applies every file check of engine ABI 3; the file is at most 15,360 bytes. Read-back follows. |
 | `card engine-verify DEVICE fm` | Recovers interrupted helper files if needed, then verifies the engine; this can modify the card. |
 | `card engstatus DEVICE` | Prints the engine state. Read-only. |
 
@@ -219,11 +219,12 @@ before another write. Recovery of engine helper files happens on the next put or
 boot. Until recovery, a missing engine makes the pack play samples. The loader's read-only scan does not invoke
 `engine-verify`. The [scan reference](../dev/loader-scan.md) describes framing, row limits and selection states.
 
-`fm.dse` version 1.0.0 is independent of firmware 0.3.0. Its CRE2 build word at byte 24 is marked semantic version
-`0x80010000`; unmarked legacy words mean unknown version. DSP identity `0x300` is a separate field. Engine admission
-checks ABI 207, base `0xFE80`, engine kind and body integrity. Version comparison does not replace those checks.
-The release file is 14,906 bytes, SHA-256 `236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad`,
-whole-file CRC32 `2eb146fe`, body CRC32 `5a7949bd`. A checksum difference alone establishes no version ordering.
+`fm.dse` version 2.0.0 is independent of firmware 0.3.1. Its engine version word (header +28) is the marked semantic
+version `0x80020000`. Engine admission applies the checks of [engine ABI 3](engines-dev.md#checks); version comparison
+does not replace them. The release file is 15,346 bytes, SHA-256
+`9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae`, and declares 65,626 cycles. A checksum difference
+alone establishes no version ordering. To write your own engine, read [engines for developers](engines-dev.md),
+including its [restricted instruction sequences](engines-dev.md#restricted-instruction-sequences).
 
 ### Project selection over MIDI
 
@@ -301,14 +302,15 @@ built `.mod` files are release assets. The module files web page also has them
   `fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27`. Copy a built module to `modules` on the card
   and select it with **Shift + Sample Rec** ([Loading](#loading)).
 
-The ARM part of both images and the whole arrhythmia-devkit image rebuild from the published sources. The current firmware
-7358 and the separate FM engine rebuild on Linux (tested on Ubuntu x86-64 only). Refer to
-[the 0.3.0 rebuild steps](../README.md#rebuild-030-firmware-7358-and-fmdse) and the
-[FM DSP source](../../tools/dspvoice207live/README.md). `tools/dspvoice/` holds the DSP voice source of
-the 0.1.1 image.
+The published source retains earlier image rebuilds. Build 7388 reproduces from the official input with the
+[published patch command](../README.md#reproduce-031-firmware-7388). `tools/dspvoice/` holds the DSP voice source
+of the 0.1.1 image.
 
 ## Safety
 
 A module runs with full access to the memory of the unit. A faulty or malicious module can crash the unit or damage
 data. Run only trusted modules, and keep backups. To exit a hung module, power-cycle the unit. No module starts
 automatically at power-on.
+
+A module must not write a DSP peripheral register. A module that does voids platform 1 of engine ABI 3: the meter, the
+stack grant and the engine health verdicts no longer hold. The firmware does not detect such a write.

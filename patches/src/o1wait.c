@@ -580,6 +580,7 @@ static void o1_frame(uint32_t *src)
 }
 
 /* cmd 0D (see the header): F0 00 20 29 00 60 0D F7. No reply while the region is invalid (as every devkit command). */
+#if !(ABI3_FAR_MORE && !FAR_PART)
 static void o1_sysex(const uint8_t *m, uint32_t len)
 {
     (void)m;
@@ -599,3 +600,4 @@ static void o1_sysex(const uint8_t *m, uint32_t len)
     uint32_t out[2] = {(uint32_t)r, sizeof r};
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }
+#endif

@@ -739,7 +739,88 @@ if (typeof module !== 'undefined') module.exports = ML;
 
 <script>
 /* LLCORE BEGIN */
-/* published-engines: [{"name":"fm.dse","size":14906,"crc32":"2eb146fe","sha256":"236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad","version":"1.0.0"}] */
+/* published-engines: [{"name":"fm.dse","size":15346,"crc32":"0b9611b1","sha256":"9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae","version":"2.0.0"}] */
+/* CRE3USB GENERATED BEGIN */
+// Generated static CRE3 validation only; READY and execution remain device checks.
+const CRE3USB = (() => {
+'use strict';
+const policy={"format":"cre3-usb-policy/1","platform_id":1,"queue_abi":768,"memory_grants":7,"offered_capabilities":32,"shim_crc32":2960114900,"cycle_limit":65626,"max_bytes":15360,"envelope_state":"measured","release_version":"0.3.1","minimum_app_build":7388};
+const metadataBounds={"1":[1,24],"2":[1,32],"3":[1,32],"4":[1,128],"16":[2,13],"17":[3,3],"32":[11,22],"48":[2,13],"80":[21,52],"96":[10,10]};
+const reasons = {
+ 1: 'The file header or length is invalid.',
+ 2: 'The header checksum does not match.',
+ 3: 'The engine uses an unsupported queue ABI.',
+ 4: 'The engine targets a different platform.',
+ 5: 'The engine declares unsupported capabilities, requirements or sources.',
+ 6: 'The firmware does not provide a feature this engine needs.',
+ 7: 'The engine has an invalid lane count, queue limit or sound count.',
+ 8: 'The file uses unsupported flags.',
+ 9: 'The engine requests memory this platform does not grant.',
+ 10: 'The body size, body checksum or shim checksum is invalid.',
+ 11: 'The engine entry vector is invalid.',
+ 12: 'This queue ABI does not support table descriptors.',
+ 13: 'The declared cycle budget must be positive and within the platform limit.',
+ 15: 'The engine needs too many queue entries for one pad press.',
+ 16: 'The engine class or reserved field is invalid.',
+ 17: 'The engine control records are invalid.',
+ 18: 'The validator could not read the file.'
+};
+const image=Uint8Array.from(atob('AGFzbQEAAAABEQNgAAF/YAF/AX9gA39/fwF/AwUEAAECAgQFAXABAQEFBAEBAgIGCAF/AUGAgAULBx8DBm1lbW9yeQIACmlucHV0X2Jhc2UAAAVjaGVjawABCrEUBAgAQYCIgIAAC+4SAR1/I4CAgIAAQYACayIBJICAgIAAQQEhAgJAIABB/4d/akG/iH9JDQACQEEAIAFBwAAQgoCAgABFDQBBASECIAEoAgBBw6SVmgNHDQEgAS0ABkH/AXENASABLQAHQf8BcQ0BIAEtAAVBCHQgAS0ABCIDciIEIAEtABkiBSABLQAaIgZqQQN0QcAAakkNASADQQNxDQEgBEGAIEsNAQJAIAEoAggiA0H/v39qQYRDSQ0AIAAgBCADQQNsIgdqRw0CAkAgBkEQTQ0AQREhAgwDC0EMIQIgBUEPSw0CAkAgASgCFEGABkYNAEEDIQIMAwsCQCABKAIQQQFGDQBBBCECDAMLQQUhAiABKAIgQWdxQQFHDQIgASgCJEFfcQ0CIAEoAigiCEGA4IB+cQ0CQQchAiABLQAsIglBe2pB/wFxQfwBSQ0CIAEtAC1Bb2pB/wFxQfMBSQ0CIAEtAC4iCkEgSw0CAkAgAS0AL0UNAEEIIQIMAwsCQCABKAI4QQdNDQBBCSECDAMLAkAgASgCNEGl/3tqQab/e08NAEENIQIMAwtBDCECIAUNAiAIQQ12IQJBACEFA0ACQCACDQAgCEH/H3EhAAJAA0AgAEUNAUF/IQIDQCAAIAJBAWoiAnZBAXFFDQALIAVBAWohBSAAQQcgAkEKIAJBCkkbdEF/c3EhAAwACwsCQCAFIAlqQRhNDQBBDyECDAULQRAhAiABLQAYRQ0EIAEtABtB/wFxDQRBACELAkAgBkUNAEHAACABQcAAaiAGQQN0EIKAgIAARQ0EIAEtAC4hCiABLQAaIQsgASgCKCEICyABQcIAaiEJIAFBwABqIQxBACENQQAhDkEAIQ9BACEQQQAhEUEAIRJBACETQQAhFEEAIRUCQANAIA8gC0YNAUERIQIgDCAPQQN0aiIALQAAIhZBL0sNBiAWQQ9xIhdFDQYgF0EGSw0GIAAtAAQhGCAALQABIQUCQAJAAkACQAJAIBdBe2oOAgABAgsgFkEPSw0KAkAgBUEGRg0AIAUNCwtBASAFdCIXIBRxDQpBPyAFdCIAIAhxIABHDQoCQCAFQQZHDQAgGA0LC0EAIQADQCAAQQZGDQMgCSAAaiEFIABBAWohACAFLAAAQQBODQAMCwsLIBZBD0sNCSAAKAABRQ0JIAAtAAUNCSAALQAGDQkgAC0ABw0JIBINCUEBIRIMAgsgBUEVSw0IQQEgBXQiGSAIcUUNCCAALAAHIhpBAEgNCCAALQAGIhtBiAFxDQggGkH/AXEiGkE/cUEgRg0IIBpBH3EiGiAPSw0IIAAtAAMhHCAALQACIR0CQCAaRQ0AIBpBA3QgDGoiGkF4ai0AAEEPcUEDRw0JIBpBf2otAABBH3ENCQsgFkEEdiEaAkACQAJAIBdBf2oOBAACAgECCyAaQQFHDQogBUEIRw0KIB0NCiAcDQogGEUNCiAYIApB/wFxIgVHDQogAC0ABSAFTw0KIBNBAWohEwwDCyAaQQJHDQkgBUERSQ0JIAVBFUYNCSAZIBVxDQkgHQ0JIBwNCSAYDQkgACwABUEASA0JIBtBB0sNCSAZIBVyIRVBASERDAILIBZBEEkNCAJAIAVBFUYiFg0AIAVBEEcNCQsgHCAdakEYSw0IAkACQCAXQQJHDQAgHEF8akH/AXFB/QFJDQogGEF3akH/AXFB+QFJDQpBASAcdCAYSQ0KIAAtAAUgGEkNAQwKCyAcQQFHDQkgGEEBRw0JIAAtAAVBAUsNCQtBfyAcdEF/cyAddCIAIA4gDSAWGyIFcQ0IIAAgBXIiAiAOIBYbIQ4gDSACIBYbIQ1BASERQQEgECAaQQFGGyEQDAELIBcgFHIhFAsgCUEIaiEJIA9BAWohDwwACwtBESECIBMgCkH/AXFBAEdHDQQCQCARRQ0AIBJFDQULAkAgCEGAgARxRQ0AIA1FDQULIAhBgICAAXFFIA5BAEdyQQFHDQQgCEGAgPgAcSAVRw0EAkAgEEUNACAKQf8BcUEQSw0FC0EBQQMgCkH/AXEbIQwgAUHHAGohGEEBIRcDQAJAIBdBA0cNACAGQQN0QcAAaiEPIAFB/AFqIQhBfyEKQQAhCQNAAkACQCAEIAlNDQACQAJAIAkNAEEAIQIDQEHAACEFIAJBwABGDQIgAUHAAWogAmogASACai0AADoAACACQQFqIQIMAAsLAkAgDyAJTQ0AIAEgCWohACABQcABaiEGIA8gCWsiAkHAACACQcAASRsiBSECA0AgAkUNAiAGIAAtAAA6AAAgAkF/aiECIABBAWohACAGQQFqIQYMAAsLIAkgAUHAAWogBCAJayICQcAAIAJBwABJGyIFEIKAgIAARQ0JDAILIAkNAUEAIQIDQCACQQRGDQIgCCACakEAOgAAIAJBAWohAgwACwtBfyEGAkAgASgCPCAKc0F/Rg0AQQIhAgwJCyADQYDAAGohCUEAIQBBfyEFAkADQCAHIABNDQEgACAEaiABQcABaiAHIABrIgJBwAAgAkHAAEkbIgMQgoCAgABFDQkgBiABQcABaiADEIOAgIAAIQYCQAJAIABB/whLDQAgBSABQcABaiADEIOAgIAAIQUMAQsgAEGACUcNAEELIQIgAS0AwAFBCkcNCyABLQDBAUH/AXFB8AFHDQsgAS0AwgFBgAFHDQsgAS0AwwFBEHQgAS0AxAFBCHRyIAEtAMUBciIIQYTDAEkNCyAIIAlPDQsgAS0AxgFB/wFxDQsgAS0AxwFB/wFxDQsgAS0AyAFB/wFxDQsgAS0AyQFB/wFxDQsgAS0AygFB/wFxDQsgAS0AywFB/wFxDQsLIAMgAGohAAwACwsgASgCDCAGc0F/Rw0GQQBBCiAFQav2wPwERhshAgwICyAFIAlqIQkgCiABQcABaiAFEIOAgIAAIQoMAAsLIAxBAyAXQQFGG0EDIBAbIRZBACEPIAshBSAYIQBBACEJAkADQCAFRQ0BAkAgAEF5ai0AACIIQQ5xQQJHDQAgCEEEdiAXRw0AQQEhCgJAIAhBA3FBAkcNACAAQX1qLQAAIQoLIA8gAC0AAEEGdiAJQQBHcSAKIAlqQQhLciIIaiIPIBZLDQhBACAJIAgbIApqIQkLIAVBf2ohBSAAQQhqIQAMAAsLIBdBAWohFwwACwsgAkEBcSAFaiEFIAJBAXYhAgwACwtBCiECDAELQRIhAgsgAUGAAmokgICAgAAgAgtaAQF/QQAhAwJAIABBgPgASw0AIAJBgPgAIABrSw0AIABBgIiAgABqIQBBASEDA0AgAkUNASABIAAtAAA6AAAgAUEBaiEBIABBAWohACACQX9qIQIMAAsLIAMLWwEBfwN/AkACQCACRQ0AIAJBf2ohAiAAIAEtAABzIQBBCCEDA0AgA0UNAkEAIABBAXFrQaCG4u1+cSAAQQF2cyEAIANBf2ohAwwACwsgAA8LIAFBAWohAQwACwsATgRuYW1lAA8OdmFsaWRhdG9yLndhc20BIgQACmlucHV0X2Jhc2UBBWNoZWNrAgJyZAMIY3JlM19jcmMHEgEAD19fc3RhY2tfcG9pbnRlcgA4CXByb2R1Y2VycwEMcHJvY2Vzc2VkLWJ5AQxVYnVudHUgY2xhbmcRMjEuMS44ICg2dWJ1bnR1MSkAlAEPdGFyZ2V0X2ZlYXR1cmVzCCsLYnVsay1tZW1vcnkrD2J1bGstbWVtb3J5LW9wdCsWY2FsbC1pbmRpcmVjdC1vdmVybG9uZysKbXVsdGl2YWx1ZSsPbXV0YWJsZS1nbG9iYWxzKxNub250cmFwcGluZy1mcHRvaW50Kw9yZWZlcmVuY2UtdHlwZXMrCHNpZ24tZXh0'), c=>c.charCodeAt(0));
+let instance=null;
+function fail(s){throw new ML.CardError('invalid',s);}
+function metadata(b,H,C,wanted,slots,minor) {
+ let at=64+8*C;const seen=new Set(),warnings=[];
+ const ascii=v=>Array.from(v).every(n=>n>=32 && n<=126);
+ while(at<H) {
+  const tag=b[at++];
+  if(tag===255){if(b.subarray(at,H).some(v=>v))fail('CRE3 metadata end padding.');return warnings;}
+  if(!tag || at>=H)fail('CRE3 metadata tag or length.');
+  const size=b[at++];if(at+size>H)fail('CRE3 metadata is truncated.');
+  const v=b.subarray(at,at+size);at+=size;
+  if(tag===0x12) {
+   const key=tag+':'+v[0];
+   if(size<2 || size>13 || v[0]>=C || !ascii(v.subarray(1)) || seen.has(key)){warnings.push('Ignored invalid optional control label.');continue;}
+   seen.add(key);
+  } else if(tag===0x40 || Object.hasOwn(metadataBounds,String(tag))) {
+   if(tag===0x40)fail('CRE3 metadata uses a retired table tag.');
+   const [lo,hi]=metadataBounds[tag];if(size<lo || size>hi)fail('CRE3 metadata known-tag length.');
+   const key=[0x10,0x11,0x20,0x30].includes(tag)?tag+':'+v[0]:String(tag);
+   if(tag!==0x60 && seen.has(key))fail('CRE3 metadata duplicate tag.');seen.add(key);
+   if([1,2,3,4].includes(tag) && !ascii(v))fail('CRE3 metadata text is not printable ASCII.');
+   if(tag===3 && !/^[A-Za-z0-9][A-Za-z0-9.+-]*$/.test(String.fromCharCode(...v)))fail('CRE3 metadata license identifier.');
+   if([0x10,0x11].includes(tag)) {
+    if(v[0]>21 || !(wanted & (1<<v[0])))fail('CRE3 metadata source id.');
+    if(tag===0x10?!ascii(v.subarray(1)):v[1]>1 || v[2]>127)fail('CRE3 metadata source detail.');
+   }
+   if(tag===0x20) {
+    if(minor<2 || v[0]<32 || !ascii(v.subarray(10)))fail('CRE3 metadata parameter.');
+    const u24=i=>v[i]+256*v[i+1]+65536*v[i+2];if(u24(1)>u24(7) || u24(7)>u24(4))fail('CRE3 metadata parameter bounds.');
+   }
+   if(tag===0x30 && (v[0]>=slots || !ascii(v.subarray(1))))fail('CRE3 metadata sound name.');
+   if(tag===0x50 && !ascii(v.subarray(20)))fail('CRE3 metadata assembler identity.');
+  }
+ }
+ if(H>64+8*C)fail('CRE3 metadata is missing its end marker.');
+ return warnings;
+}
+function check(b) {
+ if(!(b instanceof Uint8Array) || b.length<64 || b.length>policy.max_bytes)fail('CRE3 file has an invalid USB size.');
+ if(!instance) {
+  try{instance=new WebAssembly.Instance(new WebAssembly.Module(image));}
+  catch(e){fail('This browser cannot run the shared CRE3 validator.');}
+ }
+ new Uint8Array(instance.exports.memory.buffer,instance.exports.input_base(),policy.max_bytes).set(b);
+ const code=instance.exports.check(b.length);
+ if(code)fail(`CRE3 check ${code}: ${reasons[code] || "The file failed validation."}`);
+ const d=new DataView(b.buffer,b.byteOffset,b.byteLength),u=o=>d.getUint32(o,true),H=d.getUint16(4,true);
+ const warnings=metadata(b,H,b[26],u(40),b[46],u(20)-0x300);
+ return {format:'CRE3',size:b.length,crc:ML.crc32(b),build:u(28),kind:b[24],abi:u(20),base:u(16),bodyCRC:u(12),headerCRC:u(60),
+  declaredCycles:u(52),staticEligible:true,runtimeReady:'not checked',deviceAdmissible:false,warnings};
+}
+return {check,policy};
+})();
+
+/* CRE3USB GENERATED END */
 const LL = (() => {
 'use strict';
 const enc = {
@@ -757,9 +838,15 @@ function version(b) {
  return (b & 0xFF000000) >>> 0 === 0x80000000 ? [b >>> 16 & 255, b >>> 8 & 255, b & 255] : null;
 }
 const versionText = b => { const v = version(b); return v ? v.join('.') : 'unknown version'; };
-function checkEngine(b) {
+function checkEngine(b, appBuild = CRE3USB.policy.minimum_app_build) {
  if (!(b instanceof Uint8Array) || b.length < 35 || b.length > ML.MOD_MAX) fail('FM file has an invalid size.');
  const d = new DataView(b.buffer, b.byteOffset, b.byteLength), u = o => d.getUint32(o, true);
+ const production = appBuild >= CRE3USB.policy.minimum_app_build;
+ if (u(0) === 0x33455243) {
+  if (!production) fail(`CRE3 engine files require firmware ${CRE3USB.policy.release_version} or newer.`);
+  const asset=CRE3USB.check(b); return {...asset,version:versionText(asset.build)};
+ }
+ if (u(0) === 0x32455243 && production) fail(`FM 1.0.0 (CRE2) does not run on firmware ${CRE3USB.policy.release_version}. Install fm.dse 2.0.0.`);
  if (u(0) !== 0x32455243 || !u(4) || u(4) > 0x2000 || b.length !== 32 + 3 * u(4)) fail('FM file has an invalid header or length.');
  if (u(12) !== 0x207 || u(16) !== 0xFE80B6B5 || u(20) !== 1 || u(28) !== 0) fail('FM file is incompatible with this firmware.');
  if (ML.crc32(b.subarray(32)) !== u(8)) fail('FM file is damaged (body CRC mismatch).');
@@ -788,9 +875,11 @@ function decodeRow(r, nonce, index) {
   if (end>=0 && raw.subarray(end).some(x=>x)) fail('Malformed card name padding.');
   try { return new TextDecoder('utf-8',{fatal:true}).decode(raw.subarray(0,n)); } catch(e) { fail('Unreadable card name.'); }
  }
- if (![1,2,3].includes(b[0]) || b[2]>32 || b[3]>15 || b[4]>4 || b[5]>2 || b[6]>4 || b[7]>4 || b.subarray(88).some(x=>x)) return null;
+ if (![1,2,3].includes(b[0]) || b[2]>32 || b[3]>15 || b[4]>4 || b[5]>2 || b[6]>4 || b[7]>4) return null;
  if ((b[0]===1 && b[1]>31) || (b[0]===3 && b[1]!==127)) return null;
- const row={ type:b[0], selector:b[1], pad:b[2], flags:b[3], own:b[4], source:b[5], effective:b[6], compatible:b[7],
+ if (b.subarray(88).some(x=>x) && (b[0]!==2 || b[88]!==3 || b[90]>16 || b[91]!==0)) return null;
+ const extension=b[88]===3 ? {engineFormat:'CRE3',abi3:{preloadCheck:b[89],controlCount:b[90],headerCRC:u(92),runtimeReady:'not checked'}} : {};
+ const row={ ...extension, type:b[0], selector:b[1], pad:b[2], flags:b[3], own:b[4], source:b[5], effective:b[6], compatible:b[7],
   name:name(8,32), pointer:name(32,40), effectiveName:name(40,48), file:name(48,60), size:u(60),crc:u(64),build:u(68),kind:u(72),abi:u(76),base:u(80),bodyCRC:u(84) };
  for (const n of [row.pointer,row.effectiveName]) if (n && !/^[a-z0-9_-]{1,8}$/i.test(n)) return null;
  if (row.file && !/^[a-z0-9_-]{1,8}\.dse$/i.test(row.file)) return null;
@@ -814,7 +903,7 @@ function writable(r, snapshot) {
 }
 function engineState(row, asset) {
  if(!row || row.compatible===4) return {text:'Not on the card',action:'Put on card'};
- if(row.compatible!==1 || row.kind!==asset.kind || row.abi!==asset.abi || row.base!==asset.base) return {text:'On the card · unknown version · incompatible or unreadable file',action:'Update'};
+ if(row.compatible!==1 || row.kind!==asset.kind || row.abi!==asset.abi || row.base!==asset.base || (row.engineFormat||'CRE2')!==(asset.format||'CRE2')) return {text:'On the card · unknown version · incompatible or unreadable file',action:'Update'};
  if(row.size===asset.size && row.crc===asset.crc) return {text:`On the card · ${asset.version} · up to date`,action:'Remove from card'};
  const v=version(row.build), a=version(asset.build);
  let relation='';
@@ -840,8 +929,8 @@ async function scan(card, nonce) {
   if(index>64) throw new ML.CardError('invalid','Too many card scan records.');
  }
 }
-async function put(card, blob) {
- const asset=checkEngine(blob);
+async function put(card, blob, appBuild) {
+ const asset=checkEngine(blob, appBuild);
  return card.run({op:'engine-write',what:'Put FM on card',name:'fm',size:asset.size,crc:asset.crc},async()=>{
   await card.must(enc.engineBegin(blob),'Put FM on card');
   for(let off=0;off<blob.length;off+=ML.PIECE) {
@@ -896,7 +985,7 @@ function status(s, cls) { $('status').textContent = s; $('status').className = c
 function line(el, s, cls) { const d = document.createElement('div'); d.textContent = s; d.className = cls || ''; el.appendChild(d); }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
 
-let snapshot=null, selectedPack=null, fmBlob=null, fmAsset=null, scanNonce=crypto.getRandomValues(new Uint16Array(1))[0] & 0x3FFF;
+let snapshot=null, selectedPack=null, fmBlob=null, fmAsset=null, appBuild=null, scanNonce=crypto.getRandomValues(new Uint16Array(1))[0] & 0x3FFF;
 function refreshLoader() {
  const ready=!!(session && session.link && !session.link.err && supported && !running && !connecting && !ctx.pending);
  $('scan').disabled=!ready;
@@ -908,14 +997,15 @@ function refreshLoader() {
 }
 function fmAvailable() {
  const r=snapshot && snapshot.rows.find(r=>r.type===2 && r.file.toLowerCase()==='fm.dse');
- return !!r && r.compatible===1 && r.kind===1 && r.abi===0x207 && r.base===0xFE80B6B5;
+ return !!r && r.compatible===1 && fmAsset && r.kind===fmAsset.kind && r.abi===fmAsset.abi && r.base===fmAsset.base && (r.engineFormat||'CRE2')===(fmAsset.format||'CRE2');
 }
 async function getFM() {
  if(!fmBlob) {
   const r=await fetch('engines/fm.dse',{cache:'no-cache'});
   if(!r.ok) throw new ML.CardError('fetch',`Cannot get FM from this site (HTTP ${r.status}).`);
-  const b=new Uint8Array(await r.arrayBuffer()); fmAsset=LL.checkEngine(b); fmBlob=b;
+  fmBlob=new Uint8Array(await r.arrayBuffer());
  }
+ fmAsset=LL.checkEngine(fmBlob, appBuild);
  return fmBlob;
 }
 function cfgText(r) {
@@ -970,10 +1060,10 @@ function showEngines() {
   if(!snapshot || snapshot.flags || !fmAsset) return;
   const removing=state.action==='Remove from card';
   const msg=removing?'Remove FM from the card? Packs that name FM will use Samples when reloaded.':
-   row?'Replace FM on the card with the published 1.0.0 release?':'Put FM 1.0.0 on the card?';
+   row?`Replace FM on the card with the published ${fmAsset.version} release?`:`Put FM ${fmAsset.version} on the card?`;
   if(!window.confirm(msg)) return;
-  const result=await act(state.action,async c=>removing?LL.remove(c):LL.put(c,await getFM()));
-  if(result.ok) {status(removing?'FM removed from the card.':'FM 1.0.0 is on the card.','ok'); await scan();}
+  const result=await act(state.action,async c=>removing?LL.remove(c):LL.put(c,await getFM(),appBuild));
+  if(result.ok) {status(removing?'FM removed from the card.':`FM ${fmAsset.version} is on the card.`,'ok'); await scan();}
   else {snapshot=null;showEngines();refreshLoader();}
  };
  t.appendChild(b);box.appendChild(t);refreshLoader();
@@ -1092,14 +1182,15 @@ $('disconnect').onclick = async () => {
   status(ctx.pending ? `The outcome of "${ctx.pending.what}" is unknown. Reconnect, then select Check status.` : 'MIDI disconnected.', 'warn');
   connecting = false; refresh();
 };
-$('port').onchange = () => { session.close(); supported = false; refresh(); };
+$('port').onchange = () => { session.close(); supported = false; appBuild = null; fmAsset = null; refresh(); };
 
 async function check() {
-  supported = false; $('unit').innerHTML = ''; entries = actions.entries = null; $('files').innerHTML = '';
+  supported = false; appBuild = null; fmAsset = null; $('unit').innerHTML = ''; entries = actions.entries = null; $('files').innerHTML = '';
   await act('Check unit', async c => {
     const r = await ML.checkUnit(c);
     line($('unit'), r.text, r.ok ? 'ok' : 'bad');
     supported = r.ok;
+    if (r.ok) appBuild = r.v.app.build;
     if (r.ok && r.st.state !== 0) line($('unit'), `A card session is open (${ML.describe(r.st)}).`, 'warn');
     if (r.ok && ctx.pending) line($('unit'), `The outcome of "${ctx.pending.what}" is unknown. Select Check status.`, 'warn');
     status(r.ok ? 'Ready.' : 'Nothing was sent to the card.', r.ok ? 'ok' : 'bad');

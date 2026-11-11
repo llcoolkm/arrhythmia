@@ -126,7 +126,7 @@ def final_firmware(arm, core0, core1, manifest, stock_ref):
     image = bytearray(arm)
     # A base must retain the input streams/pointers. No already-layered image.
     stock_image = stock_ref['image']
-    for pointer in (a.PTR_CORE0, a.PTR_CORE1):
+    for pointer in (a.CORE0_STREAM_POINTER, a.CORE1_STREAM_POINTER):
         off = pointer - a.BASE
         if image[off:off + 4] != stock_image[off:off + 4]:
             raise ValueError('ARM base stream pointer already modified')
@@ -143,7 +143,7 @@ def final_firmware(arm, core0, core1, manifest, stock_ref):
         image.extend(b'\xFF' * (size - len(image)))
     image[a.STREAM1 - a.BASE:a.STREAM1 - a.BASE + len(core1)] = core1
     image[at0:at0 + len(core0)] = core0
-    struct.pack_into('<I', image, a.PTR_CORE0 - a.BASE, manifest['core0_new_pointer'])
+    struct.pack_into('<I', image, a.CORE0_STREAM_POINTER - a.BASE, manifest['core0_new_pointer'])
     struct.pack_into('<H', image, 0x1CA, 7261)
     image.extend(b'\xFF' * (-len(image) % 4))
     version = bytes([0, 0, 0, 7, 9, 2])

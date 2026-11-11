@@ -102,7 +102,23 @@ static uint32_t cd_u32(const volatile uint8_t *p)
 }
 
 #if CARD_DSP_MAIN
+#if ENGINE_ABI3
+#include "crbc3.h"
+#define CRBC_ID CRBC3_PLATFORM_ID
+#define CRBC_CRC CRBC3_CRC
+#define CRBC_C0_W CRBC3_C0_W
+#define CRBC_C0_BYTES CRBC3_C0_BYTES
+#define CRBC_SET_N CRBC3_SET_N
+#define CRBC_SET_BYTES CRBC3_SET_BYTES
+#define CRBC_C1_W CRBC3_C1_W
+#define CRBC_C1_BYTES CRBC3_C1_BYTES
+#define CRBC_C1_PFX_W CRBC3_C1_PFX_W
+#define CRBC_EDIT_BYTES CRBC3_EDIT_BYTES
+#define crbc_set crbc3_set
+#define crbc_edits crbc3_edits
+#else
 #include "crbc.h"
+#endif
 
 static uint32_t crc_add(uint32_t c, const volatile uint8_t *p, uint32_t n)   /* as cardwrite.c's (far blob) */
 {
@@ -114,18 +130,38 @@ static uint32_t crc_add(uint32_t c, const volatile uint8_t *p, uint32_t n)   /* 
     return c;
 }
 
+#if DSP_C0_LZ
+#include "core0lz.h"
+#endif
+
 /* Validate both flash headers and the CRC-32 of the four base-contract parts:
  * core-0 stream, integration set, core-1 stream, suppression set. */
 static uint32_t crbc_ok(uint32_t p0, uint32_t p1)
 {
+#if DSP_C1_LZ
+    uint32_t c;
+    if (!c0lz_check(p0,&c)) return 0;
+    c=crc_add(c,(const volatile uint8_t *)crbc_set(),CRBC_SET_BYTES);
+    if (!c01lz_check(p1,c,&c)) return 0;
+    return ~crc_add(c,(const volatile uint8_t *)crbc_edits(),CRBC_EDIT_BYTES)==CRBC_CRC;
+#else
+#if DSP_C0_LZ
+    const volatile uint8_t *b = (const volatile uint8_t *)p1;
+    uint32_t c;
+    if (!c0lz_check(p0, &c) || (p1 & 0xFF000000u) != 0x08000000u
+            || cd_u24(b) != CRBC_C1_W || cd_u24(b + 3))
+        return 0;
+#else
     const volatile uint8_t *a = (const volatile uint8_t *)p0, *b = (const volatile uint8_t *)p1;
     if ((p0 & 0xFF000000u) != 0x08000000u || (p1 & 0xFF000000u) != 0x08000000u || cd_u24(a) != CRBC_C0_W
             || cd_u24(a + 3) || cd_u24(b) != CRBC_C1_W || cd_u24(b + 3))
         return 0;
     uint32_t c = crc_add(~0u, a, CRBC_C0_BYTES);
+#endif
     c = crc_add(c, (const volatile uint8_t *)crbc_set(), CRBC_SET_BYTES);
     c = crc_add(c, b, CRBC_C1_BYTES);
     return ~crc_add(c, (const volatile uint8_t *)crbc_edits(), CRBC_EDIT_BYTES) == CRBC_CRC;
+#endif
 }
 
 /* The integration word at P:i from the CRBC part 2 (n | n x (address, word) | pad), else 0x1000000 (not a site). */
@@ -142,6 +178,27 @@ static uint32_t cd_site(uint32_t i)
  * and padding words. Each DMA span is at most 0xAA words. */
 static void cd_pfx(uint32_t ptr)
 {
+#if DSP_C0_LZ
+    (void)ptr;
+    uint32_t w;
+    if (!c0lz_begin())
+        return;
+    /* Consume the decoded original header; the caller already sent the composed header. */
+    if (!c0lz_word(&w) || !c0lz_word(&w)) {
+        C0LZ->busy = 0;
+        return;
+    }
+    for (uint32_t i = 0; i < CD_BASE; i++) {
+        uint32_t stock = 0;
+        if (i < CD_STOCK_W && !c0lz_word(&stock))
+            break;
+        w = i >= CD_STOCK_W ? 0 : cd_site(i);
+        if (w >= 0x1000000u)
+            w = stock;
+        CD_FRAME(w >> 16 & 255, w >> 8 & 255, w & 255, 0);
+    }
+    C0LZ->busy = 0;
+#else
     for (uint32_t i = 0; i < CD_BASE;) {
         uint32_t w = i >= CD_STOCK_W ? 0u : cd_site(i);
         if (w < 0x1000000u) {                 /* a site word or a zero pad word */
@@ -156,6 +213,7 @@ static void cd_pfx(uint32_t ptr)
         CD_IDLE(0, 0, 0, 0);
         i = j;
     }
+#endif
 }
 #endif
 
@@ -281,6 +339,14 @@ static uint32_t cd_check(uint32_t fil, volatile uint8_t *b, const char *path, ui
 /* Reset and restore the flash bootstrap after a pass-2 failure. */
 static void cd_restart(uint32_t ptr)
 {
+#if DSP_C0_LZ
+    uint32_t crc;
+    if (!c0lz_check(ptr, &crc))
+        return;
+#if DSP_C1_LZ
+    if (!c01lz_check(*(volatile uint32_t *)0x08031660u,~0u,&crc)) return;
+#endif
+#endif
     CD_IDLE(0, 0, 0, 0);
     CD_RESET(CD_BUS, 0, 0, 0);
     CD_DELAY(1, 0, 0, 0);
@@ -289,8 +355,16 @@ static void cd_restart(uint32_t ptr)
     CD_DELAY(1, 0, 0, 0);
     CD_SEND(*(volatile uint32_t *)CD_PRE_B_PTR, 1, 0, 0);
     CD_DELAY(1, 0, 0, 0);
+#if DSP_C0_LZ
+    c0lz_stock(ptr);
+#else
     CD_SEND(ptr, 0, 0, 0);
+#endif
 }
+
+#if ENGINE_ABI3
+#include "cre3firmware.h"
+#endif
 
 /* Pass 2 and the marker. Pass 2 checks again what it sends: the header must equal pass 1's (magic, count, CRC, base
  * id, zero bytes), the CRC of the bytes sent must be the header's, and the file must end after them. The last piece is
@@ -300,6 +374,10 @@ static void cd_restart(uint32_t ptr)
 static uint32_t cd_stream(uint32_t fil, volatile uint8_t *b, const char *path, uint32_t ptr, uint32_t words,
                           uint32_t crc, uint32_t base, uint32_t tries)
 {
+#if ENGINE_ABI3
+    (void)b;(void)words;(void)crc;(void)base;(void)tries;
+    return cd3_stream(fil,path,ptr);
+#else
     if (!cd_open(fil, b, path))
         return 0;
     if (cd_hdr(b, base) != words || cd_u32(b + 8) != crc
@@ -328,6 +406,13 @@ static uint32_t cd_stream(uint32_t fil, volatile uint8_t *b, const char *path, u
     CD_FRAME(0, 0, 0, 0);
 #if CARD_DSP_MAIN
     cd_pfx(ptr);                              /* one flat image: the composed prefix, then the body below */
+#if DSP_C0_LZ
+    if (c0lz_failed()) {
+        F_CLOSE(fil);
+        CD_DESEL(0, 0, 0, 0);
+        return 0;                            /* terminal: never append a body after a decoder failure */
+    }
+#endif
 #else
     for (uint32_t i = 0; i < CD_BASE; i += 0xAA) {
         uint32_t k = CD_BASE - i < 0xAA ? CD_BASE - i : 0xAA;
@@ -358,6 +443,7 @@ static uint32_t cd_stream(uint32_t fil, volatile uint8_t *b, const char *path, u
     CD_IDLE(0, 0, 0, 0);
     CD_DESEL(0, 0, 0, 0);
     return 1;
+#endif
 }
 
 #if ENGINE_PACK
@@ -383,21 +469,63 @@ static void c1_bulk(uint32_t a, uint32_t n)
 uint32_t hook_c1_send(uint32_t ptr, uint32_t core, uint32_t r2, uint32_t r3)
 {
     struct eo *e = eo();
+#if DSP_C0_LZ
+    if (!region() || c0lz_failed())
+        return 0;
+#endif
+#if DSP_C1_LZ
+    if (ptr==C0LZ_DESC) return c0lz_fail();
+#if DSP_FACTORY_LZ
+    if (ptr==F0LZ_DESC) return c0lz_fail();
+#endif
+#if DSP_FACTORY_C1_LZ
+    if (ptr==F1LZ_DESC) return core==1?c01lz_stock(ptr,1):c0lz_fail();
+#endif
+#endif
     if (e && (e->fl & EF_OWN) && !WD->c1) {   /* load timing (struct wd): the core-1 part of an own load starts */
         WD->c1at = TV();
         WD->c1 = 1;
     }
-    if (core != 1 || !e || e->sel != SEL_C1)
+    if (core != 1 || !e || e->sel != SEL_C1) {
+#if DSP_C1_LZ
+        if (ptr==C1LZ_DESC) return core==1?c01lz_stock(ptr,1):c0lz_fail();
+        /* Factory mode 1 and the existing reset preamble remain raw. */
+        if (core==1 && ptr!=0x08062F20u && ptr!=*(volatile uint32_t *)CD_PRE_B_PTR)
+            return c0lz_fail();
+#endif
         return CD_SEND(ptr, core, r2, r3);
+    }
     e->sel = SEL_STOCK;
+#if ENGINE_ABI3
+    if (!cd3_core1(ptr)) {
+        CD3->resident_valid=0;CD3->transmitted=0;
+        /* Flash changed after candidate C0: no trusted pair is available to
+         * restore. Reuse the compressed-storage integrity quarantine. */
+        return c0lz_fail();
+    }
+#endif
+#if DSP_C1_LZ
+    uint32_t w;
+    if (!c01lz_begin(ptr) || !c0lz_word(&w) || !c0lz_word(&w)) return c0lz_fail();
+#endif
     uint32_t n = CRBC_C1_W + C1_EDIT_W;
     CD_IDLE(0, 0, 0, 0);
     CD_SEL(1, 0, 0, 0);
     CD_FRAME(n >> 16 & 0xFF, n >> 8 & 0xFF, n & 0xFF, 0);
     CD_FRAME(0, 0, 0, 0);
+#if DSP_C1_LZ
+    for (uint32_t i=0;i<CRBC_C1_W;i++) {
+        if (i==CRBC_C1_PFX_W) c1_bulk(crbc_edits(),CRBC_EDIT_BYTES);
+        if (!c0lz_word(&w)) {C0LZ->busy=0;return c0lz_fail();}
+        CD_FRAME(w>>16&255,w>>8&255,w&255,0);
+    }
+    uint8_t extra;uint32_t ok=c0lz_next(&extra)==0;
+    C0LZ->busy=0;if (!ok) return c0lz_fail();
+#else
     c1_bulk(ptr + 6, 3 * CRBC_C1_PFX_W);
     c1_bulk(crbc_edits(), CRBC_EDIT_BYTES);
     c1_bulk(ptr + 6 + 3 * CRBC_C1_PFX_W, 3 * (CRBC_C1_W - CRBC_C1_PFX_W));
+#endif
     CD_IDLE(0, 0, 0, 0);
     return CD_DESEL(1, 0, 0, 0);
 }
@@ -421,17 +549,55 @@ static void cd_epath(char *d, const volatile char *nm)
 uint32_t hook_c0_send(uint32_t ptr, uint32_t core, uint32_t r2, uint32_t r3)
 {
     struct eo *e = eo();
-    if (core || !e || e->sel != SEL_ENGINE)
+#if DSP_C1_LZ
+    if (ptr==C1LZ_DESC || (core && ptr==C0LZ_DESC)) return c0lz_fail();
+#if DSP_FACTORY_LZ
+    if (core && ptr==F0LZ_DESC) return c0lz_fail();
+#endif
+#if DSP_FACTORY_C1_LZ
+    if (ptr==F1LZ_DESC) return c0lz_fail();
+#endif
+#endif
+    if (core || !e || e->sel != SEL_ENGINE) {
+#if ENGINE_ABI3
+        if (!core) {
+            cd3_health_reset();
+            CD3->resident_valid=0;CD3->transmitted=0;
+        }
+#endif
+#if DSP_C0_LZ
+        /* Factory mode 1 has a separate, retained raw core-0 image (the pointer
+         * at 0x0803165C). Allow only that exact image outside candidate loads;
+         * the mode-0 descriptor and unknown pointers still require validation. */
+        if (!core && ptr == 0x08062130u && region() && !c0lz_failed())
+#if DSP_FACTORY_LZ
+            return c01lz_stock(ptr,0);
+#else
+            return CD_SEND(ptr, core, r2, r3);
+#endif
+        return core ? CD_SEND(ptr, core, r2, r3) : c0lz_stock(ptr);
+#else
         return CD_SEND(ptr, core, r2, r3);
+#endif
+    }
     e->sel = SEL_STOCK;
     uint32_t fil, sent = 0;
+#if ENGINE_ABI3
+    if (!crbc_ok(ptr,*(volatile uint32_t *)C1_PTR)) return c0lz_fail();
+    if (fs_state()==1 && (fil=file_b(0))!=0) {
+#else
     if (crbc_ok(ptr, *(volatile uint32_t *)C1_PTR)    /* the base contract's parts: else the pair is refused */
             && fs_state() == 1 && (fil = file_b(0)) != 0) {
+#endif
         volatile uint8_t b[256];
         char path[24];
         cd_epath(path, e->c_name);
         sent = cd_stream(fil, b, path, ptr, e->c_words, e->c_crc, CRBC_ID, (e->fl & EF_TRIES) ? 1u : 0u);
     }
+#if DSP_C0_LZ
+    if (c0lz_failed())
+        return 0;
+#endif
     if (sent == 1) {
         e->sel = SEL_C1;                      /* the core-1 send of this load composes the suppression set */
         e->c0out = C0_CANDIDATE;
@@ -445,8 +611,15 @@ uint32_t hook_c0_send(uint32_t ptr, uint32_t core, uint32_t r2, uint32_t r3)
         e->rgen++;                            /* the restart replaced the partial candidate: a new resident lifecycle */
         return 0;
     }
+#if DSP_C0_LZ
+    if (c0lz_failed())
+        return 0;
+    e->c0out = C0_STOCK_NODATA;
+    return c0lz_stock(ptr);
+#else
     e->c0out = C0_STOCK_NODATA;
     return CD_SEND(ptr, core, r2, r3);
+#endif
 }
 #else
 /* Boot-only core-0 send hook. */
@@ -546,6 +719,9 @@ uint32_t far_cd_live(uint32_t qp, uint32_t c, uint32_t d, uint32_t e)
 {
     (void)c; (void)d; (void)e;
     struct q0 *q = (struct q0 *)qp;
+#if ENGINE_ABI3
+    cd3_health_poll(q);
+#endif
 #if CARD_DSP_BENCH
     struct a1 *a = a1();
     if (a && a->cd_wd && (((TICK() >> 4) - a->cd_wd) & 0x7F) >= CD_WD_MS >> 4) {
@@ -565,8 +741,12 @@ uint32_t far_cd_live(uint32_t qp, uint32_t c, uint32_t d, uint32_t e)
         return 1;                             /* the stock pair: no engine to judge */
     if (!q || o1_faulted()) {                 /* the queue's health verdict or an O1 fault: the resident failed */
         eop->r_fault = 1;
-        if (!itcm_ok() || m[0] != CD_TRY || m[1] != ~CD_TRY || (m[3] >> 16) != eop->rgen)
-            eop->bad_crc = eop->r_crc;            /* after its TRY period: stock for this body until the next boot */
+        if (!itcm_ok() || m[0] != CD_TRY || m[1] != ~CD_TRY || (m[3] >> 16) != eop->rgen) {
+#if ENGINE_ABI3
+            CD3_STATE->session_bad_valid=1; /* CRC 0 is a valid blocked identity */
+#endif
+            eop->bad_crc = eop->r_crc;
+        }            /* after its TRY period: stock for this body until the next boot */
     }
     if (!itcm_ok() || (m[3] >> 16) != eop->rgen)
         return 1;                             /* a TRY of a replaced resident: neither cleared nor failed here */

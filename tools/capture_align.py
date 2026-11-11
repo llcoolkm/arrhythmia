@@ -1331,7 +1331,7 @@ def analyse(path, sidecar=None, channels=None, threshold_db=20.0, abs_floor_db=-
     }
     if rep["signal_past_window"]:
         rep["window_note"] = ("signal persists past the 198 ms active window: a uniformly extended window must be "
-                              "agreed with Codex; nothing was cropped from the tail figures")
+                              "agreed for all takes. No tail figures were cropped")
     if control:                                       # NaN/Inf samples are invisible to detection: never 'silent'
         rep["control_silent"] = not onsets and not nonfinite
     rep["_data"], rep["_sig"], rep["_info"], rep["_pre_len"] = data, sig, info, (pre, length)
@@ -1572,7 +1572,7 @@ TRACK_RULE = ("both takes declare a track (1..8) with its MIDI channel routing, 
               "declared note measured and equal (a capture's 'unknown' declares nothing); capture vs capture needs no "
               "measured note, but two measured notes must be equal, and with fewer than two the absolute keyboard-note "
               "state is reported unverified (never inferred from the waveform verdict). A 'track=N (protocol 1)' deviation is then resolved (kept and "
-              "listed), not deleted; missing or unequal state fails (Codex rulings 2026-10-17, 2026-10-19)")
+              "listed), not deleted; missing or unequal state fails")
 
 
 def track_state(meta):

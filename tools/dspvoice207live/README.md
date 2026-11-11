@@ -16,10 +16,10 @@ Build with local official 5706 SysEx and the pinned assembler:
 
 ```sh
 uv run --no-project python tools/dspvoice207live/build.py \
-  --stock /private/circuit-rhythm-5706.syx \
-  --assembler /private/dspasm --out /private/new-output
+  --stock /path/to/circuit-rhythm-5706.syx \
+  --assembler /path/to/dspasm --out /path/to/new-output
 uv run --no-project python tests/test_dspvoice207live_source.py \
-  --stock /private/circuit-rhythm-5706.syx --assembler /private/dspasm
+  --stock /path/to/circuit-rhythm-5706.syx --assembler /path/to/dspasm
 ```
 
 `own_body(assembler)` independently reconstructs the engine body without an official image: it begins with zero words at P:`2000` and overlays the own instrument P:`2000..2d74`, own startup P:`2d80..2d8a`, generated tables P:`2da0..3260`, and own helper P:`3300..335d`. Every remaining word is zero. The official core-0 stream has only `0x1fed` words and ends below this body. The mixed-stream builder compares its extracted body byte for byte with this independent reconstruction.

@@ -166,7 +166,7 @@ def golden(out, image=None):
            "id_header_bytes": hashlib.sha256(pre).digest()[:4].hex(), "flash_crc32": f"0x{flash_crc(ps):08X}",
            "parts": [{"n": i + 1, "bytes": len(p), "sha256": hashlib.sha256(p).hexdigest()} for i, p in enumerate(ps)],
            "stock_image_sha256": hashlib.sha256(image if image else stock_image()).hexdigest(),
-           "note": "parts 1 and 3 are stock 5706 streams: private, never in git or a release"}
+           "note": "parts 1 and 3 are stock 5706 streams. Build them from a local firmware image."}
     json.dump(rec, open(os.path.join(out, "crbc-golden.json"), "w"), indent=1)
     return rec
 

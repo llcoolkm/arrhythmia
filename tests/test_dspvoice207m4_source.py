@@ -17,9 +17,32 @@ from dspvoice207m4 import build as b
 ARGS = None
 
 
+class SourceClosureTests(unittest.TestCase):
+    def test_source_closure_and_binding_refused(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for name in (*b.SOURCE_FILES, 'tools/dspvoice207m4/source-manifest.json'):
+                dest = root / name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, dest)
+            self.assertEqual(b.verify_sources(root)['core0_sha256'], b.CORE0_SHA)
+            dep = root / 'tools/dspvoice207rel/instrument.asm'
+            dep.write_text(dep.read_text() + '\n')
+            with self.assertRaisesRegex(ValueError, 'source manifest mismatch'):
+                b.verify_sources(root)
+            manifest = root / 'tools/dspvoice207m4/source-manifest.json'
+            data = json.loads(manifest.read_text())
+            data['gain_q23'] = 0x392CEE
+            manifest.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, 'component bindings differ'):
+                b.verify_sources(root)
+
+
 class ComponentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if ARGS is None or ARGS.stock is None:
+            raise unittest.SkipTest('supply --stock and --assembler for local reproduction')
         cls.ref = b.rel.syx.parse(ARGS.stock.read_bytes())
         cls.c0, cls.c1, cls.component, cls.meta = b.build_streams(cls.ref['image'], ARGS.assembler)
 
@@ -56,25 +79,6 @@ class ComponentTests(unittest.TestCase):
             with patch.object(Path, 'read_text', read):
                 with self.assertRaisesRegex(ValueError, 'supported component pin'):
                     b.own_instrument(ARGS.assembler)
-
-    def test_source_closure_and_binding_refused(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            for name in (*b.SOURCE_FILES, 'tools/dspvoice207m4/source-manifest.json'):
-                dest = root / name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(ROOT / name, dest)
-            self.assertEqual(b.verify_sources(root)['core0_sha256'], b.CORE0_SHA)
-            dep = root / 'tools/dspvoice207rel/instrument.asm'
-            dep.write_text(dep.read_text() + '\n')
-            with self.assertRaisesRegex(ValueError, 'source manifest mismatch'):
-                b.verify_sources(root)
-            manifest = root / 'tools/dspvoice207m4/source-manifest.json'
-            data = json.loads(manifest.read_text())
-            data['gain_q23'] = 0x392CEE
-            manifest.write_text(json.dumps(data))
-            with self.assertRaisesRegex(ValueError, 'component bindings differ'):
-                b.verify_sources(root)
 
     def test_wrong_stock_and_assembler_refused(self):
         image = bytearray(self.ref['image'])
@@ -124,9 +128,12 @@ class ComponentTests(unittest.TestCase):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--stock', type=Path, required=True)
-    parser.add_argument('--assembler', type=Path, required=True)
+    parser.add_argument('--stock', type=Path)
+    parser.add_argument('--assembler', type=Path)
     parser.add_argument('--reference-stream', type=Path)
     parser.add_argument('--bench-stream', type=Path)
-    ARGS = parser.parse_args()
-    unittest.main(argv=[sys.argv[0]], verbosity=2)
+    ARGS, rest = parser.parse_known_args()
+    missing_stock = ARGS.stock is None
+    if missing_stock != (ARGS.assembler is None) or (missing_stock and (ARGS.reference_stream or ARGS.bench_stream)):
+        parser.error('--stock and --assembler must be supplied together')
+    unittest.main(argv=[sys.argv[0], *rest], verbosity=2)

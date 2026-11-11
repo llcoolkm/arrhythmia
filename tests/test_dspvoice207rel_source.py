@@ -12,9 +12,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'tools'))
 from dspvoice207rel import build as b
 ARGS = None
+
+
+class SourceClosureTests(unittest.TestCase):
+    def test_source_closure(self):
+        b.verify_sources()
+
+    def test_far_blob_layout(self):
+        fars = [join[4] for join in b.JOINS.values() if join[4]]
+        self.assertEqual(fars, [(b.FAR_CAP, 0x0801C718)])
+
+
 class SourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if ARGS is None or ARGS.stock is None:
+            raise unittest.SkipTest('supply --stock and --assembler for local reproduction')
         cls.ref=b.syx.parse(ARGS.stock.read_bytes())
         cls.c0,cls.c1,cls.meta=b.build_streams(cls.ref['image'],ARGS.assembler)
     def test_golden_streams_and_full_join(self):
@@ -44,8 +57,6 @@ class SourceTests(unittest.TestCase):
     def test_far_blob_binding(self):
         # 7329's far blob is the only ARM change allowed in the old core-0 stream: one more changed byte just past it,
         # or the far blob range of another join, is refused (the ARM hash is rebound so only the stream check decides)
-        fars=[v[4] for v in b.JOINS.values() if v[4]]
-        self.assertEqual(fars,[(b.FAR_CAP,0x0801C718)])     # the table: one far blob, at the cap (checked always)
         if not ARGS.arm_image or b.JOINS[b.a.sha(ARGS.arm_image.read_bytes())][4] is None:
             return                                         # the byte checks need the 0.2.1 ARM part as --arm-image
         arm=ARGS.arm_image.read_bytes();k=b.a.sha(arm);lab,ver,im,sx,far=b.JOINS[k]
@@ -77,4 +88,11 @@ class SourceTests(unittest.TestCase):
             r=subprocess.run([sys.executable,'-I',str(b.HERE/'build.py'),'--stock',str(p/'wrong.syx'),'--assembler',str(ARGS.assembler),'--out',str(p/'out')],capture_output=True,text=True)
             self.assertNotEqual(r.returncode,0);self.assertIn('official input SysEx differs',r.stderr);self.assertFalse((p/'out').exists())
 if __name__=='__main__':
-    ap=argparse.ArgumentParser();ap.add_argument('--stock',type=Path,required=True);ap.add_argument('--assembler',type=Path,required=True);ap.add_argument('--arm-image',type=Path);ARGS=ap.parse_args();unittest.main(argv=[sys.argv[0]])
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--stock', type=Path)
+    parser.add_argument('--assembler', type=Path)
+    parser.add_argument('--arm-image', type=Path)
+    ARGS, rest = parser.parse_known_args()
+    if (ARGS.stock is None) != (ARGS.assembler is None) or (ARGS.arm_image and ARGS.stock is None):
+        parser.error('--stock and --assembler must be supplied together')
+    unittest.main(argv=[sys.argv[0], *rest], verbosity=2)

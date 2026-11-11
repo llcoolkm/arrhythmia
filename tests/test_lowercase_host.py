@@ -62,7 +62,7 @@ class LowercaseHost(unittest.TestCase):
     def test_cli_put_default_and_explicit_names(self):
         for names in ((), ('FM',), ('fM',)):
             with patch('builtins.open', unittest.mock.mock_open(read_data=b'engine')), \
-                    patch.object(module, 'engine_check'):
+                    patch.object(module, 'engine_check'), patch.object(module, 'app_build', return_value=7388):
                 card, text = self.cli('engine-put', '/tmp/Fm.DSE', *names)
             card.engine_put.assert_called_once_with(b'engine', 'fm')
             self.assertIn('1:/engines/fm.dse:', text)

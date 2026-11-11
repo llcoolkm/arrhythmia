@@ -18,6 +18,9 @@
  */
 #include "synth_settings.h"
 #include "a1_cmd.c"
+#if ENGINE_ABI3
+#include "cre3producer.h"
+#endif
 #if AD_LIVE && defined(FM_207) && FM_207
 #include "ad_life207.h"                 /* 0.2 profiles (VERSION 000207): the A10 attack, 10 ms to 8 s */
 #elif AD_LIVE
@@ -168,9 +171,11 @@ struct a1inst {
 
 struct a1q {
     uint32_t w0, w1;
+#if !ENGINE_ABI3
     uint16_t seq;                             /* issue order */
     uint8_t kind;                             /* VK_* */
     uint8_t epoch;                            /* project epoch of our entries (others: 0) */
+#endif
 };
 
 struct a1 {
@@ -197,7 +202,12 @@ struct a1 {
 #else
     uint8_t eng, pad1;                        /* ENGINE_OPT: the published track-8 engine kind (`pub`, 0 none) */
 #endif
+#if ENGINE_ABI3
+    union { struct a1q nq[NQ]; struct c3p producer; };
+    _Static_assert(sizeof(struct c3p)==384, "generic producer replaces the old 384-byte N");
+#else
     struct a1q nq[NQ];
+#endif
     uint32_t reset_seq, reset_seen;           /* admission-side ALL OFF: the Main task resets its table */
     uint8_t phase;                            /* PH_*: admission state across DSP loads (activation) */
     uint8_t fresh;                            /* FM_BANKVIEW: the stock store reset ran since the last refresh */
@@ -231,7 +241,7 @@ _Static_assert(Q0_AT + Q0_SIZE == A1_AT, "Q0 block directly below struct a1");
 /* N bound: stock offs 8 + ONSET 4 + RELEASE 4 + envelope groups (4 + 1, one N entry each) + tone
  * (4 + 1; emitted only under CORE0_TONE, at most one per ONSET gap) = 26 < 32 (the expanded count, two N entries per group: 31). */
 _Static_assert(8 + 4 + 4 + (4 + 1) + (4 + 1) < NQ, "core-0 N bound");
-#if FM_PATCH
+#if FM_PATCH && !ENGINE_ABI3
 /* FM_PATCH: the PATCH_FM and MOD_AD latches ride in the same group entry, so N is unchanged (26 entries, admission
  * k + 2). Raw queue entries behind them: 8 stock + 4 ONSET + 4 RELEASE + 5 groups x 4 (ENV pair, PATCH_FM, MOD_AD)
  * + 5 tones = 41 (the expanded count: 31 + 2 x 5), and a dirty full press is 4 KILL + 4 + 4 ONSET + 1 TONE = 13 <= Q0_CAP. */
@@ -332,7 +342,7 @@ static uint32_t ad_ticks(uint32_t ad)
 static void ring_put(struct a1 *a, uint32_t w0, uint32_t w1)
 {
     volatile uint32_t *pc = (volatile uint32_t *)PROD_CELL;
-#if CORE0_ONLY && TRIM_RING                   /* trim C1: only stock words reach the stock ring (ours go to the core-0
+#if (CORE0_ONLY && TRIM_RING) || ENGINE_ABI3  /* trim C1: only stock words reach the stock ring (ours go to the core-0
                                                  queue), so none of the class-A bookkeeping below can run */
     {
         uint32_t p = *pc, at = RING + 2 * p;
@@ -408,11 +418,26 @@ static uint32_t ring_free(struct a1 *a)
     return (c - p - 1) & 15u;
 }
 
+#if ENGINE_ABI3
+static struct a1q *nq_at(struct a1 *a,uint32_t i)
+{ return (struct a1q *)&a->producer.n[i]; }
+#else
 static struct a1q *nq_at(struct a1 *a, uint32_t i)
 {
     return &a->nq[(a->nq_head + i) % NQ];
 }
+#endif
 
+
+#if ENGINE_ABI3
+static void nq_push(struct a1 *a,uint32_t w0,uint32_t w1,uint32_t kind,uint32_t epoch)
+{
+    (void)epoch;
+    if (kind<=VK_STOCK_OTHER) c3p_stock_push(&a->producer,w0,w1);
+    else if (a->producer.count<NQ) a->producer.n[a->producer.count++]=(struct c3p_entry){w0,w1};
+    a->nq_n=a->producer.count; a->seq++;
+}
+#else
 static void nq_push(struct a1 *a, uint32_t w0, uint32_t w1, uint32_t kind, uint32_t epoch)
 {
     struct a1q *e = nq_at(a, a->nq_n++);
@@ -422,19 +447,45 @@ static void nq_push(struct a1 *a, uint32_t w0, uint32_t w1, uint32_t kind, uint3
     e->kind = (uint8_t)kind;
     e->epoch = (uint8_t)epoch;
 }
+#endif
 
+
+#if ENGINE_ABI3
+static void nq_del(struct a1 *a,uint32_t i)
+{
+    for (uint32_t j=i+1;j<a->producer.count;j++) a->producer.n[j-1]=a->producer.n[j];
+    a->producer.count--; a->nq_n=a->producer.count;
+}
+#else
 static void nq_del(struct a1 *a, uint32_t i)
 {
     for (; i + 1 < a->nq_n; i++)
         *nq_at(a, i) = *nq_at(a, i + 1);
     a->nq_n--;
 }
+#endif
+
 
 /* Purge from N, among the entries issued before boundary `before`: the voices in `voices` from onsets (an onset
  * left with none is deleted) and, if `patch`, every patch entry. Entries issued at or after the boundary stay. */
 #if CORE0_SYNTH
 /* CORE0: also the RELEASE entries of `voices` (rel), and the envelope groups (patch); then orphan groups go (q0_tidy). */
 static void q0_tidy(struct a1 *a);
+#if ENGINE_ABI3
+static void nq_purge(struct a1 *a,uint32_t voices,uint32_t rel,uint32_t patch,uint16_t before)
+{
+    (void)patch; (void)before;
+    /* Call sites are immediate boundaries under the engine lock. Cancel only
+     * ONSETs/RELEASEs; their immutable source snapshots must remain in FIFO. */
+    for (uint32_t lane=0;lane<4;lane++) if (voices&(1u<<lane)) c3p_cancel(&a->producer,lane);
+    if (rel) for (uint32_t i=0;i<a->producer.count;) {
+        uint32_t w=a->producer.n[i].w0;
+        if (!(w&C3P_STOCK) && (w&~0xE00u)==0xA02000u && (voices&(1u<<((w>>9)&3)))) nq_del(a,i);
+        else i++;
+    }
+    a->nq_n=a->producer.count;
+}
+#else
 static void nq_purge(struct a1 *a, uint32_t voices, uint32_t rel, uint32_t patch, uint16_t before)
 {
     for (uint32_t i = 0; i < a->nq_n;) {
@@ -451,6 +502,8 @@ static void nq_purge(struct a1 *a, uint32_t voices, uint32_t rel, uint32_t patch
     }
     q0_tidy(a);
 }
+#endif
+
 #include "core0feed.c"
 #else
 static void nq_purge(struct a1 *a, uint32_t voices, uint32_t patch, uint16_t before)
@@ -472,6 +525,17 @@ static void nq_purge(struct a1 *a, uint32_t voices, uint32_t patch, uint16_t bef
 #if CORE0_SYNTH
 /* Two targets, one FIFO: the stock ring takes the stock words in order, the core-0 queue takes ours (P first, then
  * ours in N in order; q0_drain). While the queue is not OPEN no entry of ours leaves the ARM (dropped, counted). */
+#if ENGINE_ABI3
+static void ad_drain(struct a1 *a)
+{
+    if (!abi3_main_context()) return;
+    struct c3p_entry stock;
+    while (c3p_stock_peek(&a->producer,&stock) && ring_free(a)) {
+        ring_put(a,stock.w0,stock.w1); c3p_stock_pop(&a->producer);
+    }
+    q0_abi3_sync(a); q0_drain(a);
+}
+#else
 static void ad_drain(struct a1 *a)
 {
     if (Q0->ph != Q_OPEN) {
@@ -501,6 +565,8 @@ static void ad_drain(struct a1 *a)
     }
     q0_drain(a);
 }
+#endif
+
 #else
 static void ad_drain(struct a1 *a)
 {
@@ -552,6 +618,14 @@ static void ad_drain(struct a1 *a)
 /* Class-A ALL OFF at this point of the issue order (Stop, choke, mute, edit, CC 123, project, recovery, an
  * unexpected forced off of channel 7): purges every queued onset issued before it, cancels a pending KILL
  * (the ALL OFF covers it) and asks the Main task to reset its table. */
+#if ENGINE_ABI3
+static void issue_alloff(struct a1 *a)
+{
+    for (uint32_t lane=0;lane<4;lane++) c3p_cancel(&a->producer,lane);
+    c3p_all_off(&a->producer); a->producer.kills=0;
+    a->reset_seq++; a->seq++; q0_abi3_sync(a);
+}
+#else
 static void issue_alloff(struct a1 *a)
 {
     uint16_t b = (uint16_t)(a->seq + 1);
@@ -562,9 +636,33 @@ static void issue_alloff(struct a1 *a)
     a->seq = b;
     a->reset_seq++;
 }
+#endif
+
 
 /* Collapse sample note-offs: a queued off of channel c with an earlier queued off of c and no note-on of c in
  * between changes nothing at the DSP; it is merged into the earlier one. */
+#if ENGINE_ABI3
+static uint32_t collapse_offs(struct a1 *a)
+{
+    uint32_t collapsed=0;
+    for (uint32_t i=1;i<a->producer.count;) {
+        struct c3p_entry *entry=a->producer.n+i; int32_t prior=-1;
+        if ((entry->w0&C3P_STOCK) && vc_kind(entry->w0&C3P_MASK)==VK_STOCK_OFF)
+            for (int32_t j=(int32_t)i-1;j>=0;j--) {
+                struct c3p_entry *old=a->producer.n+j;
+                if (!(old->w0&C3P_STOCK) || vc_stock_ch(old->w0)!=vc_stock_ch(entry->w0)) continue;
+                uint32_t kind=vc_kind(old->w0&C3P_MASK);
+                if (kind==VK_STOCK_ON) break;
+                if (kind==VK_STOCK_OFF) { prior=j; break; }
+            }
+        if (prior>=0) {
+            if (entry->w1==3) a->producer.n[prior].w1=3;
+            nq_del(a,i); collapsed++;
+        } else i++;
+    }
+    a->c_collapse+=collapsed; return collapsed;
+}
+#else
 static uint32_t collapse_offs(struct a1 *a)
 {
     uint32_t n = 0;
@@ -593,11 +691,28 @@ static uint32_t collapse_offs(struct a1 *a)
     a->c_collapse += (uint16_t)n;
     return n;
 }
+#endif
+
 
 /* Room in N for one non-droppable entry, lossless first: collapse sample offs; else evict the newest queued sample
  * note-on; else ALL OFF recovery (purges our onsets; N holds at most one onset per voice, so this is a last resort
  * the static bound makes unreachable). Returns 0 only if nothing frees a slot, which the bound excludes; the caller
  * then counts the entry as lost (never written over unread data). */
+#if ENGINE_ABI3
+static uint32_t make_room(struct a1 *a)
+{
+    if (a->producer.count<NQ) return 1;
+    if (collapse_offs(a)) return 1;
+    for (uint32_t i=a->producer.count;i;i--) if ((a->producer.n[i-1].w0&C3P_STOCK) &&
+        vc_kind(a->producer.n[i-1].w0&C3P_MASK)==VK_STOCK_ON) {
+        nq_del(a,i-1); a->c_evict_on++; return 1;
+    }
+    /* Preserve non-droppable stock offs: ordinary epoch reconciliation may
+     * cancel queued engine work, never reinterpret or overwrite stock words. */
+    c3p_latch(&a->producer); q0_abi3_flush(a); a->c_recover++;
+    return a->producer.count<NQ;
+}
+#else
 static uint32_t make_room(struct a1 *a)
 {
     while (a->nq_n >= NQ) {
@@ -622,9 +737,21 @@ static uint32_t make_room(struct a1 *a)
     }
     return 1;
 }
+#endif
+
 
 /* A non-droppable entry (sample word, patch entry): straight into the ring when nothing waits and a slot is free,
  * else at the tail of N. */
+#if ENGINE_ABI3
+static void put_n(struct a1 *a,uint32_t w0,uint32_t w1,uint32_t epoch)
+{
+    (void)epoch; ad_drain(a);
+    if (!q0_stock_waiting(a) && ring_free(a)) { ring_put(a,w0,w1); a->c_direct++; return; }
+    if (!make_room(a)) { a->c_overflow++; return; }
+    c3p_stock_push(&a->producer,w0,w1); q0_abi3_sync(a); a->c_deferred++;
+    ad_drain(a);
+}
+#else
 static void put_n(struct a1 *a, uint32_t w0, uint32_t w1, uint32_t epoch)
 {
     ad_drain(a);
@@ -645,11 +772,26 @@ static void put_n(struct a1 *a, uint32_t w0, uint32_t w1, uint32_t epoch)
     nq_push(a, w0, w1, vc_kind(w0), epoch);
     ad_drain(a);
 }
+#endif
+
 
 /* ---- voice_emit: the semantic interface (engine lock held) ------------------------------------------------------ */
 
 /* All-or-nothing chord admission, decided before allocation: either every entry of the onset can be published
  * now (nothing waits and the ring has room for all of them) or all of them fit in N below the onset reserve. */
+#if ENGINE_ABI3
+static uint32_t voice_onset_room(struct a1 *a,uint32_t voices)
+{
+    ad_drain(a);
+    if (!a->producer.open || a->producer.resync || voices>a->producer.lanes) return 0;
+    uint32_t values[22], changed=0;
+    q0_abi3_sources(a,values);
+    for (uint32_t id=0;id<22;id++) if ((a->producer.wanted&(1u<<id)) &&
+        (!(a->producer.valid&(1u<<id)) || a->producer.issued[id]!=values[id] || (id==15 && a->producer.transport_pending))) changed|=1u<<id;
+    struct c3p_entry entries[12]; uint32_t n=c3p_parameters(entries,changed,values);
+    return c3p_values_ok(&a->producer,values) && n+voices<=24 && a->producer.count+n+voices<=NQ;
+}
+#else
 static uint32_t voice_onset_room(struct a1 *a, uint32_t nvoices)
 {
     uint32_t k = vc_onset_entries((1u << nvoices) - 1u);
@@ -663,11 +805,26 @@ static uint32_t voice_onset_room(struct a1 *a, uint32_t nvoices)
     return a->nq_n + k <= NQ - NQ_ONSET_RESERVE;
 #endif
 }
+#endif
+
 
 /* Publishes or queues every entry of the onset in order; a chord may straddle blocks (entries are consumed one per
  * block), but none of its entries is ever dropped alone: only an ALL OFF (which also damps the published ones) or
  * a KILL of its voices removes queued entries. */
 #if CORE0_SYNTH
+#if ENGINE_ABI3
+static void voice_emit_onset_t(struct a1 *a,uint32_t mask,const uint8_t *notes,uint32_t velocity,uint32_t tune)
+{
+    uint32_t values[22], count=0; struct c3p_note onset[4];
+    q0_abi3_sources(a,values);
+    for (uint32_t lane=0;lane<a->producer.lanes;lane++) if (mask&(1u<<lane)) {
+        uint32_t pitch=vc_tune_pitch(notes[lane],tune);
+        onset[count++]=(struct c3p_note){pitch&0x7FFFFFu,lane,pitch>>24,velocity?velocity:1};
+    }
+    if (!c3p_press(&a->producer,values,onset,count)) { a->c_drop_on++; c3p_latch(&a->producer); }
+    q0_abi3_sync(a); ad_drain(a);
+}
+#else
 static void voice_emit_onset_t(struct a1 *a, uint32_t mask, const uint8_t *note, uint32_t vel, uint32_t tune)
 {
     for (uint32_t v = 0; v < 4; v++)
@@ -679,6 +836,8 @@ static void voice_emit_onset_t(struct a1 *a, uint32_t mask, const uint8_t *note,
         }
     ad_drain(a);
 }
+#endif
+
 #endif
 
 static void voice_emit_onset(struct a1 *a, uint32_t mask, const uint8_t *note, uint32_t vel)
@@ -696,6 +855,15 @@ static void voice_emit_onset(struct a1 *a, uint32_t mask, const uint8_t *note, u
     ad_drain(a);
 }
 
+#if ENGINE_ABI3
+static void voice_emit_kill(struct a1 *a,uint32_t mask)
+{
+    for (uint32_t lane=0;lane<a->producer.lanes;lane++) if (mask&(1u<<lane)) {
+        c3p_cancel(&a->producer,lane); c3p_kill(&a->producer,lane,a->producer.generation[lane]);
+    }
+    q0_abi3_sync(a);
+}
+#else
 static void voice_emit_kill(struct a1 *a, uint32_t mask)
 {
     uint16_t b = (uint16_t)(a->seq + 1);
@@ -705,6 +873,8 @@ static void voice_emit_kill(struct a1 *a, uint32_t mask)
     a->seq = b;
     ad_drain(a);
 }
+#endif
+
 
 static void voice_emit_alloff(struct a1 *a)
 {
@@ -778,6 +948,10 @@ enum { AD_KNOB, AD_NOTE, AD_BAR };
  * together: the same issue, coalescing and supersede rules apply to all three as one snapshot. */
 #define FM_SAME(w0, w1, env) (((w1) & ENV_MASK) == (env) && fmn_fm(w0, w1) == Q0->fm_want && fmn_md(w0) == Q0->md_want)
 #endif
+#if ENGINE_ABI3
+static void ad_service(struct a1 *a,uint32_t want,uint32_t mode)
+{ (void)a; (void)want; (void)mode; }
+#else
 static void ad_service(struct a1 *a, uint32_t want, uint32_t mode)
 {
     uint32_t now = TICK();
@@ -867,9 +1041,20 @@ static void ad_service(struct a1 *a, uint32_t want, uint32_t mode)
     put_n(a, w0, w1, a->pepoch);
 #endif
 }
+#endif
+
 
 /* Barrier (ALL OFF from Stop, choke, edit, CC 123, project change; boot ALL OFF of a DSP load): every queued
  * PATCH_AD (any epoch) is purged and the current values are published behind the ALL OFF, before any later note. */
+#if ENGINE_ABI3
+static void ad_barrier(struct a1 *a)
+{
+    if (!a->producer.open || a->producer.resync) return;
+    uint32_t values[22]; q0_abi3_sources(a,values);
+    if (!c3p_press(&a->producer,values,0,0)) c3p_latch(&a->producer);
+    q0_abi3_sync(a);
+}
+#else
 static void ad_barrier(struct a1 *a)
 {
     for (uint32_t i = 0; i < a->nq_n;) {
@@ -886,6 +1071,8 @@ static void ad_barrier(struct a1 *a)
     q0_tone(a, q0_tone_read(), TONE_BAR);
 #endif
 }
+#endif
+
 #define AD_BARRIER(a)   ad_barrier(a)
 
 /* ---- New-project default Length 64 ------------------------------------------------------------------------------
@@ -898,6 +1085,7 @@ static void ad_barrier(struct a1 *a)
 #define AD_LEN_NEW      64u
 #define MIDI_ROOT       0x20006EECu     /* MIDI dispatcher object; + 0x60: its src-4 parameter thunk (MIDI CC in) */
 
+#if !ENGINE_ABI3 /* FM207 patch/default migrations never run for a generic engine. */
 /* Track 8's Length, coarse << 7 | fine, of a channel-layout buffer (the store's saved channel values), read with
  * the stock getter through a stand-in channel: descriptors of the real channel, buffer pointer = buf. */
 static uint32_t ad_len14(uint32_t ch, uint32_t buf)
@@ -970,6 +1158,8 @@ static uint32_t ad_p6(uint32_t ch, uint32_t buf)
 }
 #endif
 
+#endif
+
 #if FM_BANKVIEW
 #define SV_BASE_AT      0x28CECu        /* store: each track's selected sample slot (the base; the refresh copies it into
                                            the base observable and channel parameter 0) */
@@ -988,20 +1178,25 @@ static uint32_t ad_p6(uint32_t ch, uint32_t buf)
 void hook_store_reset(uint32_t store)
 {
     ST_RESET(store);
+#if ENGINE_ABI3 && !FAR_PART
+    engctl_new_project(store);
+#elif !ENGINE_ABI3
     struct a1 *a = a1();
     if (a)
         a->fresh = 1;
+#endif
 }
 void hook_rst_absent(uint32_t store) __attribute__((alias("hook_store_reset")));
 void hook_rst_tail(uint32_t store) __attribute__((alias("hook_store_reset")));
 void hook_rst_clear(uint32_t store) __attribute__((alias("hook_store_reset")));
 void hook_rst_pack(uint32_t store) __attribute__((alias("hook_store_reset")));
 
-/* Codec 2 version 1 -> 2, once (a private bench file of the 7302 / 7303 line): algorithm +2 (0..1) and bank +3
+/* Codec 2 version 1 -> 2, once (the older 7302 / 7303 file format): algorithm +2 (0..1) and bank +3
  * (0..15) are validated independently, an invalid field reading 0, and only then composed into track 8's selected
  * slot bank + 16 x algorithm `sel` (the store byte the refresh applies, or 0 for the caller to send); then the
  * version byte 2 and the CRC. Bytes +2 and +3 stay as they were (reserved, preserved), every other byte too. Under
  * the suspension, by the caller. Returns the slot. */
+#if !ENGINE_ABI3
 __attribute__((noinline)) static uint32_t ad_fm_convert(volatile uint8_t *b, uint32_t sel)
 {
     volatile uint8_t *p = b + SYN_PATCH_AT;
@@ -1018,6 +1213,7 @@ __attribute__((noinline)) static uint32_t ad_fm_convert(volatile uint8_t *b, uin
     return f;
 }
 #endif
+#endif
 
 /* Before every stock project refresh (load / absent slot, clear, pack switch; trackmodes.c TM_HOOK): the store is
  * the project about to be applied, and the refresh loads the channels, their value cells and displays from it, so
@@ -1025,6 +1221,10 @@ __attribute__((noinline)) static uint32_t ad_fm_convert(volatile uint8_t *b, uin
  * the project operation (no save can run), under the suspension like tm_apply. */
 __attribute__((noinline)) static void ad_preapply(uint32_t P)
 {
+#if ENGINE_ABI3
+    (void)P; return;
+#else
+
     uint32_t s = store_of(P), ch = s ? pl_channel(rw(P + 0x54), A1_T) : 0;
 #if FM_BANKVIEW
     struct a1 *a = a1();
@@ -1070,6 +1270,7 @@ __attribute__((noinline)) static void ad_preapply(uint32_t P)
         pl_put(ch, 6, buf, ad_fb_convert(b, ad_p6(ch, buf)));
 #endif
     RESUME_ALL();
+#endif
 }
 
 /* A project in force that no refresh has applied (the boot project, tm site 0): the same conversion on the live
@@ -1085,6 +1286,7 @@ static uint32_t ad_cc_thunk(void)
         ? th : 0;
 }
 
+#if !ENGINE_ABI3
 static void ad_boot_default(void)
 {
 #if ENGINE_OPT
@@ -1165,6 +1367,8 @@ static void ad_boot_default(void)
     }
 #endif
 }
+
+#endif
 
 /* ---- Track 8 ignores slice mode --------------------------------------------------------------------------------
  * With track t's setting C (channel parameter 4) = 1, the track is in slice mode. What that changes, as observed:
@@ -1270,7 +1474,9 @@ uint64_t hook_kb_new(uint32_t kb, uint32_t b, uint32_t c, uint32_t d)
 
 #if STEP_CHORDS
 /* The far blob (tools/farblob.py): table function i, only if the header is the one this build was made with. */
+#ifndef FAR_AT
 #define FAR_AT          0x0801B000u
+#endif
 #define FAR_MAGIC       0x31465243u                 /* 'CRF1' */
 enum { FAR_CHORD, FAR_COL,
 #if BOOT_PULSE
@@ -1288,12 +1494,185 @@ enum { FAR_CHORD, FAR_COL,
 #if CARD_DSP && !CARD_DSP_MAIN
        FAR_CD_LIVE,
 #endif
+#if ABI3_FAR_TELEM
+       FAR_Q0_TELEM,
+#endif
+#if ABI3_FAR_COLD
+       FAR_CRE3_CONTROLS,
+#endif
+#if ABI3_FAR_MORE
+       FAR_EP_STATUS,
+#if !(ABI3_QUERY_CUT & 4) && !ABI3_HEAP_MAIN
+       FAR_HEAP_REPLY,
+#endif
+#if !(ABI3_QUERY_CUT & 32)
+       FAR_O1_SYSEX,
+#endif
+       FAR_EP_PARSE, FAR_COMPOSITION,
+#if ABI3_FAR_CHECK
+       FAR_CRE3_CHECK,
+#endif
+#if ABI3_FAR_STREAM
+       FAR_CRE3_STREAM,
+#endif
+#if ABI3_FAR_SCAN
+       FAR_CRE3_SCAN,
+#endif
+#if ABI3_C1_PROBE
+       FAR_CRE3_TIMING,
+#endif
+#if ABI3_FAR_DUMP
+       FAR_DUMP,
+#endif
+#endif
        FAR_N };
 __attribute__((noinline)) static uint32_t far_call(uint32_t i, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
     volatile uint32_t *h = (volatile uint32_t *)FAR_AT;
     return h[0] == FAR_MAGIC && h[1] == FAR_KEY && h[2] == FAR_N ? ((fn4_t)h[4 + i])(a, b, c, d) : 0;
 }
+#if ABI3_FAR_MORE
+#if FAR_PART
+#include "cre3loader.h"
+#if ABI3_FAR_DUMP
+uint32_t far_dump(uint32_t message,uint32_t len,uint32_t zero,uint32_t zero2)
+{
+    if(zero || zero2)return 0;
+    return 1u+(uint32_t)dump((const uint8_t *)message,len);
+}
+#endif
+#if !(ABI3_QUERY_CUT & 4) && !ABI3_HEAP_MAIN
+uint32_t far_heap_reply(uint32_t zero,uint32_t zero2,uint32_t zero3,uint32_t zero4)
+{
+    if(zero || zero2 || zero3 || zero4)return 0;
+    heap_reply();return 1;
+}
+#endif
+#if !(ABI3_QUERY_CUT & 32)
+uint32_t far_o1_sysex(uint32_t message,uint32_t len,uint32_t zero,uint32_t zero2)
+{
+    if(zero || zero2)return 0;
+    o1_sysex((const uint8_t *)message,len);return 1;
+}
+#endif
+uint32_t far_composition(uint32_t io,uint32_t zero,uint32_t zero2,uint32_t zero3)
+{
+    if(zero || zero2 || zero3)return 0;
+    return cre3l_composition((const struct cre3l_io *)io)+1;
+}
+#if ABI3_FAR_CHECK
+uint32_t far_cre3_check(uint32_t io,uint32_t platform,uint32_t state,uint32_t zero)
+{
+    if (zero) return 0;
+    return cre3l_check((const struct cre3l_io *)io,(const struct cre3_platform *)platform,
+                       (struct cre3l_state *)state)+1;
+}
+#endif
+#if ABI3_FAR_STREAM
+uint32_t far_cre3_stream(uint32_t io,uint32_t platform,uint32_t state,uint32_t zero)
+{
+    if (zero) return 0;
+    return cre3l_stream((const struct cre3l_io *)io,(const struct cre3_platform *)platform,
+                        (struct cre3l_state *)state)+1;
+}
+#endif
+#else
+#if ABI3_FAR_DUMP
+static int dump(const uint8_t *message,uint32_t len)
+{
+    uint32_t r=far_call(FAR_DUMP,(uint32_t)message,len,0,0);
+    return r?(int)(r-1u):1; /* An unavailable Far handler never reaches stock dump. */
+}
+#endif
+#if !(ABI3_QUERY_CUT & 4) && !ABI3_HEAP_MAIN
+static void heap_reply(void)
+{
+    (void)far_call(FAR_HEAP_REPLY,0,0,0,0);
+}
+#endif
+#if !(ABI3_QUERY_CUT & 32)
+static void o1_sysex(const uint8_t *message,uint32_t len)
+{
+    (void)far_call(FAR_O1_SYSEX,(uint32_t)message,len,0,0);
+}
+#endif
+struct cre3l_io;
+static uint32_t cre3l_composition(const struct cre3l_io *io)
+{
+    return far_call(FAR_COMPOSITION,(uint32_t)io,0,0,0)==2;
+}
+#if ABI3_FAR_CHECK
+#include "cre3loader.h"
+static uint32_t cre3l_check(const struct cre3l_io *io,const struct cre3_platform *platform,
+                           struct cre3l_state *state)
+{
+    uint32_t r=far_call(FAR_CRE3_CHECK,(uint32_t)io,(uint32_t)platform,(uint32_t)state,0);
+    if (!r) {
+        state->candidate_valid=state->transmitted=0;
+        return cre3l_result(state,CRE3L_COMPOSITION);
+    }
+    return r-1;
+}
+#if ABI3_FAR_STREAM
+static uint32_t cre3l_stream(const struct cre3l_io *io,const struct cre3_platform *platform,
+                            struct cre3l_state *state)
+{
+    uint32_t r=far_call(FAR_CRE3_STREAM,(uint32_t)io,(uint32_t)platform,(uint32_t)state,0);
+    if (!r) {
+        state->candidate_valid=state->resident_valid=state->transmitted=0;
+        return cre3l_result(state,CRE3L_COMPOSITION);
+    }
+    return r-1;
+}
+#endif
+#endif
+#endif
+#endif
+
+#if ABI3_FAR_SCAN
+#include "cre3scan_far.h"
+#endif
+
+#if ABI3_FAR_COLD
+#include "cre3.h"
+#if FAR_PART
+/* Zero means bridge refusal; successful validation uses a nonzero envelope. */
+uint32_t far_cre3_controls(uint32_t facts,uint32_t zero,uint32_t zero2,uint32_t zero3)
+{
+    if (zero || zero2 || zero3) return 0;
+    return cre3_controls((const struct cre3_facts *)facts)+1;
+}
+#else
+static uint32_t cre3_controls(const struct cre3_facts *f)
+{
+    return far_call(FAR_CRE3_CONTROLS,(uint32_t)f,0,0,0)==1?0:17;
+}
+#endif
+#endif
+
+#if ABI3_FAR_TELEM
+#if ABI3_GENERAL_BENCH
+#define Q0_TELEM_REQUEST_LEN 14u
+#else
+#define Q0_TELEM_REQUEST_LEN 10u
+#endif
+#if FAR_PART
+/* Same Main-task query behavior; the Far table owns a precise fn4_t ABI. */
+uint32_t far_q0_telem(uint32_t message,uint32_t len,uint32_t zero,uint32_t zero2)
+{
+    if (len!=Q0_TELEM_REQUEST_LEN || zero || zero2) return 0;
+    q0_telem((const uint8_t *)message,len);
+    return 1;
+}
+#else
+static void q0_telem(const uint8_t *message,uint32_t len)
+{
+    if (len!=Q0_TELEM_REQUEST_LEN) return;
+    (void)far_call(FAR_Q0_TELEM,(uint32_t)message,len,0,0);
+}
+#endif
+#endif
+
 #endif
 
 #if PG_NAV
@@ -1930,6 +2309,9 @@ static volatile uint16_t *sv_col(uint32_t view)
  * 0 (block 0 is pages 0 and 1, all 32 slots valid). Main task (input, observers). */
 __attribute__((noinline)) static void sv_dark(uint32_t view)
 {
+#if ENGINE_ABI3 && !FAR_PART
+    if (!engctl_sample_pages()) return; /* no custom Sample surface: keep stock colours */
+#endif
     volatile uint16_t *col = sv_col(view);
     uint32_t blk = *(volatile uint8_t *)obs_el(rw(view + 0x1C), 0);
     for (uint32_t i = 0; col && blk && i < 32; i++)
@@ -1946,6 +2328,9 @@ static uint32_t sv_t8(uint32_t view)
  * plain colour of all 32 positions is restored first (an earlier block left them dark). */
 uint32_t hook_sv_obs(uint32_t th, uint32_t obs, uint32_t c, uint32_t d)
 {
+#if ENGINE_ABI3 && !FAR_PART
+    if (!engctl_sample_pages()) return SV_OBS(th,obs,c,d);
+#endif
     uint32_t view = sv_t8(th - 8);
     volatile uint16_t *col = view ? sv_col(view) : 0;
     if (col && obs == rw(view + 0x1C) && *(volatile uint8_t *)obs_el(obs, 0) == 0) {
@@ -2000,21 +2385,39 @@ __attribute__((noinline)) static void sv_entry(void)
     if (!view || !in_sram(cell, 0x14))
         return;                               /* not resolvable yet: again at the next pass */
 #endif
+#if ENGINE_ABI3 && !FAR_PART
+    uint32_t pages=engctl_sample_pages();
+    if (!pages) {
+        if (g->sv_in) {
+            /* A custom layout may have darkened the last-page arrow. Restore
+             * stock rendering without moving the existing stock page. */
+            *(volatile uint8_t *)OBS_SETP(cell,0)=*(volatile uint8_t *)obs_el(cell,0);
+            NOTIFY(cell);
+        }
+        g->sv_in=0; return;
+    }
+#else
+    uint32_t pages=SV_PAGES;
+#endif
     uint32_t cur = *(volatile uint8_t *)obs_el(cell, 0), page = cur, o = rw(pg8 + 4), b = in_sram(o, 4) ? rw(o) : 0;
     uint32_t entry = !g->sv_in || g->sv_gen != gen;
     if (entry) {
         uint32_t base = t->store ? *(volatile uint8_t *)(t->store + SV_BASE_AT + A1_T) : 0xFFu, ch;
         if (base == 0xFFu)                    /* no base set: live parameter 0 */
             base = (ch = pl_channel(rw(PL_R_CELL), A1_T)) ? PL_GET(ch, 0) : 0;
+#if ENGINE_ABI3 && !FAR_PART
+        page=engctl_sample_selected_page(base);
+#else
         page = base < FM_SLOTS ? base >> 4 : 0;
-    } else if (page >= SV_PAGES) {
-        page = SV_PAGES - 1u;                 /* Up / Down stop at the last page that holds sounds (stock: eight) */
+#endif
+    } else if (page >= pages) {
+        page = pages - 1u;                 /* Up / Down stop at the last page that holds sounds (stock: eight) */
     }
     if (cur != page) {
         *(volatile uint8_t *)OBS_SETP(cell, 0) = (uint8_t)page;
         NOTIFY(cell);
     }
-    if (page == SV_PAGES - 1u && in_sram(b, 4))
+    if (page == pages - 1u && in_sram(b, 4))
         *(volatile uint16_t *)b = *(const volatile uint16_t *)SV_ARROW_OFF;   /* no page below: the Down arrow dark */
     if (entry) {
         sv_dark(view);
@@ -2043,6 +2446,36 @@ __attribute__((noinline)) static void sv_entry(void)
 #endif
 }
 
+#if ENGINE_ABI3 && !FAR_PART
+static uint32_t abi3_sample_slot(uint32_t page,uint32_t pad,uint32_t *slot)
+{
+    const struct cre3_facts *f=abi3_resident_facts();
+    if (!f || pad>=16 || page>=engctl_sample_pages()) return 0;
+    for (uint32_t i=0;i<f->h[26];i++) if ((f->controls[8*i]&15)==1) {
+        struct c3ui_position position;
+        if (c3ui_position(f,i,&position) && 16*page+pad>=position.pad &&
+            16*page+pad<position.pad+position.count) { *slot=16*page+pad-position.pad; return 1; }
+    }
+    return 0;
+}
+static void abi3_sample_frame(struct state *s,uint8_t *leds)
+{
+    if (!s) return;
+    /* hook_encode is a UI task callback. Main owns resident metadata/current;
+     * hold the existing scheduler serialization over the complete binding. */
+    SUSPEND_ALL();
+    if (s->ui!=(0x80010000u|A1_T) || !engctl_sample_pages()) goto done;
+    uint32_t grid=rw(rw(rw(BTN_CELL+4))+0x3C);
+    uint32_t object=rw(grid+0x19C+4*A1_T), cell=in_sram(object,0x14)?rw(object+0x10):0;
+    if (!in_sram(cell,0x14)) goto done;
+    uint32_t page=*(volatile uint8_t *)obs_el(cell,0), channel=pl_channel(rw(PL_R_CELL),A1_T);
+    uint32_t sound=channel?PL_GET(channel,0):0;
+    engctl_sample_render(s,page,sound,leds);
+ done:
+    RESUME_ALL();
+}
+#endif
+
 /* The press decides its physical pad (bit (arg & 15): arg = pad - 16 + 16 x (page & 1)). On track 8's view the full
  * slot is computed in 32 bits from arg and the whole block byte; it selects (family slot & 15, algorithm slot >> 4)
  * only for arg <= 31 and slot < FM_SLOTS (32), which also requires block 0 (the note's block <= 3 is implied). Any
@@ -2053,11 +2486,20 @@ uint32_t hook_sv_press(uint32_t obj, uint32_t pad, uint32_t vel, uint32_t d)
     volatile uint8_t *c = in_sram(obj, 0x58) ? ad_c8(rw(obj + 0x14)) : 0;
     uint16_t bit = (uint16_t)(1u << (pad & 15u));
     if (c) {
+#if ENGINE_ABI3 && !FAR_PART
+        if (engctl_sample_pages()) {
+            uint32_t block=*(volatile uint8_t *)obs_el(rw(obj+0x1C),0), sound=0;
+            uint32_t result=engctl_sample_pad(region(),(pad>>4)+2*block,pad&15,PG->clear,&sound);
+            if (pad>31 || result!=2) { PG->sv_mask|=bit; return d; }
+            pad=sound;
+        }
+#else
         uint32_t blk = *(volatile uint8_t *)obs_el(rw(obj + 0x1C), 0), slot = pad + 32u * blk;
         if (pad > 31u || slot >= FM_SLOTS) {
             PG->sv_mask |= bit;
             return d;
         }
+#endif
     }
     PG->sv_mask &= (uint16_t)~bit;
 #else
@@ -2086,6 +2528,13 @@ uint32_t hook_sv_rel(uint32_t obj, uint32_t pad, uint32_t c, uint32_t d)
         PG->sv_mask &= (uint16_t)~bit;
         return d;
     }
+#if ENGINE_ABI3 && !FAR_PART
+    if (in_sram(obj,0x58) && ad_c8(rw(obj+0x14)) && engctl_sample_pages()) {
+        uint32_t block=*(volatile uint8_t *)obs_el(rw(obj+0x1C),0), sound;
+        if (abi3_sample_slot((pad>>4)+2*block,pad&15,&sound)) pad=sound;
+        else return d;
+    }
+#endif
     return SV_REL(obj, pad, c, d);
 }
 #endif
@@ -2196,6 +2645,18 @@ static void a1_ring(uint32_t *pair, uint32_t origin)
         ORIG_RING(pair);
         return;
     }
+#if ENGINE_ABI3
+    if (!abi3_main_context()) {
+        /* Existing stock caller owns the original ring/engine transaction.
+         * No foreign context writes shared N or bypasses pending stock FIFO.
+         * Unsupported backpressure is counted, never reclassified as CRE3. */
+        if (Q0->busy || q0_stock_waiting(a)) { a->c_overflow++; return; }
+        a->cons_ok=0;
+        if (ring_free(a)) { ring_put(a,pair[0],pair[1]); a->c_direct++; }
+        else a->c_overflow++;
+        return;
+    }
+#endif
 #if CORE0_SYNTH
     if (Q0->busy) {                           /* re-entered inside our own transaction (unreachable by inference: no
                                                  stock ring writer runs inside it); never lock or touch N here */
@@ -2250,6 +2711,11 @@ static void table_reset(struct a1 *a)
  * the old one are purged here and filtered at publication) and publishes the patch after the ALL OFF. */
 static void all_off(struct a1 *a, uint32_t why, uint32_t project)
 {
+#if ENGINE_ABI3
+    if (!abi3_main_context()) {
+        q0_abi3_defer(why==WHY_CHOKE?DEF_CHOKE:DEF_EDIT,project); return;
+    }
+#endif
 #if ARP
     far_call(FAR_ARP_RESET, why | 0x100u, 0, 0, 0);   /* the arp's note; the set by reason (arp.c) */
 #endif
@@ -2265,6 +2731,9 @@ static void all_off(struct a1 *a, uint32_t why, uint32_t project)
     }
     uint32_t sem = eng_lock();
     if (project) {
+#if ENGINE_ABI3
+        c3p_latch(&a->producer);
+#endif
         a->pepoch++;
         NQ_PURGE(a, 15, 1, 1, (uint16_t)(a->seq + 1));
     }
@@ -2419,16 +2888,21 @@ static uint32_t is_aged(struct a1 *a, uint32_t v, uint32_t now)
 static uint32_t pick(struct a1 *a, uint32_t excl, uint32_t now)
 {
     int32_t best = -1;
-    for (uint32_t v = 0; v < 4; v++)
+#if ENGINE_ABI3
+    uint32_t lanes=a->producer.lanes;
+#else
+    uint32_t lanes=4;
+#endif
+    for (uint32_t v = 0; v < lanes; v++)
         if (!(excl >> v & 1) && is_free(&a->v[v]))
             return v;
-    for (uint32_t v = 0; v < 4; v++)          /* aged candidates: the oldest onset first */
+    for (uint32_t v = 0; v < lanes; v++)          /* aged candidates: the oldest onset first */
         if (!(excl >> v & 1) && is_aged(a, v, now) &&
             (best < 0 || ser_cmp(a->v[v].on_ser, a->v[best].on_ser) < 0))
             best = (int32_t)v;
     if (best >= 0)
         return (uint32_t)best;
-    for (uint32_t v = 0; v < 4; v++) {
+    for (uint32_t v = 0; v < lanes; v++) {
         struct a1voice *x = &a->v[v];
         if ((excl >> v & 1) || x->state != V_REL)
             continue;
@@ -2442,7 +2916,7 @@ static uint32_t pick(struct a1 *a, uint32_t excl, uint32_t now)
     }
     if (best >= 0)
         return (uint32_t)best;
-    for (uint32_t v = 0; v < 4; v++) {
+    for (uint32_t v = 0; v < lanes; v++) {
         if (excl >> v & 1)
             continue;
         if (best < 0 || ser_cmp(a->v[v].on_ser, a->v[best].on_ser) < 0)
@@ -2474,6 +2948,9 @@ static struct a1inst *inst_new(struct a1 *a)
 
 static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
 {
+#if ENGINE_ABI3
+    if (!abi3_main_context()) { q0_rej_drop(src,note); return; }
+#endif
 #if ARP
     src = ARP_TAG(src);
     uint8_t port = ARP_P->port;               /* this press's router port (hook_ron); restored below */
@@ -2588,12 +3065,14 @@ static void a1_press(struct a1 *a, uint32_t src, int32_t note, uint32_t vel)
     }
 #if CORE0_SYNTH                               /* after the KILL boundary (its purge tidies orphan groups): the press's
                                                  envelope group (if changed), then its ONSETs with the Tune snapshot */
+#if !ENGINE_ABI3
     Q0->busy |= B_HOLD;                       /* the group and the ONSETs go out together (one hold if they fit) */
     ad_service(a, ad_read(a), AD_NOTE);
 #if CORE0_TONE
     q0_tone(a, q0_tone_read(), TONE_NOTE);    /* changed tone values go ahead of the note (pacing exception) */
 #endif
     Q0->busy &= (uint8_t)~B_HOLD;
+#endif
     voice_emit_onset_t(a, mask, notes, vel, q0_tune());
 #else
     voice_emit_onset(a, mask, notes, vel);
@@ -2632,6 +3111,9 @@ static void a1_release_at(struct a1 *a, uint32_t src, int32_t note, uint32_t sna
 
 static void a1_release(struct a1 *a, uint32_t src, int32_t note)
 {
+#if ENGINE_ABI3
+    if (!abi3_main_context()) { q0_abi3_defer(DEF_STOP,1); return; }
+#endif
 #if ARP
     src = ARP_TAG(src);
 #endif
@@ -2645,6 +3127,9 @@ static void a1_release(struct a1 *a, uint32_t src, int32_t note)
 #else
 static void a1_release(struct a1 *a, uint32_t src, int32_t note)
 {
+#if ENGINE_ABI3
+    if (!abi3_main_context()) { c3p_latch(&a->producer); return; }
+#endif
     Q0_FLUSH(a);                              /* an older staged off resolves before this one */
     a1_sync(a);
     struct a1inst *best = 0;
@@ -2838,6 +3323,9 @@ uint32_t hook_eng_off(uint32_t e, uint32_t g, uint32_t note, uint32_t d)
 #if CORE0_SYNTH
 static void release_all(struct a1 *a, uint32_t why)
 {
+#if ENGINE_ABI3
+    if (!abi3_main_context()) { q0_abi3_defer(why==WHY_STOP?DEF_STOP:DEF_CC123,0); return; }
+#endif
 #if ARP
     far_call(FAR_ARP_RESET, why, 0, 0, 0);       /* Stop / mute: sequencer entries; CC 123: all */
 #endif
@@ -2910,6 +3398,11 @@ static uint32_t force(uint32_t g, uint32_t why)
     struct a1 *a = a8();
     if (!a || (g & 0xFF) != A1_G)
         return FORCE_OFF(g);
+#if ENGINE_ABI3
+    if (!abi3_main_context()) {
+        q0_abi3_defer(why==WHY_STOP?DEF_STOP:why==WHY_CHOKE?DEF_CHOKE:DEF_EDIT,0); return 0;
+    }
+#endif
 #if CORE0_SYNTH
     if (Q0->busy) {                           /* deferred to the next Main pass, never locked from here */
         Q0->defer |= (uint8_t)(why == WHY_STOP ? DEF_STOP : why == WHY_CHOKE ? DEF_CHOKE : DEF_EDIT);
@@ -2937,6 +3430,11 @@ uint32_t hook_fo_edit(uint32_t g) { return force(g, WHY_EDIT); }     /* sample e
 uint32_t hook_midi_alloff(uint32_t midi_in, uint32_t g, uint32_t c, uint32_t d)
 {
     struct a1 *a = a8();
+#if ENGINE_ABI3
+    if (a && (g&255u)==A1_G && !abi3_main_context()) {
+        q0_abi3_defer(DEF_CC123,0); return MIDI_ALLOFF(midi_in,g,c,d);
+    }
+#endif
 #if CORE0_SYNTH
     if (a && (g & 0xFF) == A1_G && Q0->busy) {
         Q0->defer |= DEF_CC123;
@@ -2959,10 +3457,16 @@ uint32_t hook_midi_alloff(uint32_t midi_in, uint32_t g, uint32_t c, uint32_t d)
 
 static void a1_close(struct a1 *a)
 {
+#if ENGINE_ABI3
+    if (!abi3_main_context()) { q0_abi3_defer(DEF_CLOSE,1); return; }
+#endif
 #if CORE0_SYNTH
     REJ_CLEAR(1);                             /* CORE0_RECOVER: CLOSED drops survive the close (late-off gate) */
 #endif
     uint32_t sem = eng_lock();
+#if ENGINE_ABI3
+    q0_abi3_flush(a);
+#else
     for (uint32_t i = 0; i < a->nq_n;) {      /* nothing of ours crosses a DSP load; other entries stay */
         uint32_t k = nq_at(a, i)->kind;
         if (K_OURS(k))
@@ -2970,6 +3474,7 @@ static void a1_close(struct a1 *a)
         else
             i++;
     }
+#endif
     a->pq_alloff = a->pq_kill = 0;
     for (uint32_t v = 0; v < 4; v++)
         a->gen[v] = 0;
@@ -2981,7 +3486,7 @@ static void a1_close(struct a1 *a)
 #endif
 #if CORE0_SYNTH                               /* and so does an epoch reset (S 64, R 0) */
     Q0->sr_pub = Q0->sr_iss = Q0->sr_want = SR_DEFAULT;
-#if CORE0_TONE
+#if CORE0_TONE && !ENGINE_ABI3
     Q0->tone_pub = Q0->tone_iss = TONE_NONE;  /* the DSP's tone caches do not survive a load or an epoch */
     Q0->tone_ok = 0;
 #endif
@@ -3087,23 +3592,43 @@ static uint32_t ep_foreign_load(void)
     return 1;
 }
 
+#if DSP_C0_LZ
+static uint32_t c0lz_failed(void);       /* carddsp.c, included after notetap.c */
+#endif
+
 /* Mode-0 load wrapper: report an aborted ready-line wait or a refused load so the assembly hook
  * can unwind its caller instead of continuing initialization. */
 static uint32_t __attribute__((used, noinline)) dsp_load0_c(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {
+#if DSP_C0_LZ
+    if (!region())
+        return 1;                            /* no owned decoder reservation: unwind before DSP traffic */
+#endif
     if (ep_foreign_load())
         return 1;
     dsp_load(r0, r1, r2, r3);
     struct eo *e = eo();
+#if DSP_C0_LZ
+    if (c0lz_failed())
+        return 1;
+#endif
     return e && (e->fl & EF_ABORT);
 }
 
 /* Mode-1 load wrapper: a refused load requests an immediate return from the caller. */
 static uint32_t __attribute__((used, noinline)) dsp_load1_c(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 {
+#if DSP_C0_LZ
+    if (!region())
+        return 1;                            /* no owned decoder reservation: unwind before DSP traffic */
+#endif
     if (ep_foreign_load())
         return 1;
     dsp_load(r0, r1, r2, r3);
+#if DSP_C0_LZ
+    if (c0lz_failed())
+        return 1;
+#endif
     return 0;
 }
 
@@ -3150,7 +3675,9 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     if (!A_ENG(a))                            /* ENGINE_OPT: no engine sent at this load: the queue stays CLOSED */
         return ret;
 #endif
+#if !ENGINE_ABI3
     ad_boot_default();
+#endif
 #if !CORE0_ONLY                               /* CORE0_ONLY: no ENABLE, no core-1 frame; c_enable stays 0 */
     a1_enable_write();
     a->c_enable++;
@@ -3165,7 +3692,7 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     if (!a)
         return ret;
     a1_close(a);                              /* also covers a boot whose load entry was not seen */
-#if AD_LIVE
+#if AD_LIVE && !ENGINE_ABI3
     ad_boot_default();                        /* Main task, no lock held: the boot project's Length before its barrier */
 #endif
     uint32_t sem = eng_lock();
@@ -3183,6 +3710,47 @@ uint32_t hook_dsp_ready(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
 #endif
 }
 
+#if ENGINE_ABI3
+/* These three hooks replace transport vtable entries only in the ABI3
+ * image. Original words: 683E4=080332ED,683E8=08033341,68408=08033365.
+ * The pulse thunk receives transport+4, as the original this-adjust thunk does. */
+static void q0_abi3_transport_event(uint32_t object,uint32_t play,uint32_t pulse_event)
+{
+    struct a1 *a=a1();
+    if (!a || link(object,0)!=TRANSPORT_VT) return;
+    uint32_t saved; __asm__ volatile("mrs %0, primask\ncpsid i":"=r"(saved)::"memory");
+    uint32_t seq=link(object,8), raw=link(seq,0x20)&255u, running=(link(object,0x10)&255u)!=0;
+    if (raw>=96) { c3p_latch(&a->producer); goto done; }
+    uint32_t phase=Q0->tone_iss;
+    if (play) { phase=0; Q0->tone_ok=1; }
+    else if (pulse_event && running && Q0->tone_ok) phase=(phase+(raw+96u-Q0->t_tone)%96u)%768u;
+    Q0->tone_iss=phase; Q0->t_tone=raw; Q0->tone_ok=1;
+    CLK->transport=object;
+    if (!pulse_event || (running && phase%24u==0))
+        abi3_transport_capture(running,phase,play,abi3_main_context(),1);
+ done:
+    __asm__ volatile("msr primask, %0"::"r"(saved):"memory");
+}
+uint32_t hook_abi3_transport_start(uint32_t object,uint32_t mode,uint32_t c,uint32_t d)
+{
+    uint32_t before=link(object,0x10)&255u;
+    uint32_t result=((fn4_t)0x080332EDu)(object,mode,c,d);
+    if (mode<2 && !before && (link(object,0x10)&255u)) q0_abi3_transport_event(object,1,0);
+    return result;
+}
+uint32_t hook_abi3_transport_stop(uint32_t object,uint32_t mode,uint32_t c,uint32_t d)
+{
+    uint32_t result=((fn4_t)0x08033341u)(object,mode,c,d);
+    if (mode<2 && !(link(object,0x10)&255u)) q0_abi3_transport_event(object,0,0);
+    return result;
+}
+uint32_t hook_abi3_transport_pulse(uint32_t adjust,uint32_t b,uint32_t c,uint32_t d)
+{
+    q0_abi3_transport_event(adjust-4,0,1); /* before notes observe this pulse */
+    return ((fn4_t)0x08033365u)(adjust,b,c,d);
+}
+#endif
+
 /* ---- Main loop and boot ---------------------------------------------------------------------------------------- */
 
 #if CORE0_SYNTH
@@ -3194,11 +3762,13 @@ uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
         ep_remote_main(s);                  /* Main only, before queue/UI work; never from SysEx dispatch */
 #endif
     struct a1 *a = a1();
-#if FM_PATCH
+#if FM_PATCH && !ENGINE_ABI3
     pg_fm_tick();                             /* the FM view's coalesced macro write (synthpage.c) */
 #endif
     if (a && !Q0->busy) {
+#if !ENGINE_ABI3
         ad_boot_default();
+#endif
 #if FM_BANKVIEW
         if (A_ENG(a)
 #if ENGINE_PACK && PAGE030
@@ -3208,11 +3778,23 @@ uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
             sv_entry();                       /* track 8's Sample view opens on the selected base's page (no lock) */
 #endif
 #if CORE0_BENCH
-        Q0->held = 0;                         /* a new Main pass: one queue write hold allowed (bench pacing) */
+        Q0->held = 0;                         /* a new Main pass: one queue write hold allowed (queue pacing) */
 #endif
         q0_service(a);                        /* deferred work, header / ACK polls, recovery, bulk reconcile, refresh */
         a1_sync(a);
-#if CORE0_TONE
+#if ENGINE_ABI3
+        if (q0_abi3_user_ready(a)) {
+            uint32_t values[22]; q0_abi3_sources(a,values);
+            for (uint32_t id=0;id<22;id++) if (id!=15 && (a->producer.wanted&(1u<<id)))
+                c3p_control(&a->producer,id,values[id]);
+            if ((a->producer.wanted&(1u<<15)) && (a->producer.transport_pending ||
+                !(a->producer.valid&(1u<<15)) || a->producer.issued[15]!=a->producer.transport_latest)) {
+                uint32_t latest=a->producer.transport_latest;
+                c3p_transport(&a->producer,latest>>23,latest&1023u,0,1,1);
+            }
+            q0_abi3_sync(a);
+        }
+#elif CORE0_TONE
         if (a->phase == PH_OPEN) {            /* M6..M8 knob, CC, p-lock, host_param: picked up on every Main pass */
             uint32_t want = q0_tone_read();
             if (want != Q0->tone_iss) {
@@ -3281,6 +3863,9 @@ uint32_t hook_a1_boot(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     SUSPEND_ALL();
     if (region()) {
         ((volatile struct a1 *)A1_AT)->magic = A1_MAGIC;
+#if ENGINE_ABI3
+        c3p_init(&((struct a1 *)A1_AT)->producer,0,4,0);
+#endif
 #if ENGINE_OPT
         ((volatile struct a1 *)A1_AT)->eng = ENGINE_FLASH;   /* the flash engine until the first DSP load */
 #endif

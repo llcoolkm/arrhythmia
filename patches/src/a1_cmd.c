@@ -28,8 +28,17 @@
 #ifndef AD_LIVE
 #define AD_LIVE         0               /* 1: PATCH_AD (live attack/decay); the profile switch, build_lightshow.py */
 #endif
+#ifndef ENGINE_ABI3
+#define ENGINE_ABI3 0
+#endif
 #define VC_CLASS        0xA00000u
+#if ENGINE_ABI3
+#define VC_HB_ONSET     0xA8u
+#define VC_LANE_SHIFT   9u
+#else
 #define VC_HB_ONSET     0xA4u
+#define VC_LANE_SHIFT   10u
+#endif
 #define VC_OP_KILL      1u
 #define VC_OP_ALLOFF    3u
 #define VC_OP_PDATA     4u
@@ -106,8 +115,13 @@ static void vc_onset_one(uint32_t v, uint32_t note, uint32_t vel, uint32_t *w0, 
     uint32_t e, m = vc_pitch(note, &e);
     if (!vel)
         vel = 1;
+#if ENGINE_ABI3
+    *w0 = (VC_HB_ONSET + (v & 3u)) << 16 | ((m & 0x7FFFFFu) >> 7);
+    *w1 = (m & 0x7Fu) << 17 | (e & 31u) << 12 | (vel & 0x7Fu) << 5;
+#else
     *w0 = (VC_HB_ONSET + (v & 3u)) << 16 | (m >> 8);
     *w1 = (m & 0xFFu) << 16 | (e & 31u) << 11 | (vel & 0x7Fu) << 4;
+#endif
 }
 
 /* Ring entries one onset of these voices takes: one per voice. Admission reserves them all before allocation. */
@@ -157,7 +171,7 @@ static uint32_t vc_kill_entry(uint32_t pending, uint32_t gens16, uint32_t *w0, u
     uint32_t v = 0;
     while (v < 3 && !(pending >> v & 1u))
         v++;
-    *w0 = VC_CLASS | VC_OP_KILL << 12 | v << 10;
+    *w0 = VC_CLASS | VC_OP_KILL << 12 | v << VC_LANE_SHIFT;
     *w1 = (gens16 >> (4 * v)) & 15u;
     return 1u << v;
 }
@@ -236,13 +250,13 @@ static uint32_t vc_stock_ch7(uint32_t w0)
 #if CORE0_SYNTH
 static void vc_release(uint32_t v, uint32_t gen, uint32_t *w0, uint32_t *w1)
 {
-    *w0 = VC_CLASS | VC_OP_REL << 12 | (v & 3u) << 10;
+    *w0 = VC_CLASS | VC_OP_REL << 12 | (v & 3u) << VC_LANE_SHIFT;
     *w1 = gen & 15u;
 }
 
 static uint32_t vc_rel_voice(uint32_t w0)
 {
-    return (w0 >> 10) & 3u;
+    return (w0 >> VC_LANE_SHIFT) & 3u;
 }
 
 /* The two wire entries of one envelope group (N entry word1 = A | D << 7 | S << 14 | R << 21), AD first. */
@@ -272,7 +286,12 @@ static void vc_onset_tuned(uint32_t v, uint32_t note, uint32_t tune, uint32_t ve
     uint32_t p = vc_tune_pitch(note, tune), m = p & 0xFFFFFFu, e = p >> 24;
     if (!vel)
         vel = 1;
+#if ENGINE_ABI3
+    *w0 = (VC_HB_ONSET + (v & 3u)) << 16 | ((m & 0x7FFFFFu) >> 7);
+    *w1 = (m & 0x7Fu) << 17 | (e & 31u) << 12 | (vel & 0x7Fu) << 5;
+#else
     *w0 = (VC_HB_ONSET + (v & 3u)) << 16 | (m >> 8);
     *w1 = (m & 0xFFu) << 16 | (e & 31u) << 11 | (vel & 0x7Fu) << 4;
+#endif
 }
 #endif

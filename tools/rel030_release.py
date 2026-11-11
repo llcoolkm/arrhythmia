@@ -104,7 +104,7 @@ def public_spec(arm, stock):
     need(all(len(bytes.fromhex(p['new'])) == len(bytes.fromhex(p['expect'])) for p in patches), 'patch length differs')
     need(not any(at <= INIT_VT < at+n for at, n in spans), 'INIT vtable must remain stock')
     main_end = max(at+n for at, n in spans if MAIN <= at < C0)
-    need(main_end == MAIN_END, 'ARM body differs from the reviewed bench body')
+    need(main_end == MAIN_END, 'ARM body differs from the reviewed ARM body')
     spec.update(patches=patches, version_nibbles=VERSION, description=DESCRIPTION)
     return spec
 

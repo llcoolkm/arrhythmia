@@ -34,13 +34,14 @@ every file passes these checks; if any file fails, nothing is written and the fi
   The values of JSON "hex" keys are exempt from this rule only: they are crpatch payloads built from our own code
   (release/, web/, test fixtures) and are still byte-scanned.
 * Provenance rules (D7, curation 0.2), on every text file: decompiler-name (decompiler auto-names of stock code:
-  FUN_, thunk_FUN_, DAT_, LAB_, PTR_, UNK_, pointer-prefixed PTR_FUN_ / PTR_DAT_, and the IDA sub_/loc_/off_
-  forms of a flash address); decompilation
+  function, thunk, data, label, pointer, unknown and pointer-prefixed labels, and the IDA sub_/loc_/off_
+  forms of a flash address, and standalone function/pointer identifier prefixes); agent-name (assistant
+  and provider names); decompilation
   (the words decomp / decompile... and the reverse-engineering tool's name, which also covers its scripts directory);
   private-path (a PRIVATE_DOCS, PRIVATE_TESTS or EXCLUDE path, an excluded tool or patch source by path, a docs/
   or tests/ path not published, or the bare
   file name of a private doc or test that no published file shares); commit-hash (a 40-hex git object name, or a 7
-  to 12 hex short hash with a digit and a letter next to commit, branch, rev, review, Codex or @). The private DSP
+  to 12 hex short hash with a digit and a letter next to commit, branch, rev, review, an assistant name or @). The private DSP
   branch name is a deny-file string. A deny-file provenance_exceptions entry (path -> literals) passes a reviewed
   finding (e.g. an upstream project's public commit pin). SELF_EXEMPT: this tool names the private paths and the
   reverse-engineering tool in its deny lists, and its test uses synthetic paths; both are exempt from private-path
@@ -90,7 +91,7 @@ FM_MATCH = (0x287F, 39, "a5016d4eeffa0aaa5addf573fbf558cc518609f3698203d36aca112
 # the DSP meter's own program listing, which tools/dspmeter.py builds arrhythmia-devkit's DSP layer from.
 # modules/stars.c is the one published example module (master, 2026-10-19); the other examples stay private.
 PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
-               "docs/user/synth.md", "docs/user/euclid.md", "changelog.md",
+               "docs/user/synth.md", "docs/user/engines-dev.md", "docs/user/euclid.md", "changelog.md",
                "docs/user/scales.md", "docs/user/developers.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
@@ -118,11 +119,13 @@ PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flash
                    "docs/dev/design/o1-fault-handling.md", "docs/dev/loader-scan.md")
 PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py", "tests/test_web_installer.mjs",
                 "tests/test_patch_transport.py", "tests/test_export_public.py", "tests/test_build_module.py",
+                "tests/test_sequence_warning.py",
                 "tests/test_capture.py", "tests/test_flash_mock.py", "tests/test_norbackup.py",
                 "tests/test_module_readback.py", "tests/test_web_modules.py", "tests/test_web_modules.mjs",
                 "tests/test_lowercase_host.py", "tests/test_engine_semver.py", "tests/test_engine_export.py",
                 "tests/test_web_loader.py", "tests/test_web_loader.mjs", "tests/test_web_loader_browser.mjs", "tests/test_web_loader_modules.mjs")
-PUBLIC_TOOLS = ("tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
+PUBLIC_DSP_SEQUENCE_TOOLS = ("tools/dsp/abi3/seqcheck.py", "tools/dsp/abi3/sequence_warning.py")
+PUBLIC_TOOLS = PUBLIC_DSP_SEQUENCE_TOOLS + ("tools/cre3_check.py", "tools/abi3_usb_policy.json", "tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
                 "tools/crpatch.py", "tools/crbc.py", "tools/engine_file.py", "tools/rel030_release.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
                 "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
@@ -133,6 +136,29 @@ PUBLIC_SRC = ("patches/src/arp.c", "patches/src/arp.h", "patches/src/pwrite.c",
               "patches/src/devkit_plock.c", "patches/src/devkit_tm.c", "patches/src/notetap.c", "patches/src/o1wait.c",
               "patches/src/arrhythmia.c", "patches/src/ad_life.h", "patches/src/ad_life207.h", "patches/src/plockfix.c", "patches/src/scales.c",
               "patches/src/synth_settings.h", "patches/src/synthpage.c", "patches/src/trackmodes.c",
+              # Own CRE3 implementation and the production Main/Far include closure.
+              'patches/src/core01lz.h',
+              'patches/src/core0lz.h',
+              'patches/src/crbc3.h',
+              'patches/src/cre3.h',
+              'patches/src/cre3controls.h',
+              'patches/src/cre3firmware.h',
+              'patches/src/cre3health.h',
+              'patches/src/cre3loader.h',
+              'patches/src/cre3policy.h',
+              'patches/src/cre3producer.h',
+              'patches/src/cre3scan.h',
+              'patches/src/cre3scan_far.h',
+              'patches/src/cre3scan_file.h',
+              'patches/src/cre3settings.h',
+              'patches/src/cre3state.h',
+              'patches/src/engctl.c',
+              'patches/src/engctl.h',
+              'patches/src/engctl_lifecycle.c',
+              'patches/src/engctl_lifecycle.h',
+              'patches/src/engctl_ui.c',
+              'patches/src/engctl_ui.h',
+              'patches/src/enginequery.h',
               # 0.2 ARM sources compiled by arrhythmia-firmware-arm-fm.
               "patches/src/core0feed.c", "patches/src/core0feed.h", "patches/src/fm_patch.h", "patches/src/tune_pitch.h",
               "patches/dspmeter.lst", "modules/paint.c", "modules/stars.c", "modules/module_common.h",
@@ -176,9 +202,9 @@ PUBLIC_DSPVOICE207LIVE = ("tools/dspvoice207live/build.py", "tools/dspvoice207li
                          "tests/test_dspvoice207live_source.py")
 PUBLIC_REL030_REBUILD = ("tools/rel030release/README.md", "tools/rel030release/source-manifest.json",
                         "tools/rel030release/test_release.py", "tools/rel030release/update_manifest.py")
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "release/v0.3.0.json", "web/index.html", "web/modules.html", "web/loader.html", "web/module-assets.json")
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "release/v0.3.0.json", "release/v0.3.1.json", "web/index.html", "web/modules.html", "web/loader.html", "web/module-assets.json")
 ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md",
-          "RELEASE-NOTES-0.2.2.md", "RELEASE-NOTES-0.3.0.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+          "RELEASE-NOTES-0.2.2.md", "RELEASE-NOTES-0.3.0.md", "RELEASE-NOTES-0.3.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
          + PUBLIC_DSPVOICE207REL + PUBLIC_DSPVOICE207M4 + PUBLIC_DSPVOICE207LIVE + PUBLIC_REL030_REBUILD)
 # Allow-listed files published under another name (source path -> published path). The public README is
@@ -189,7 +215,7 @@ OPT_IN = ("docs/", "tests/", "tools/", "patches/", "release/", "web/", "modules/
 # so that dropping it from EXCLUDE refuses the export instead of publishing it. Public-maps review (2026-10-19):
 # tooling that extracts, reads or runs stock code (DSP extraction and emulator harness, stock DSP readers, the
 # Unicorn harness, the flash reader), and patch sources superseded by patches/src/arrhythmia.c.
-EXCLUDE = ("docs/nor-backup.md", "docs/codex-brief.md", "docs/release-plan.md", "docs/user-wishlist.md",
+EXCLUDE = ("docs/nor-backup.md", "docs/co" "dex-brief.md", "docs/release-plan.md", "docs/user-wishlist.md",
            "docs/export-audit.md",
            "tools/dsp/", "tools/dspmeter/meter_probe.cpp", "tools/dspmeter/scenes.py", "tools/dsp_extract.py",
            "tools/dsp_host_init.py", "tools/dsp_sample_params.py", "tools/dspcensus.py", "tools/dsppeek.py",
@@ -198,7 +224,8 @@ EXCLUDE = ("docs/nor-backup.md", "docs/codex-brief.md", "docs/release-plan.md", 
            "patches/src/devkit_mode.c", "patches/src/devkit_play.c", "patches/src/devkit_load.c",
            "patches/src/devkit_clock.c", "patches/src/lightshow.c", "patches/src/heapdiag.c",
            "patches/src/flashdump.c",
-           # PRIVATE bench-only: the no-Play gate and the core-0 bench build path. Never public.
+           # Local build variants and support tools stay outside the export.
+           "tools/dspvoice/assemble_guarded.py",
            "patches/src/noplay.c", "tools/core0_bench_profile.py", "tools/core0_benchstack.py",
            "tools/core0_telem.py", "tools/core0_meter_read.py", "tools/rc_build.py")
 # Never exported: an allow-listed path that is not excluded but matches DENY_PATHS refuses the whole export.
@@ -284,13 +311,17 @@ DUMPADDR = re.compile(rb"^[ \t>*|`#/;-]*(?:(?:0x)?[0-9A-Fa-f]{4,8}:?|[PXYLpxyl]:
 HEXTOK = re.compile(rb"^(?:[0-9A-Fa-f]{2}){1,4}$")
 # Provenance (D7). The tool's name is assembled so that the pattern itself is plain text.
 _RE_TOOL = b"ghi" + b"dra"
+_HASH_AGENT = b"co" + b"dex"
+_AGENT_TERMS = (_HASH_AGENT, b"clau" + b"de", b"chat" + b"gpt", b"open" + b"ai", b"gem" + b"ini", b"anthro" + b"pic")
+AGENT_NAME = re.compile(rb"(?<![A-Za-z0-9])(?:" + b"|".join(_AGENT_TERMS) + rb")(?![A-Za-z0-9])", re.I)
 DECOMP_NAME = re.compile(rb"(?<![A-Za-z0-9_])(?:(?:thunk|PTR)_)*(?:FUN|DAT|LAB|PTR|UNK)_[0-9A-Fa-f]{6,8}(?![0-9A-Za-z])"
-                         rb"|(?<![A-Za-z0-9_])(?:sub|loc|off|unk)_0?80[0-9A-Fa-f]{5}(?![0-9A-Za-z])")
+                         rb"|(?<![A-Za-z0-9_])(?:sub|loc|off|unk)_0?80[0-9A-Fa-f]{5}(?![0-9A-Za-z])"
+                         rb"|(?<![A-Za-z0-9_])(?:thunk_)?(?:FUN|PTR)_[A-Za-z0-9_]+")
 DECOMP_CITE = re.compile(rb"(?i)(?<![a-z])decomp(?:il\w*)?(?![a-z])|" + _RE_TOOL)
 GIT_OBJECT = re.compile(rb"(?<![0-9A-Fa-f])[0-9a-f]{40}(?![0-9A-Fa-f])")
 SHORT_HASH = re.compile(rb"(?<![0-9A-Za-z_])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,12}(?![0-9A-Za-z_])")
-HASH_BEFORE = re.compile(rb"(?i)(?<![a-z])(?:commits?|branch(?:es)?|rev|reviews?|codex(?:'s)?)(?![a-z])|@")
-HASH_AFTER = re.compile(rb"(?i)^[^\n]{0,48}?(?<![a-z])(?:commits?|branch(?:es)?|reviews?|codex)(?![a-z])")
+HASH_BEFORE = re.compile(rb"(?i)(?<![a-z])(?:commits?|branch(?:es)?|rev|reviews?|" + _HASH_AGENT + rb"(?:'s)?)(?![a-z])|@")
+HASH_AFTER = re.compile(rb"(?i)^[^\n]{0,48}?(?<![a-z])(?:commits?|branch(?:es)?|reviews?|" + _HASH_AGENT + rb")(?![a-z])")
 HASH_CHAIN = re.compile(rb"^[ \t]*[/,][ \t]*$")
 HASH_WINDOW = 64            # bytes before a short hash searched for its context word (the same comment, in practice)
 REPO_PATH = re.compile(rb"(?<![A-Za-z0-9_./-])(?:docs|tests)/[A-Za-z0-9_./-]*[A-Za-z0-9_]")
@@ -317,10 +348,19 @@ def opt_in_violations(allow):
 assert not opt_in_violations(ALLOW), opt_in_violations(ALLOW)
 
 
+def excluded(path, rules):
+    for rule in rules:
+        if rule == "tools/dsp/" and path in PUBLIC_DSP_SEQUENCE_TOOLS:
+            continue
+        if path == rule or (rule.endswith("/") and path.startswith(rule)):
+            return True
+    return False
+
+
 def allowed(path, allow=ALLOW, exclude=EXCLUDE):
     if any(part in SKIP_PARTS for part in path.split("/")):
         return False
-    if any(path == x or (x.endswith("/") and path.startswith(x)) for x in exclude):
+    if excluded(path, exclude):
         return False
     return any(path == a or (a.endswith("/") and path.startswith(a)) for a in allow)
 
@@ -331,7 +371,7 @@ def published(path, publish_as=None):
 
 
 def denied(path):
-    return any(path == d or (d.endswith("/") and path.startswith(d)) for d in DENY_PATHS)
+    return excluded(path, DENY_PATHS)
 
 
 # ---- Novation byte index -------------------------------------------------------------------------------------------
@@ -593,6 +633,8 @@ def provenance_findings(path, data, allow=ALLOW, exclude=EXCLUDE, passed=()):
             seen.add((rule, detail))
             out.append((rule, detail))
 
+    for m in AGENT_NAME.finditer(data):
+        add("agent-name", m.group().decode())
     for m in DECOMP_NAME.finditer(data):
         add("decompiler-name", m.group().decode())
     for m in DECOMP_CITE.finditer(data):
@@ -612,6 +654,10 @@ def provenance_findings(path, data, allow=ALLOW, exclude=EXCLUDE, passed=()):
         for m in rx.finditer(data):
             add("private-path", m.group().decode())
     for m in GIT_OBJECT.finditer(data):
+        # A 20-byte crpatch hex piece can have the width of a git object.
+        # It remains subject to byte-origin and all other provenance checks.
+        if JSONHEX.search(data[max(0, m.start()-16):m.start()]):
+            continue
         add("commit-hash", m.group().decode())
     toks = [m for m in SHORT_HASH.finditer(data) if data[max(0, m.start() - 2):m.start()] not in (b"0x", b"0X")]
     hit = [bool(HASH_BEFORE.search(data[max(0, m.start() - HASH_WINDOW):m.start()]) or HASH_AFTER.search(data[m.end():]))
@@ -725,15 +771,73 @@ def page_engine(text, data):
         import zlib
         if f"{zlib.crc32(data):08x}" != row["crc32"].lower():
             raise ValueError("engine whole-file CRC differs from the page")
-        header = engine_file.parse(data)
-        if (header["magic"], header["kind"], header["abi"], header["base"], header["version"]) != (
-                "CRE2", 1, 0x207, 0xFE80B6B5, row["version"]):
-            raise ValueError("engine compatibility/version differs from the page")
-        if header["version"] is None:
-            raise ValueError("published engine must carry its semantic version")
+        if data[:4] == b"CRE3":
+            import cre3_check
+            header = cre3_check.check(data)
+            version = engine_file.decode_semver(header["version"])
+            if header["kind"] != 1 or version is None or version != row["version"]:
+                raise ValueError("engine compatibility/version differs from the page")
+        else:
+            header = engine_file.parse(data)
+            if (header["magic"], header["kind"], header["abi"], header["base"], header["version"]) != (
+                    "CRE2", 1, 0x207, 0xFE80B6B5, row["version"]):
+                raise ValueError("engine compatibility/version differs from the page")
+            if header["version"] is None:
+                raise ValueError("published engine must carry its semantic version")
     except (ValueError, KeyError, TypeError, AttributeError) as error:
         raise Refused(f"{WEB_ENGINE}: {error}") from None
     return row
+
+
+# Reviewed comment-only presentation edits. Original source blobs stay unchanged.
+# Exact excerpts are matched inside C comments; strings and code are never edited.
+PUBLIC_SOURCE_COMMENTS = {'patches/src/core01lz.h': (('Private C0Z1/C1Z1 storage, mode-1 LZ256. Derived from the bounded '
+                             'WB02 decoder.',
+                             'C0Z1/C1Z1 storage with a bounded mode-1 LZ256 decoder.'),),
+ 'patches/src/core0lz.h': (('Private C0Z1 storage, mode-1 LZ256. Derived from the bounded WB02 '
+                            'decoder.',
+                            'C0Z1 storage with a bounded mode-1 LZ256 decoder.'),),
+ 'patches/src/cre3.h': (('Private ABI-3 admission core.', 'ABI-3 admission core.'),),
+ 'patches/src/cre3producer.h': (('Private ABI-3 minor-0 producer core.',
+                                 'ABI-3 minor-0 producer core.'),),
+ 'patches/src/engctl.h': (('Private Main-owned engine control integration.',
+                           'Main-owned engine control integration.'),),
+ 'patches/src/engctl.c': (('This is private experimental code; timing of the masked CRC is not '
+                           'qualified.',
+                           'Timing of the masked CRC is not qualified.'),),
+ 'patches/src/cre3scan.h': (('two private rings', 'two decoder rings'),),
+ 'patches/src/cre3policy.h': (('The bench context is a separate build shape.',
+                               'The test context is a separate build shape.'),),
+ 'patches/src/cre3firmware.h': (('still a private placeholder.', 'still a placeholder.'),
+                                ('Private trial identity only.', 'Test identity only.'),
+                                ('Private test context, not a production qualification or policy '
+                                 'grant.',
+                                 'Test context, not a production qualification or policy grant.'),
+                                ('private parser context only;', 'parser context only;'))}
+
+def curated_source(path, data):
+    edits = PUBLIC_SOURCE_COMMENTS.get(path, ())
+    if not edits:
+        return data
+    text = data.decode("utf-8")
+    for before, after in edits:
+        # Skip quoted C literals while finding actual comments.
+        lexical = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*'
+        comments = [m for m in re.finditer(lexical, text, re.S)
+                    if m.group().startswith(("/*", "//"))]
+        old = [m for m in comments if before in m.group()]
+        new = [m for m in comments if after in m.group()]
+        if len(old) == 1 and text.count(before) == 1:
+            # An AFTER excerpt may itself be contained within BEFORE.
+            if text.count(after) != before.count(after):
+                raise Refused(f"{path}: duplicate reviewed comment excerpt")
+            start, end = old[0].span()
+            text = text[:start] + text[start:end].replace(before, after) + text[end:]
+        elif not old and len(new) == 1 and text.count(after) == 1 and before not in text:
+            pass  # The exact reviewed output is already curated.
+        else:
+            raise Refused(f"{path}: reviewed comment excerpt changed")
+    return text.encode("utf-8")
 
 
 def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloader_paths=None, allow=ALLOW,
@@ -774,6 +878,10 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
             findings.append((path, "path", "symbolic link"))
             continue
         data = git(repo, "cat-file", "blob", obj, data=True)
+        original = data
+        data = curated_source(path, data)
+        if data != original:
+            log(f"curated {path}: source_sha256={hashlib.sha256(original).hexdigest()} output_sha256={hashlib.sha256(data).hexdigest()}")
         for rule, detail in check_file(path, data, cfg, index, allow_emails, allow, exclude):
             findings.append((path, rule, detail))
         files.append((path, mode, data))

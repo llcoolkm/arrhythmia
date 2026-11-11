@@ -1,10 +1,17 @@
 """tools/export_public.py against a synthetic git repo with a synthetic firmware image. No real firmware needed.
 
     uv run python -I tests/test_export_public.py
+    uv run python -I tests/test_export_public.py --public-suite [--ref HEAD]
+
+The optional public suite stages an actual export, then runs every public test
+entry from that tree with isolated imports. The scanner tests run there in
+their usual synthetic-fixture mode, so they do not start another public suite.
 """
+import argparse
 import json
 import os
 import random
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -271,6 +278,10 @@ def test_exclude():
         assert "docs/nor-backup.md" not in files and "docs/map.md" in files
         assert all(x in ep.DENY_PATHS for x in ep.EXCLUDE)
         assert "tools/emu.py" in ep.EXCLUDE and "tools/dsp/" in ep.EXCLUDE and "tools/dumpflash.py" in ep.EXCLUDE
+        assert all(ep.allowed(path) and not ep.denied(path) for path in ep.PUBLIC_DSP_SEQUENCE_TOOLS)
+        assert ep.denied("tools/dsp/abi3/test_sequence_warning.py")
+        assert ep.denied("tools/dsp/abi3/CANONICAL-PARITY.md")
+        assert ep.denied("tools/dsp/abi3/unlisted.py")
         assert "docs/export-audit.md" in ep.EXCLUDE and "docs/release-plan.md" in ep.EXCLUDE          # dropping an exclusion refuses, never publishes
 
 
@@ -436,6 +447,7 @@ def test_cli():
 
 # Provenance rules (D7). Every stock name, hash and branch name is built at run time, so this file passes them itself.
 FUN = "FUN" + "_0805c060"
+AGENT = "Co" + "dex"
 H7, H7B = "63fe" + "2e0", "8265" + "dba"
 H40 = "1a" * 20
 BRANCH = "subtractive" + "-m2"
@@ -453,11 +465,16 @@ def test_provenance_rules():
     # decompiler names (Ghidra and IDA auto-names of a stock address)
     for t in ("/* the view (" + FUN + " object) */", "thunk_" + "FUN" + "_08031268(0)", "DAT_" + "20003688",
               "LAB_" + "0803b7ec:", "sub_" + "0803B7EC", "loc_" + "8031268", "PTR_" + "FUN" + "_08031268",
-              "PTR_" + "DAT" + "_20003688", "(" + "PTR_" + "PTR_" + "FUN" + "_0805c060)"):
+              "PTR_" + "DAT" + "_20003688", "(" + "PTR_" + "PTR_" + "FUN" + "_0805c060)",
+              "FUN_" + "ny", "PTR_" + "FUN" + "_ny", "PTR_" + "CORE0"):
         assert prov(t) == ["decompiler-name"], (t, prov(t))
-    for t in ("0x0805C060u", "FUN_ny", "FUNCTION_0805c060", "MY_FUN_0805c060", "fn_0805c060", "sub_total 12",
-              "PTR_FUN_ny", "XPTR_" + "FUN" + "_0805c060"):
+    for t in ("0x0805C060u", "FUNCTION_0805c060", "MY_FUN_0805c060", "fn_0805c060", "sub_total 12",
+              "XPTR_" + "FUN" + "_0805c060"):
         assert "decompiler-name" not in prov(t), t
+    for name in (AGENT, "Clau" + "de", "Open" + "AI", "Chat" + "GPT", "Gem" + "ini", "Anthro" + "pic"):
+        assert prov(f"review by {name}") == ["agent-name"]
+        assert prov(f"from {name.lower()}_review") == ["agent-name"]
+    assert prov("a decodexer is unrelated") == []
     # citations of decompilation and the reverse-engineering tool
     for t in ("runs in the Main task [decomp, x]", "the decompiled loop", "Decompilation shows", "Ghid" + "ra script",
               "ghid" + "ra_scripts/x.java"):
@@ -471,19 +488,21 @@ def test_provenance_rules():
     assert prov_details("[decomp, note-path.md]", "private-path") == ["note-path.md"]
     bench = "tools/core0_" + "bench_profile.py"                       # an EXCLUDE entry outside docs/ and tests/
     assert prov_details("# " + bench + " --only adds the gate", "private-path") == [bench]
-    assert prov_details("# the private bench build adds the gate; tools/build_lightshow.py", "private-path") == []
+    assert prov_details("# the diagnostic build adds the gate; tools/build_lightshow.py", "private-path") == []
     assert "docs/core0-public-0.2-candidate.md" in prov_details("docs/core0-public-0.2-candidate.md", "private-path")
     for t in ("docs/user/README.md", "docs/led-map.json", "docs/dev/ and docs/user/", "docs/dev/design/scales.md",
               "plock-fix.md", "scales.md", "README.md", "mydocs/x.md", "tests/test_export_public.py"):
         assert "private-path" not in prov(t), t
     # commit hashes: 40-hex object names; short hashes by their context word, before or after, and their chains
     assert prov_details("pinned at " + H40, "commit-hash") == [H40]
-    for t, want in (("(Codex review " + H7 + ", finding 2)", [H7]), ("commit " + H7, [H7]), (H7 + " commit", [H7]),
-                    ("Codex's table, " + H7 + " / " + H7B + ")", sorted([H7, H7B])),
-                    ("(" + H7 + ": pads poly with POLY on, Codex approved)", [H7]),
+    assert prov_details('{"commit": "' + H40 + '"}', "commit-hash") == [H40]
+    assert prov_details('{"hex": "' + H40 + '"}', "commit-hash") == []
+    for t, want in (("(" + AGENT + " review " + H7 + ", finding 2)", [H7]), ("commit " + H7, [H7]), (H7 + " commit", [H7]),
+                    ("(" + AGENT + "'s table, " + H7 + " / " + H7B + ")", sorted([H7, H7B])),
+                    ("(" + H7 + ": pads poly with POLY on, " + AGENT + " approved)", [H7]),
                     ("branch x/y " + H7, [H7]), ("@" + H7, [H7])):
         assert prov_details(t, "commit-hash") == want, (t, prov_details(t, "commit-hash"))
-    for t in ("SHA-256 " + "ab12" * 16, "Codex 7304 and 7306", "Codex: 0x1234abcu", "Codex defaced",
+    for t in ("SHA-256 " + "ab12" * 16, AGENT + " 7304 and 7306", AGENT + ": 0x1234abcu", AGENT + " defaced",
               '{"hex": "44f057ff44f056fe"}', "ARM region " + "a0d0" + "1b8e...", "review " + "x" * 70 + " " + H7,
               "label " + "1218" + "424f"):
         assert "commit-hash" not in prov(t), t
@@ -498,7 +517,9 @@ def test_provenance_export():
                "patches/src/v.c")
     refused_by({"tools/c.py": b"# hook_sysex runs in the Main task [decomp]\n"}, "decompilation", "tools/c.py")
     refused_by({"tools/r.py": b"# design: docs/a1-notetap.md\n"}, "private-path", "tools/r.py")
-    refused_by({"tools/h.py": ("# (Codex review " + H7 + ")\n").encode()}, "commit-hash", "tools/h.py")
+    refused_by({"tools/h.py": ("# (" + AGENT + " review " + H7 + ")\n").encode()}, "commit-hash", "tools/h.py")
+    refused_by({"tools/a.py": ("# reviewed by " + AGENT + "\n").encode()}, "agent-name", "tools/a.py")
+    refused_by({"tools/p.py": ("# " + "PTR_" + "CORE1\n").encode()}, "decompiler-name", "tools/p.py")
     deny = dict(DENY, strings=DENY["strings"] + [BRANCH])
     refused_by({"export-deny.json": json.dumps(deny).encode(),
                 "tools/b.py": ("# dsp/" + BRANCH + " streams\n").encode()}, "string", "tools/b.py")
@@ -529,6 +550,64 @@ def test_dspvoice207_named_closure():
     # A newly named source path gets the same provenance checks as every other public file.
     refused_by({'tools/dspvoice207/build.py': b'# docs/a1-notetap.md\n'},
                'private-path', 'tools/dspvoice207/build.py')
+
+
+def test_curated_source_exact_comments():
+    path = "patches/src/cre3.h"
+    before, after = ep.PUBLIC_SOURCE_COMMENTS[path][0]
+    source = ("/* " + before + " */\nint value;\n").encode()
+    output = ("/* " + after + " */\nint value;\n").encode()
+    assert ep.curated_source(path, source) == output
+    assert ep.curated_source(path, output) == output
+    for bad in (output.replace(after.encode(), b"changed"),
+                source + source, output + output,
+                ('const char *s="' + before + '";').encode(),
+                ('const char *s="/* ' + after + ' */";').encode(),
+                ("/* " + after + " */\n" + before).encode()):
+        try:
+            ep.curated_source(path, bad)
+        except ep.Refused:
+            pass
+        else:
+            raise AssertionError("unreviewed comment input accepted")
+
+
+def test_production_source_include_closure():
+    """Preprocess both production passes; check inventory, not a firmware rebuild."""
+    compiler = shutil.which("clang")
+    if not compiler:
+        print("SKIP production include closure: clang unavailable")
+        return
+    root = Path(__file__).resolve().parents[1]
+    # Dependency preprocessing only. Firmware reproduction uses the release JSON.
+    defines = ('SYNTH=1', 'CMD08=0', 'SCALES=1', 'AD_LIVE=1', 'CORE0_SYNTH=1', 'CORE0_TONE=1', 'CORE0_KEYSCALE=1', 'CORE0_BULK_EXCLUDE=1', 'CORE0_BENCH=1', 'CORE0_ONLY=1', 'FM_BANKVIEW=1', 'FM_207=1', 'CORE0_RECOVER=1', 'BUILTIN_MODULE=0', 'FB_MACRO1=1', 'STEP_CHORDS=1', 'BOOT_PULSE=0', 'CARD_WRITE=1', 'PG_NAV=1', 'PAGE030=1', 'ARP=1', 'T8SCALE=1', 'PWRITE=1', 'CARD_DSP=1', 'CARD_DSP_MAIN=1', 'PG_LEDS_MAIN=1', 'ENGINE_OPT=1', 'ENGINE_FLASH=0u', 'DSP_C0_LZ=1', 'ENGINE_ABI3=1', 'FAR_AT=0x08019ED8u', 'ABI3_FAR_TELEM=1', 'ABI3_FAR_COLD=1', 'DSP_C1_LZ=1', 'ABI3_FAR_MORE=1', 'ABI3_FAR_CHECK=1', 'ABI3_FAR_STREAM=1', 'ABI3_FAR_SCAN=1', 'ABI3_PRODUCTION_RC=1', 'ABI3_PRODUCTION_E=65626u', 'ABI3_QUERY_CUT=24', 'ABI3_FAR_DUMP=1', 'ABI3_HEAP_MAIN=1', 'DSP_FACTORY_LZ=1', 'DSP_FACTORY_C1_LZ=1')
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = Path(tmp)
+        for name in ep.PUBLIC_SRC:
+            if name.startswith("patches/src/"):
+                source = (root / name).read_bytes()
+                dest = tree / name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(ep.curated_source(name, source))
+        for far in (0, 1):
+            command = [compiler, "-nostdinc", f"-DFAR_PART={far}",
+                       *("-D" + item for item in defines), "patches/src/arrhythmia.c"]
+            result = subprocess.run([*command[:1], "-M", "-MG", *command[1:]],
+                                    cwd=tree, check=True, capture_output=True, text=True)
+            dependencies = {item for item in result.stdout.replace("\\\n", " ").split()
+                            if item.startswith("patches/src/")}
+            assert dependencies
+            assert not dependencies - set(ep.PUBLIC_SRC), sorted(dependencies - set(ep.PUBLIC_SRC))
+            assert all((tree / name).is_file() for name in dependencies)
+            # Real preprocessing (with standard headers) proves comment edits
+            # leave every production token identical in each compilation pass.
+            for source_root in (root, tree):
+                tokens = subprocess.check_output([compiler, "-E", "-P",
+                    *(item for item in command[2:])], cwd=source_root)
+                if source_root == root:
+                    original = tokens
+                else:
+                    assert tokens == original
 
 
 def module_blob(size, seed):
@@ -621,7 +700,60 @@ def test_web_engine():
         assert not (Path(tmp) / "refused").exists()
 
 
+def run_public_suite(ref):
+    """Run the named public tests against the files the exporter writes."""
+    root = Path(__file__).resolve().parents[1]
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("node is required for the public JavaScript tests")
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith("PYTHON") and key not in ("NODE_OPTIONS", "NODE_PATH")}
+    with tempfile.TemporaryDirectory(prefix="public-test-") as folder:
+        tree = Path(folder) / "tree"
+        files = ep.export(root, tree, ref=ref)
+        if (tree / ("tools/dspvoice/assemble_" + "guarded.py")).exists():
+            raise RuntimeError("the internal assembler wrapper entered the export")
+        source_tests = (name for name in ep.ALLOW
+                        if name.startswith("tests/test_dspvoice") and name.endswith("_source.py"))
+        tests = (*ep.PUBLIC_TESTS, *source_tests)
+        failures = []
+        passed = 0
+        for name in tests:
+            if name not in files or not (tree / name).is_file():
+                failures.append(f"{name}: missing from the export")
+                continue
+            suffix = Path(name).suffix
+            if suffix == ".json":
+                continue  # a fixture consumed by the tests
+            if suffix == ".py":
+                command = [sys.executable, "-I", "-B", name]
+                if name == "tests/test_web_installer.py" or name.startswith("tests/test_dspvoice"):
+                    command.append("-v")  # report the missing optional inputs by name
+            elif suffix == ".mjs":
+                command = [node, name]
+            else:
+                failures.append(f"{name}: no runner for {suffix}")
+                continue
+            print(f"public test {name}", flush=True)
+            result = subprocess.run(command, cwd=tree, env=env, capture_output=True, text=True)
+            print(result.stdout + result.stderr, end="", flush=True)
+            if result.returncode:
+                failures.append(f"{name}: exit {result.returncode}")
+            else:
+                passed += 1
+        for failure in failures:
+            print(f"FAIL {failure}", file=sys.stderr)
+        print(f"public suite: {passed} test programs passed, {len(failures)} failed")
+        return int(bool(failures))
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--public-suite", action="store_true")
+    parser.add_argument("--ref", default="HEAD")
+    args = parser.parse_args()
+    if args.public_suite:
+        return run_public_suite(args.ref)
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
             fn()
@@ -629,4 +761,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

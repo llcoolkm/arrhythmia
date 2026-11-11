@@ -36,7 +36,7 @@
 #else
 #define NO_CMD08 1
 #endif
-#ifndef BENCH_METER_READ                /* -DBENCH_METER_READ=1 (bench ARM profile arrhythmia-core0-bankview-meter-arm,
+#ifndef BENCH_METER_READ                /* -DBENCH_METER_READ=1 (diagnostic ARM profile arrhythmia-core0-bankview-meter-arm,
                                            label 7305, only; never 7304, a public or a release build): SysEx cmd 08 is
                                            the restricted core-0 meter readout (core0feed.c q0_meter):
                                            X:$5C00..$5E5F, 1..16 words, the 0F idle rule
@@ -51,11 +51,11 @@
                                            the core-0 profiles, 0.2 included); 0 everywhere else */
 #define CORE0_SYNTH 0
 #endif
-#ifndef CORE0_BULK_EXCLUDE              /* -DCORE0_BULK_EXCLUDE=1 (bench): any bulk interval closes the synth path until a
+#ifndef CORE0_BULK_EXCLUDE              /* -DCORE0_BULK_EXCLUDE=1 any bulk interval closes the synth path until a
                                            DSP load (no bulk preservation claim) */
 #define CORE0_BULK_EXCLUDE 0
 #endif
-#ifndef CORE0_BENCH                     /* -DCORE0_BENCH=1 (bench, with CORE0_BULK_EXCLUDE): pacing 4 entries / one hold per
+#ifndef CORE0_BENCH                     /* -DCORE0_BENCH=1 (with CORE0_BULK_EXCLUDE): pacing 4 entries / one hold per
                                            Main pass, silence before bulk, startup bulk before OPEN, SysEx 0F telemetry */
 #define CORE0_BENCH 0
 #endif
@@ -114,7 +114,7 @@
 #define TRIM_LEDS 0
 #endif
 #if BENCH_METER_READ && !(CORE0_BENCH && !CMD08)
-#error "BENCH_METER_READ=1 is a bench profile option (CORE0_BENCH, CMD08=0)"
+#error "BENCH_METER_READ=1 is a diagnostic profile option (CORE0_BENCH, CMD08=0)"
 #endif
 #if FM_BANKVIEW && !(CORE0_ONLY && CORE0_BENCH && SCALES)
 #error "FM_BANKVIEW=1 builds on the 7302 configuration (CORE0_ONLY, CORE0_BENCH, SCALES)"
@@ -148,6 +148,12 @@
                                            key into the project's shape table; notetap.c). 0 everywhere else */
 #define STEP_CHORDS 0
 #endif
+#ifndef ABI3_FAR_DUMP
+#define ABI3_FAR_DUMP 0
+#endif
+#ifndef ABI3_FAR_MORE
+#define ABI3_FAR_MORE 0
+#endif
 #ifndef FAR_PART                        /* 1: the far-blob pass (tools/farblob.py) of a STEP_CHORDS build */
 #define FAR_PART 0
 #endif
@@ -166,7 +172,7 @@
                                            blob). 0 everywhere else: every existing profile keeps its bytes */
 #define CARD_DSP 0
 #endif
-#ifndef CARD_DSP_BENCH                  /* -DCARD_DSP_BENCH=1 (with CARD_DSP, bench builds only): cmd 10 0C, the keyed
+#ifndef CARD_DSP_BENCH                  /* -DCARD_DSP_BENCH=1 (requires CARD_DSP): cmd 10 0C, the keyed
                                            watchdog test (carddsp.c); never in a public build */
 #define CARD_DSP_BENCH 0
 #endif
@@ -232,6 +238,39 @@
 #endif
 #define CARD_INVENTORY (!REMOTE_PACK_LOAD)
 #define ENGINE_PACK (ENGINE_OPT && CARD_DSP_MAIN)  /* per-pack engines: the pack transaction (enginepack.c) */
+#ifndef DSP_C0_LZ                       /* compressed core-0 storage */
+#define DSP_C0_LZ 0
+#endif
+#ifndef DSP_C1_LZ
+#define DSP_C1_LZ 0                    /* sequential compressed C0/C1 storage */
+#endif
+#ifndef ENGINE_ABI3
+#define ENGINE_ABI3 0                  /* CRE3 engine support */
+#endif
+#ifndef ABI3_FAR_TELEM
+#define ABI3_FAR_TELEM 0                /* place the query implementation in Far */
+#endif
+#ifndef ABI3_FAR_COLD
+#define ABI3_FAR_COLD 0                 /* place admission validation in Far */
+#endif
+#if ABI3_FAR_COLD && (!ENGINE_ABI3 || !ABI3_FAR_TELEM)
+#error "ABI3_FAR_COLD requires ABI3_FAR_TELEM"
+#endif
+#if ABI3_FAR_TELEM && (!ENGINE_ABI3 || !STEP_CHORDS || !CORE0_BENCH)
+#error "ABI3_FAR_TELEM requires the ABI3 Far telemetry configuration"
+#endif
+#if DSP_C1_LZ && (!DSP_C0_LZ || !ENGINE_ABI3 || !ABI3_FAR_COLD)
+#error "DSP_C1_LZ requires ABI3_FAR_COLD"
+#endif
+#if ABI3_FAR_MORE && !(ENGINE_ABI3 && ABI3_FAR_COLD && DSP_C1_LZ)
+#error "ABI3_FAR_MORE requires cumulative ABI3 cold and C1 compression"
+#endif
+#if ENGINE_ABI3 && (!ENGINE_PACK || !DSP_C0_LZ || ENGINE_FLASH)
+#error "ENGINE_ABI3 requires compressed engine-pack layout without legacy flash engine"
+#endif
+#if DSP_C0_LZ && !ENGINE_PACK
+#error "DSP_C0_LZ=1 requires the engine-pack send and bounded loader hooks"
+#endif
 #ifndef T8SCALE                         /* -DT8SCALE=1 (profile arrhythmia-firmware-arm-arp only, issue #34): track 8's
                                            Note-view keyboard follows the project scale and key like tracks 1..7 (bit
                                            7 of the scales sub-record's track byte; scales.c). 0 everywhere else */
@@ -276,12 +315,29 @@
 #if ENGINE_PACK
 #include "enginepack.h"
 #endif
+#if ENGINE_ABI3 && !FAR_PART
+struct cre3_facts;
+static void abi3_controls_commit(void);
+static const struct cre3_facts *abi3_resident_facts(void);
+static uint8_t *abi3_current_values(void);
+static uint32_t abi3_producer_ready(void);
+static uint32_t abi3_engine_eligible(void);
+static const uint8_t *abi3_engine_header(void);
+static uint32_t abi3_platform_offer(void);
+#endif
+#if ENGINE_ABI3 && !FAR_PART
+#include "engctl.h"
+#include "engctl_lifecycle.h"
+#endif
 #include "trackmodes.c"
 #include "plockfix.c"
 #if SCALES
 #include "scales.c"
 #endif
 #if SYNTH
+#if ENGINE_ABI3 && !FAR_PART
+#include "engctl_ui.h"
+#endif
 #include "synthpage.c"
 #include "notetap.c"
 #if PWRITE
@@ -298,6 +354,17 @@
 #if CARD_DSP
 #include "carddsp.c"
 #endif
+#if ENGINE_PACK && ABI3_FAR_MORE && FAR_PART
+#include "enginequery.h"
+#endif
 #if ENGINE_PACK && !FAR_PART
 #include "enginepack.c"
+#if ENGINE_ABI3
+#include "engctl.c"
+#include "engctl_lifecycle.c"
+#include "engctl_ui.c"
+#endif
+#endif
+#if ENGINE_ABI3 && ABI3_C1_PROBE
+#include "cre3timing.h"
 #endif

@@ -62,7 +62,7 @@
  *   10 7F                        end the session (the module area is free again)
  * CARD_DSP only (the card DSP engine file, carddsp.c): the same transaction for 1:/MODULES/ENGINE.DSE, with
  * ENGINE.TMP and ENGINE.OLD as its helpers (recovery pairs them with ENGINE.DSE; the module name ENGINE is
- * refused), and no content check (the bench writes deliberately bad files: carddsp.c checks the file at boot):
+ * refused), and no content check (diagnostics can write deliberately invalid files: carddsp.c checks the file at boot):
  *   10 08 s2 s1 s0 c4..c0        begin a write of ENGINE.DSE: size 3x7 (1..15360), CRC-32 5x7; pieces and commit
  *                                as 02 / 03
  *   10 09                        delete ENGINE.DSE
@@ -70,7 +70,7 @@
  *   10 0B                        card DSP status (read-only, no session; carddsp.c cd_status, its own reply). In
  *                                the ENGINE_PACK profiles the main blob answers it before this writer: the engine
  *                                status (enginepack.c ep_status, layout 'E' 2; module.py card engstatus)
- *   10 0C 'I' 'W' 'D' 'G' 'G' 'O'  CARD_DSP_BENCH only: the watchdog test (carddsp.c)
+ *   10 0C 'I' 'W' 'D' 'G' 'G' 'O'  watchdog diagnostic, requires CARD_DSP_BENCH (carddsp.c)
  * ENGINE_PACK only (the engine-optional profiles): the engine pointers.
  *   10 0D p n0..n7               stock pack p's pointer 1:/Rhythm/NN_<name>/ENGINE.CFG, NN = p - 1 (p 1..31, the
  *                                stock's card packs: its index numbers folder NN_ as pack NN + 1; pack 0 is the NOR's
@@ -116,6 +116,10 @@
 #endif
 
 #if FAR_PART
+#if ENGINE_ABI3
+#include "cre3loader.h"
+#include "cre3scan_file.h"
+#endif
 #define F_WRITE         ((f_read_fn)0x080220FDu)
 #define F_UNLINK        ((f_path_fn)0x080226EDu)
 #define F_MKDIR         ((f_path_fn)0x08022789u)
@@ -352,10 +356,29 @@ static uint32_t crc_add(uint32_t c, const volatile uint8_t *p, uint32_t n);
 
 /* 10 03 for an engine file: the staged size bytes are one exact CRE2 file (header: magic, 1..CW_EWORDS words and
  * size = 32 + 3 x words, the body CRC-32 at +8, this ARM's queue ABI, the base contract id, kind 1..15, +28..+31
- * zero; the loader's own checks, carddsp.c cd_hdr / cd_check). 1 = admissible. */
+ * zero; the loader's own checks, carddsp.c cd_hdr / cd_check). ABI3 also accepts the static CRE3 file grammar.
+ * This stores bytes only: the loader still owns composition, qualification and runtime READY. */
 static uint32_t cw_cre2(uint32_t size)
 {
     const volatile uint32_t *h = (const volatile uint32_t *)MOD_BASE;
+#if ENGINE_ABI3
+    if (h[0] == 0x33455243u) {
+        struct cre3_scan_file scan;
+        /* Supported write-only platform shape, not a public execution grant.
+         * No policy byte, engine candidate, DSP word or resident state is changed. */
+        const struct cre3_platform p = {CRBC3_PLATFORM_ID, 32,
+#if ABI3_PRODUCTION_RC
+            CRE3_PRODUCTION_WINDOWS,
+#else
+            63,
+#endif
+            CRBC3_SHIM_CRC, 1, 1};
+        const uint8_t *bytes = (const uint8_t *)MOD_BASE;
+        cre3_scan_first(&scan, bytes, size, size, &p);
+        cre3_scan_piece(&scan, bytes, 0, size);
+        return !cre3_scan_finish(&scan, &p);
+    }
+#endif
     uint32_t words = h[1];
     return h[0] == CW_CRE2 && words && words <= CW_EWORDS && size == 32 + 3 * words && h[3] == Q0_VERSION
            && h[4] == CW_BASE_ID && h[5] && h[5] <= 15 && !h[7]

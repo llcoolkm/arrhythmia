@@ -13,7 +13,8 @@ firmware file on your own computer. No Novation code or firmware is included in 
 * [user/scales.md](user/scales.md): scales on tracks 1 to 8.
 * [user/euclid.md](user/euclid.md): the four-row rhythm editor, its controls, pattern write and undo.
 * [user/modules.md](user/modules.md): use the combined loader or a card reader to add modules, then start, stop and control them.
-* [../changelog.md](../changelog.md): the 0.3.0 change summary and earlier release history.
+* [../changelog.md](../changelog.md): the 0.3.1 change summary and earlier release history.
+* [../RELEASE-NOTES-0.3.1.md](../RELEASE-NOTES-0.3.1.md): the 0.3.1 release notes: changes since 0.3.0, known limitations, install.
 * [../RELEASE-NOTES-0.3.0.md](../RELEASE-NOTES-0.3.0.md): the 0.3.0 release notes: changes since 0.2.2, known limitations, install.
 * [../RELEASE-NOTES-0.2.2.md](../RELEASE-NOTES-0.2.2.md): the 0.2.2 release notes: changes since 0.2.1, test status, known issues.
 * [../RELEASE-NOTES-0.2.1.md](../RELEASE-NOTES-0.2.1.md): the 0.2.1 release notes.
@@ -23,6 +24,7 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## For developers
 
+* [user/engines-dev.md](user/engines-dev.md): engine ABI 3, the contract for track 8 engines.
 * [user/developers.md](user/developers.md): writing, building and loading modules, the host calls (ABI 3), input
   and clock events, and the DSP load meter.
 * [led-map.md](led-map.md) and [led-map.json](led-map.json): the LED buffer a module draws into, byte by byte
@@ -33,8 +35,21 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## Rebuilding the images
 
-`release/v0.3.0.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
+`release/v0.3.1.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
 installer and embeds it. Earlier release JSON files remain as historical records.
+
+### Reproduce 0.3.1 firmware 7388
+
+Use the official Circuit Rhythm firmware 2.0.1, build 5706, as input. Run from this repository:
+
+```sh
+python3 -I tools/crpatch.py apply release/v0.3.1.json circuit-rhythm-5706.syx arrhythmia-firmware-7388.syx --build firmware
+python3 -I tools/crpatch.py scan release/v0.3.1.json circuit-rhythm-5706.syx
+```
+
+The patched file must have SHA-256 `31b549966b3facc0a1f86e8b7f2c63d90fb2e218027aa664cf78990d85d1192f`.
+The browser installer applies the same patch. The FM engine remains a separate 15,346-byte card file, version 2.0.0,
+with SHA-256 `9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae`.
 
 ### Rebuild 0.3.0 firmware 7358 and fm.dse
 

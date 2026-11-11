@@ -150,14 +150,32 @@ static uint32_t flash_fingerprint(uint32_t at,uint32_t len) {
     return h;
 }
 static uint32_t timer_host(void) {
-    /* Private qualified 7357/7358 stock-5706 profiles only. ABI magic alone
+    /* Qualified 7357/7358 stock-5706 profiles only. ABI magic alone
      * never licenses the absolute RTOS read. The host service pointers, tick
      * getter and tick increment instructions must match the offline pins. */
     const volatile uint32_t *h=(const volatile uint32_t *)0x0806a570u;
     uint32_t label=*(volatile uint16_t *)0x080101cau;
+#if defined(EUCLID_COMPRESSION_7367) && EUCLID_COMPRESSION_7367
+    /* 7367: exact measured SDK table, no ABI3 grant. */
+    return label==7367&&
+        h[0]==0x31485243u&&h[1]==4&&h[2]==0x0806cb63u&&!h[3]&&
+        h[4]==0x0806cc2bu&&h[5]==0x0806cc33u&&h[6]==0x0806cce1u&&h[7]==0x0806cd1du&&
+#elif defined(EUCLID_COMPRESSION_7366) && EUCLID_COMPRESSION_7366
+    /* Exact SDK table binding. This does not qualify engine ABI3. */
+    return label==7366&&
+        h[0]==0x31485243u&&h[1]==4&&h[2]==0x0806ce13u&&!h[3]&&
+        h[4]==0x0806cedbu&&h[5]==0x0806cee3u&&h[6]==0x0806cf91u&&h[7]==0x0806cfcdu&&
+#elif defined(EUCLID_COMPRESSION_7364) && EUCLID_COMPRESSION_7364
+    /* Exact qualified host table for compressed streams.
+     * Default builds retain the released 7357/7358 qualification unchanged. */
+    return label==7364&&
+        h[0]==0x31485243u&&h[1]==4&&h[2]==0x0806d463u&&!h[3]&&
+        h[4]==0x0806d52bu&&h[5]==0x0806d533u&&h[6]==0x0806d5e1u&&h[7]==0x0806d61du&&
+#else
     return (label==7357||label==7358)&&
         h[0]==0x31485243u&&h[1]==4&&h[2]==0x0806d433u&&!h[3]&&
         h[4]==0x0806d4fbu&&h[5]==0x0806d503u&&h[6]==0x0806d5b1u&&h[7]==0x0806d5edu&&
+#endif
         flash_fingerprint(0x08024068u,12)==0x5315a080u&&
         flash_fingerprint(0x08066bfcu,16)==0x2d5b1d35u;
 }

@@ -26,8 +26,8 @@ import sys
 BASE = 0x08010000
 FLASH_END = 0x08080000
 STOCK_SHA256 = "d5b9ff5dadf2e284f80d69ecb7087486cf0df315a697bed8272af9de0e90df15"
-PTR_CORE0 = 0x08031658              # stream pointer, select 0
-PTR_CORE1 = 0x08031660              # stream pointer, select 1
+CORE0_STREAM_POINTER = 0x08031658              # stream pointer, select 0
+CORE1_STREAM_POINTER = 0x08031660              # stream pointer, select 1
 STREAM0 = 0x0801A838                # stock stream, select 0
 STREAM1 = 0x080101F0                # stock stream, select 1
 STOCK_CORE0_WORDS = 0x1FED
@@ -386,7 +386,7 @@ def stock_streams(image):
     off0, off1 = STREAM0 - BASE, STREAM1 - BASE
     if hashlib.sha256(image).hexdigest() != STOCK_SHA256:
         sys.exit("not the pinned stock 5706 image")
-    p0, p1 = struct.unpack_from("<I", image, PTR_CORE0 - BASE)[0], struct.unpack_from("<I", image, PTR_CORE1 - BASE)[0]
+    p0, p1 = struct.unpack_from("<I", image, CORE0_STREAM_POINTER - BASE)[0], struct.unpack_from("<I", image, CORE1_STREAM_POINTER - BASE)[0]
     if (p0, p1) != (STREAM0, STREAM1):
         sys.exit(f"pointer table holds {p0:#x}/{p1:#x}")
     h0, h1 = image[off0:off0 + 6], image[off1:off1 + 6]
@@ -461,7 +461,7 @@ def layer(image):
     diffs = [i for i in range(len(stream1)) if stream1[i] != old1[i]]
     for a, b in _runs(diffs):
         patches.append((STREAM1 + a, old1[a:b], stream1[a:b], "core 1 scatter stream (header count, hooks, records)"))
-    patches.append((PTR_CORE0, struct.pack("<I", STREAM0), struct.pack("<I", at0), "core 0 stream pointer"))
+    patches.append((CORE0_STREAM_POINTER, struct.pack("<I", STREAM0), struct.pack("<I", at0), "core 0 stream pointer"))
     patches.append((at0, b"\xff" * len(stream0), stream0, f"core 0 stream, {len(prog) // 3} words (stock + meter)"))
     return patches, {"core0_stream": at0, "core0_words": len(prog) // 3, "core1_words": len(pay) // 3,
                      "core1_stream_end": STREAM1 + len(stream1), "core0_code": [start0, start0 + len(code0)],
@@ -527,8 +527,8 @@ def build(base_spec, label, out, version=None):
 def extract(image, outdir):
     """The DSP streams a built image delivers, as emulator inputs (core0.program.bin, core1 segment files, json)."""
     os.makedirs(outdir)
-    p0 = struct.unpack_from("<I", image, PTR_CORE0 - BASE)[0]
-    p1 = struct.unpack_from("<I", image, PTR_CORE1 - BASE)[0]
+    p0 = struct.unpack_from("<I", image, CORE0_STREAM_POINTER - BASE)[0]
+    p1 = struct.unpack_from("<I", image, CORE1_STREAM_POINTER - BASE)[0]
     n0 = u24(image[p0 - BASE:], 0) & 0xFFFF
     prog = image[p0 - BASE + 6:p0 - BASE + 6 + 3 * n0]
     open(os.path.join(outdir, "core0.program.bin"), "wb").write(prog)

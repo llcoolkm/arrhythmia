@@ -18,7 +18,7 @@ import tempfile
 BASE = 0x08010000
 CODE_AT = 0x0806A570                      # end of the stock 5706 image (word aligned)
 FREE_END = 0x08080000                     # image size cap (0x70000 bytes)
-# The far blob (targets with "far", tools/farblob.py): in the old core-0 window, from the core-1 cap (Codex, #9) to
+# The far blob (targets with "far", tools/farblob.py): in the old core-0 window, from the core-1 cap (#9) to
 # the end of the old stock core-0 stream. Only joined images (core 0 moved, pointer 0x08031658 rewritten) may run it.
 FAR_AT, FAR_END = 0x0801B000, 0x08020805
 STOCK_CORE0_AT = 0x0807A01C               # card_dsp=3: the exact stock core-0 stream (24,525 B) ends at 0x0807FFE9
@@ -180,11 +180,11 @@ OR_PROFILES = {
     # bases 7241 (devkit-arm) / 7242 (firmware-arm, -patch) / 7243 (devkit-synth-arm)
     "arrhythmia-devkit-arm": dict(synth=0, cmd08=1, scales=1, label=7241, version=[0, 0, 0, 7, 9, 0],
                                   image=("arrhythmia-devkit", 7228),
-                                  dsp="6013 DSP meter layer (tools/dspmeter.py), PLACEHOLDER until Codex delivers the "
+                                  dsp="6013 DSP meter layer (tools/dspmeter.py), placeholder for the "
                                       "devkit profile's streams"),
     "arrhythmia-firmware-arm": dict(synth=1, cmd08=0, scales=1, label=7242, version=[0, 0, 0, 7, 9, 0],
                                     image=("arrhythmia-firmware", 7229),
-                                    dsp="Codex firmware-profile streams layout with the "
+                                    dsp="Firmware-profile streams layout with the "
                                         "T60 2 s core 1 (decay K 0x7FB4B6, idle floor 0x400; tools/voicestack.py): "
                                         "core 1 voice decoder, ENABLE 0 at boot, core 0 stock "
                                         "relocated to 0x0807A020, no meter"),
@@ -205,18 +205,18 @@ OR_PROFILES = {
     # same A08000 packet, no ARM change but the accepted header); ARM-only label 7282
     "arrhythmia-core0-keyscale": dict(synth=1, cmd08=0, scales=1, ad=1, core0=3, label=7282,
                                       version=[0, 0, 0, 7, 9, 0]),
-    # PRIVATE bench ARM base (never public): the 7282 feed plus CORE0_BULK_EXCLUDE (any bulk interval closes the synth
-    # path until a DSP load); the private bench build adds the DEV_NOPLAY gate; intermediate label 7283, image
+    # Diagnostic ARM profile: the 7282 feed plus CORE0_BULK_EXCLUDE (any bulk interval closes the synth
+    # path until a DSP load); the gated variant enables DEV_NOPLAY; intermediate label 7283, image
     # label 7284
     "arrhythmia-core0-bench-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=4, label=7283,
                                        version=[0, 0, 0, 7, 9, 0]),
     # 0.2, core 0 the only synth (master 2026-10-21; the core-1 retirement plan): the 7283 feed plus
     # CORE0_ONLY (the core-1 legacy voice retired on the ARM: no ENABLE X:2E70 write, no core-1 frame from our code);
-    # emulator only, never flashed from here; the private bench build adds the DEV_NOPLAY gate; label 7286
+    # emulator only, never flashed from here; the gated variant enables DEV_NOPLAY; label 7286
     "arrhythmia-core0-only-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7286,
                                       version=[0, 0, 0, 7, 9, 0]),
     # the same profile plus PAD_POLY=1 (pads poly with POLY on, reviewed) under a new label; every
-    # other profile keeps pads on the lane, so 7286 stays bound to the bytes of image 7287; the private bench build adds the gate;
+    # other profile keeps pads on the selected track, so 7286 stays bound to the bytes of image 7287; the gated variant enables DEV_NOPLAY;
     # image label 7289
     "arrhythmia-core0-padchord-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7288, pad_poly=1,
                                           version=[0, 0, 0, 7, 9, 0]),
@@ -244,8 +244,8 @@ OR_PROFILES = {
                                           image=("arrhythmia-firmware", 7306)),
     "arrhythmia-firmware-arm-fm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                        version=[0, 0, 0, 7, 9, 0], image=("arrhythmia-firmware", 7308)),
-    # the timing bench's ARM: 7304 plus BENCH_METER_READ=1 (meter_read=1): cmd 08 is the restricted core-0 meter
-    # readout; BENCH ONLY, ARM-only label 7305, never a public or release build; EMULATION ONLY, never an image from
+    # the timing diagnostic ARM profile: 7304 plus BENCH_METER_READ=1 (meter_read=1): cmd 08 is the restricted core-0 meter
+    # readout; Diagnostic profile, ARM-only label 7305, never a public or release build; EMULATION ONLY, never an image from
     # here. FM_207 as 7304 (fm207=1), so 7305 stays exactly 7304 + the readout.
     "arrhythmia-core0-bankview-meter-arm": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7305, bankview=1,
                                                 fm207=1, meter_read=1, version=[0, 0, 0, 7, 9, 0]),
@@ -275,7 +275,7 @@ OR_PROFILES = {
     # built-in module in flash (host table word 3 is 0); paint ships as a card file (build/paint.mod from
     # tools/build_module.py) and the picker shows card files from pad 0. New profiles, so that the 0.2 profiles keep
     # their pins; ARM-only base label 7304. The public profile names image arrhythmia-firmware 7329; the gated twin
-    # (7330) gets the DEV_NOPLAY gate from the private bench profile tool (--dev021). EMULATION ONLY, never an image
+    # (7330) enables DEV_NOPLAY. EMULATION ONLY, never an image
     # from here.
     "arrhythmia-firmware-arm-021": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                         recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1,
@@ -300,7 +300,7 @@ OR_PROFILES = {
     # Release candidate after 0.2.1 (not released): the 0.2.1 public ARM profile plus both the card writer
     # (card_write=1, CARD_WRITE) and the synth page navigation (synthnav=1, PG_NAV): 0.2.2. The public profile names
     # image arrhythmia-firmware 7339 (0.2.2; the rc pair 7337 / 7338 named 7337 at its registration commit); the gated
-    # twin arrhythmia-core0-rc-arm (7340) gets the DEV_NOPLAY gate from the private bench profile tool (--rc). Both join
+    # twin arrhythmia-core0-rc-arm (7340) enables DEV_NOPLAY. Both join
     # the -4 dB core-0 stream (core0_benchstack.py TRIM_207_REL022).
     "arrhythmia-firmware-arm-rc": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1, fm207=1,
                                        recover=1, builtin=0, fb_macro1=1, step_chords=1, boot_pulse=1, card_write=1,
@@ -335,8 +335,8 @@ OR_PROFILES = {
                                     synthnav=1, version=[0, 0, 0, 7, 9, 0]),
     # Boot-engine diagnostic profile: the 0.2.2 ARM profile plus CARD_DSP=1 and
     # CARD_DSP_BENCH=1 (card_dsp=2): at boot the core-0 engine region from the card (patches/src/carddsp.c, far blob),
-    # the ENGINE.DSE writer, the status read and the bench's keyed watchdog test (cmd 10 08..0C). New profile, so that
-    # every other profile keeps its bytes; ARM-only base label 7304, no image. The bench image is this ARM plus the
+    # the ENGINE.DSE writer, the status read and the keyed watchdog diagnostic (cmd 10 08..0C). New profile, so that
+    # every other profile keeps its bytes; ARM-only base label 7304, no image. The diagnostic image combines this ARM plus the
     # DEV_NOPLAY gate (core0_bench_profile.py --carddsp) and 7339's DSP layer (tools/carddsp/bench_build.py). Never a
     # public build (CARD_DSP_BENCH).
     "arrhythmia-firmware-arm-carddsp": dict(synth=1, cmd08=0, scales=1, ad=1, core0=5, label=7304, bankview=1,
@@ -352,13 +352,12 @@ OR_PROFILES = {
     # previous cmd 7D (dump_open) so they still rebuild 7210 / 7211 byte for byte
     "arrhythmia-devkit-arm-noscales": dict(synth=0, cmd08=1, label=7210, dump_open=1, version=[0, 0, 0, 7, 9, 0],
                                            image=("arrhythmia-devkit", 7200),
-                                           dsp="6013 DSP meter layer (tools/dspmeter.py), PLACEHOLDER until Codex "
-                                               "delivers the devkit profile's streams"),
+                                           dsp="6013 DSP meter layer (tools/dspmeter.py), placeholder for the devkit profile's streams"),
     # the firmware check keeps AD_BLOCKS 1,216 (0.8 s decay); the release profiles use 3,924 (T60 2 s)
     "arrhythmia-firmware-arm-noscales": dict(synth=1, cmd08=0, label=7211, version=[0, 0, 0, 7, 9, 0], ad_blocks=1216,
                                              dump_open=1,
                                              image=("arrhythmia-firmware", 7201),
-                                             dsp="Codex firmware-profile streams "
+                                             dsp="Firmware-profile streams "
                                                  "(tools/voicestack.py): core 1 voice decoder, "
                                                  "ENABLE 0 at boot, core 0 stock relocated to 0x0807A020, no meter"),
 }
@@ -413,7 +412,7 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      f"after the ready header (VERSION {'000207' if fm207 else '000206' if fm else ({2: '000204', 3: '000205', 4: '000205', 5: '000205'}).get(core0, '000202')}) and an "
                      "epoch handshake, "
                      "batched under the bus semaphore; "
-                     + ("live tone (M6 FM depth, M7 cutoff, M8 resonance: Codex's proposed A08000 packet), "
+                     + ("live tone (M6 FM depth, M7 cutoff, M8 resonance: proposed A08000 packet), "
                         if core0 >= 2 else "")
                      + f"no class-A word on the stock ring; struct q0 {q0:#x} B below struct a1 (heap limit {q0:#x} B "
                        "lower)"
@@ -496,7 +495,7 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                      "Main pass from the far arp tick through the stock step cells; and silences the sequencer's new "
                      "notes and sample flips on the tracks it declares (player decision and flip vtable words)")
     if meter_read:
-        parts.append("BENCH ONLY: cmd 08 is the restricted core-0 meter readout (X:$5C00..$5E5F, 1..16 words, a 14-bit "
+        parts.append("Diagnostic profile: cmd 08 is the restricted core-0 meter readout (X:$5C00..$5E5F, 1..16 words, a 14-bit "
                      "nonce, the 0F idle rule and a deadline before every DSP word, no write; the general cmd 08 read is "
                      "compiled out; BENCH_METER_READ)")
     if not dump_open:
@@ -578,7 +577,7 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
                             **({"core0_timing": "OPTIONAL: t_ack_max, t_init_max, t_init_last (ticks; 0xFFFE "
                                                 "saturated, 0xFFFF incomplete) and c_init_late in the 0F tail"}
                                if timing else {}),
-                            **({"meter_read": "bench only: cmd 08 = restricted core-0 meter readout X:$5C00..$5E5F"} if meter_read else {}),
+                            **({"meter_read": "diagnostic profile: cmd 08 = restricted core-0 meter readout X:$5C00..$5E5F"} if meter_read else {}),
                             **({} if builtin else {"modules": "card only: no built-in module (host table word 3 = 0); "
                                                               "numbered picker pads: NNname.MOD on pad NN - 1 (01..32), "
                                                               "the other files on the free pads"}),
@@ -617,7 +616,7 @@ def or_target(name, synth, cmd08, label, version, image=None, a1_patch=0, dsp="n
             "description": "; ".join(parts) + "."}
 
 
-# Explicit private emulation profile; never selected by shipping builders.
+# Emulation profile, excluded from release builders.
 OR_PROFILES["arrhythmia-firmware-arm-engopt-remote-bench"] = dict(
     OR_PROFILES["arrhythmia-firmware-arm-engopt"], remote_pack_load=1)
 

@@ -15,9 +15,9 @@ class LoaderContracts(unittest.TestCase):
         html = (ROOT / 'web/loader.html').read_text()
         engines = json.loads(re.search(r'/\* published-engines: (.*?) \*/', html).group(1))
         self.assertEqual(engines, [{
-            'name': 'fm.dse', 'size': 14906, 'crc32': '2eb146fe',
-            'sha256': '236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad',
-            'version': '1.0.0',
+            'name': 'fm.dse', 'size': 15346, 'crc32': '0b9611b1',
+            'sha256': '9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae',
+            'version': '2.0.0',
         }])
         self.assertIn("fetch('engines/fm.dse'", html)
 

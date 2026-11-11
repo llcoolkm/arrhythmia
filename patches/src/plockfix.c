@@ -267,6 +267,19 @@ static uint32_t t8_eng(void);                 /* notetap.c: a synth engine is re
 static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
 {
     uint32_t E;
+#if ENGINE_ABI3 && !FAR_PART
+    if(src!=1 || (E=pl_engine(D))==0)return v;
+    uint32_t k=id-16u*AD_CLR_T;
+    if(k<8) {
+        uint32_t value=engctl_macro_raw_default(k);
+        if(value<128) {
+            PLK->ad_clr=(uint8_t)(0x80u|value); /* actual write/cache value, not a held Clear detent */
+            return value;
+        }
+    }
+    if((k==14 || k==15) && engctl_macro_default(k-13)<128)return 0;
+    return v;
+#else
     if (src != 1 || (E = pl_engine(D)) == 0 || pl_editing(E, AD_CLR_T))
         return v;
     if (v == 127u && (id == 16u * AD_CLR_T + 2u || id == 16u * AD_CLR_T + 15u))
@@ -278,6 +291,7 @@ static uint32_t ad_clr_value(uint32_t D, uint32_t id, uint32_t v, uint32_t src)
         return 4u;
 #endif
     return v;
+#endif
 }
 #else
 #define AD_CLR_KNOB(k)  ((k) == 2)
@@ -392,14 +406,26 @@ uint32_t hook_macro(uint32_t page, uint32_t k, uint32_t delta, uint32_t d)
 {
     struct plk *p = plk();
     uint32_t c = in_sram(page, 0x68) ? rw(page + 0x20) : 0;
+#if ENGINE_ABI3 && !FAR_PART
+    uint32_t arm=p && k<8 && c && t8_eng() && rw(page)==PL_MACRO_VT &&
+        *(volatile uint16_t *)(page+0x44)==16u*AD_CLR_T && in_sram(c,0x14) &&
+        in_sram(rw(c+0xC),4) && in_sram(rw(c+0x10),4) && (*pl_el(c,0)&1);
+    if(arm && engctl_macro_default(k)>127)return d; /* native no-change ABI: restores saved r3 */
+#else
     uint32_t arm = p && AD_CLR_KNOB(k) && c && t8_eng() && rw(page) == PL_MACRO_VT && *(volatile uint16_t *)(page + 0x44) == 16u * AD_CLR_T &&
                    in_sram(c, 0x14) && in_sram(rw(c + 0xC), 4) && in_sram(rw(c + 0x10), 4) && (*pl_el(c, 0) & 1);
+#endif
     if (arm)
         p->ad_clr = 1;
     uint32_t r = pl_macro(page, k, delta, d);
-    if (arm)
+    if (arm) {
+#if ENGINE_ABI3 && !FAR_PART
+        if(k==0 && (p->ad_clr&0x80u))
+            *(volatile uint8_t *)(page+0x4E)=p->ad_clr&127u;
+#endif
         p->ad_clr = 0;
-#if FB_MACRO1
+    }
+#if FB_MACRO1 && !ENGINE_ABI3
     if (arm && k == 0)                        /* the page's cached raw position follows the cleared value */
         *(volatile uint8_t *)(page + 0x4E) = 4u;
 #endif

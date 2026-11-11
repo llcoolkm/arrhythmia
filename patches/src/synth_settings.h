@@ -213,7 +213,7 @@ static inline uint32_t syn_fm_status(const volatile uint8_t *p)
 }
 
 #if FM_BANKVIEW
-/* A private bench file of the 7302 / 7303 line: codec 2 version 1, its algorithm in +2 and ratio bank in +3. */
+/* The older 7302 / 7303 file format: codec 2 version 1, its algorithm in +2 and ratio bank in +3. */
 static inline uint32_t syn_fm_v1(const volatile uint8_t *p)
 {
     return p[SP_CODEC] == SYN_PATCH_FM && p[SP_VERSION] == 1u;

@@ -10,6 +10,10 @@
 #ifndef CORE0FEED_H
 #define CORE0FEED_H
 
+#if ENGINE_ABI3 && (!CORE0_RECOVER || !CORE0_BENCH)
+#error "ABI3 producer requires the guarded Main/bus and four-entry pacing adapters"
+#endif
+
 #if !AD_LIVE
 #error "CORE0_SYNTH=1 builds on the AD profile (AD_LIVE=1)"
 #endif
@@ -24,7 +28,9 @@
 #define Q0_MAGIC_AT     0x4E90u         /* MAGIC, VERSION, READY, INIT_COUNT */
 #define Q0_READY_AT     0x4E92u
 #define Q0_MAGIC        0xC0A10Du
-#if FM_PATCH
+#if ENGINE_ABI3
+#define Q0_VERSION      0x000300u
+#elif FM_PATCH
 #define Q0_VERSION      FM_Q0_VERSION   /* FM patch latches (fm_patch.h; 000206, FM_207: 000207 frozen); every other
                                            VERSION refused */
 #elif CORE0_KEYSCALE
@@ -42,7 +48,7 @@
 #define Q0_SLOW_MS      100u            /* slow poll interval after that */
 #define Q0_REFRESH_MS   50u             /* CONS / FAULT refresh while entries are outstanding */
 #if CORE0_BENCH
-#define Q0_BATCH        4u              /* bench pacing (PROVISIONAL, not SHI / FIFO proof): at most 4 entries per write
+#define Q0_BATCH        4u              /* queue pacing (PROVISIONAL, not SHI / FIFO proof): at most 4 entries per write
                                            hold, at most one write hold per Main pass (q0 held); an envelope pair is
                                            never split */
 #define Q0_SILENCE_MS   3u              /* bulk entry while OPEN: bounded wait for the hard-clearing epoch ACK */
@@ -67,7 +73,10 @@
 #define ENV_W1_MASK     0x0FFFFFFFu     /* N entry of an envelope group: A | D << 7 | S << 14 | R << 21 */
 #define TONE_PACE_MS    5u              /* minimum spacing of knob-driven tone issues (AD_PACE_MS precedent) */
 #define TONE_NONE       0xFFFFFFFFu
-#if FM_PATCH
+#if ENGINE_ABI3
+#define TONE_RESERVE    4u
+#define Q0_GROUP_MAX    1u
+#elif FM_PATCH
 #define TONE_RESERVE    13u             /* free transport entries a knob-only tone leaves: 4 KILL + 2 ENV + PATCH_FM +
                                            MOD_AD + 4 ONSET + 1 TONE (the dirty full press) */
 #define Q0_GROUP_MAX    FM_GROUP_MAX    /* entries of one expanded envelope group (never split) */
@@ -148,7 +157,7 @@ struct q0 {
     uint16_t c_tone, c_tone_coal, c_tone_paced, c_tone_note, c_tone_purged, c_tone_wait;
 #endif
 #if CORE0_BENCH
-    /* bench (offset 144): pacing, bulk policy, telemetry */
+    /* pacing block (offset 144): pacing, bulk policy, telemetry */
     uint8_t held;                             /* a queue write hold was made in this Main pass (cleared by the tick) */
     uint8_t bst;                              /* BST_*: opened since the latest DSP load; the outermost bulk began
                                                  after that */
@@ -206,7 +215,7 @@ _Static_assert(sizeof(struct q0) <= Q0_SIZE, "Q0 block");
 #if FM_PATCH
 _Static_assert(__builtin_offsetof(struct q0, fm_want) == 160
                && sizeof(struct q0) == (CORE0_RECOVER_TIMING ? 204 : CORE0_RECOVER ? 192 : 184),
-               "FM mirrors after the bench block (CORE0_RECOVER: + the reinit state, the 0xC0 block exactly)");
+               "FM mirrors after the pacing block (CORE0_RECOVER: + the reinit state, the 0xC0 block exactly)");
 #endif
 #if CORE0_RECOVER
 _Static_assert(__builtin_offsetof(struct q0, c_xtask) == 129 && __builtin_offsetof(struct q0, c_alloc_bad) == 130

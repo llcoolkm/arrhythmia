@@ -230,6 +230,28 @@
 #define LIST_ACTIVE     (*(volatile uint8_t *)(LIST_AT + 2u))
 #define HEAP_FLOOR      LIST_AT
 #endif
+#if DSP_C0_LZ
+/* Decoder ownership: below the previous lowest block; hook_boot zeroes it.
+ * No module ITCM, DMA buffer or lightshow storage is borrowed. */
+#define C0LZ_SIZE       0x130u
+#define C0LZ_AT         (LIST_AT - C0LZ_SIZE)
+#undef HEAP_FLOOR
+#define HEAP_FLOOR      C0LZ_AT
+#endif
+#if ENGINE_ABI3
+/* Explicit caller-owned loader facts/keys, below the decoder. hook_boot checks
+ * the live heap cursor, zeroes this reservation, then lowers the heap limit. */
+#if ABI3_PRODUCTION_RC
+#define CRE3L_STATE_SIZE 260u
+#else
+#define CRE3L_STATE_SIZE 256u
+#endif
+#define CRE3L_STATE_AT  (C0LZ_AT - CRE3L_STATE_SIZE)
+#define CRE3L_LAST_CHECK_OFFSET 227u
+#define CRE3L_HEALTH_OFFSET 240u
+#undef HEAP_FLOOR
+#define HEAP_FLOOR      CRE3L_STATE_AT
+#endif
 #define TRANSPORT_VT    0x080683E0u     /* transport object check */
 #define EV_START        1u
 #define EV_PULSE        2u
@@ -280,14 +302,13 @@
 #define BUILTIN_MODULE  1
 #endif
 #define FILE_PAD0       (BUILTIN_MODULE ? 1u : 0u)  /* the pad of the first card file */
-#ifndef CARD_WRITE                      /* -DCARD_WRITE=1 (development profile *-cardwrite only): SysEx cmd 10 writes,
-                                           deletes, verifies and lists module files in 1:/MODULES from the Content
-                                           task (patches/src/cardwrite.c). 0 everywhere else: every existing profile
-                                           keeps its bytes */
+#ifndef CARD_WRITE                      /* -DCARD_WRITE=1 enables SysEx cmd 10 card writes, deletes,
+                                           verification and listing from the Content task.
+                                           Profiles opt in, including the production install route. */
 #define CARD_WRITE      0
 #endif
 #ifndef REMOTE_PACK_LOAD
-#define REMOTE_PACK_LOAD 0             /* private bench only; shipping images have no remote loader */
+#define REMOTE_PACK_LOAD 0             /* disabled in release builds */
 #endif
 #define PICK_V2         (!BUILTIN_MODULE)   /* 0.2.1 picker: numbered pads, name colours, Play to the transport,
                                                Play LED blink (docs/user/developers.md); 0 keeps every older profile */
@@ -475,6 +496,9 @@ static void el_cmd(struct state *s, const uint8_t *m, uint32_t len);
 static void el_main(struct state *s);
 #endif
 static void ep_status(const struct state *s);  /* enginepack.c: cmd 10 0B, the engine status (read-only) */
+#if ENGINE_ABI3 && ABI3_C1_PROBE
+static void cre3_timing(struct state *s, const uint8_t *m, uint32_t len);
+#endif
 #endif
 #if ARP
 static void arp_sysex(struct state *s, const uint8_t *m, uint32_t len);
@@ -508,7 +532,7 @@ static void sc_copy(const volatile uint8_t *b);
 static void sc_sysex(struct state *s, const uint8_t *m, uint32_t len);
 #endif
 #if CORE0_BENCH
-static void q0_telem(const uint8_t *m, uint32_t len);   /* SysEx 0F, bench core-0 telemetry (patches/src/core0feed.c) */
+static void q0_telem(const uint8_t *m, uint32_t len);   /* SysEx 0F, diagnostic core-0 telemetry (patches/src/core0feed.c) */
 #endif
 #if BENCH_METER_READ
 static void q0_meter(const uint8_t *m, uint32_t len);   /* SysEx 08, the restricted meter readout (core0feed.c) */
@@ -887,6 +911,9 @@ static void send_status(struct state *s)
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, s->reply_msg);
 }
 
+#if ABI3_FAR_DUMP && !FAR_PART
+static int dump(const uint8_t *m, uint32_t len);
+#else
 static int dump(const uint8_t *m, uint32_t len)
 {
 #if DUMP_ALLOW
@@ -938,6 +965,8 @@ static int dump(const uint8_t *m, uint32_t len)
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
     return 1;
 }
+
+#endif /* ABI3_FAR_DUMP Main bridge uses the unchanged Far body. */
 
 #if !BENCH_METER_READ                   /* BENCH_METER_READ: no general cmd 08 read in the build (q0_meter instead) */
 static void dsp_read(const uint8_t *m, uint32_t len)
@@ -1292,18 +1321,28 @@ static void input_reply(struct state *s, uint32_t page)
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }
 
+#if ABI3_FAR_MORE && !FAR_PART && !ABI3_HEAP_MAIN
+static void heap_reply(void);
+#else
 static void heap_reply(void)
 {
     volatile uint32_t *ctl = (volatile uint32_t *)HEAP_CTL;
+#if ABI3_HEAP_MAIN
+    /* This diagnostic remains available when boot could not reserve REGION.
+     * A stack reply must not overwrite an unreserved fixed SRAM buffer. */
+    volatile uint8_t r[18];
+#else
     volatile uint8_t *r = (volatile uint8_t *)REPLY_BUF;
+#endif
     uint32_t limit = ctl[0], cursor = ctl[1];
     header(r, 0x7E);
     put7(r + 7, limit, 5);
     put7(r + 12, cursor, 5);
     r[17] = 0xF7;
-    uint32_t out[2] = {REPLY_BUF, 18};
+    uint32_t out[2] = {(uint32_t)r, 18};
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }
+#endif
 
 /* cmd 06 reply: F0 00 20 29 00 60 06 <phase> <mode> <fresh> <count> <pick> <result> <bad> F7 */
 static void loader_reply(struct state *s)
@@ -1384,20 +1423,26 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
     }
     uint8_t cmd = m[6];
     if (cmd == 0x7D) {
+#if !(ABI3_QUERY_CUT & 1)
         if (!dump(m, len))
             ORIG_SYSEX(a, msg, c);
+#endif
         return;
     }
     if (cmd == 0x08) {                      /* the only cmd 08 branch of the dispatch */
+#if !(ABI3_QUERY_CUT & 2)
 #if BENCH_METER_READ
         q0_meter(m, len);
 #else
         dsp_read(m, len);
 #endif
+#endif
         return;
     }
     if (cmd == 0x7E && len == 8) {
+#if !(ABI3_QUERY_CUT & 4)
         heap_reply();
+#endif
         return;
     }
     struct state *s = region();
@@ -1417,8 +1462,10 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
         return;
     }
     if (cmd == 0x09) {
+#if !(ABI3_QUERY_CUT & 8)
         if (len == 9 && m[7] <= 1)
             input_reply(s, m[7]);
+#endif
         return;
     }
     if (cmd == 0x06) {
@@ -1426,12 +1473,20 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
         return;
     }
     if (cmd == 0x0B) {
+#if !(ABI3_QUERY_CUT & 16)
         if (len == 8)
             clock_reply();
+#endif
         return;
     }
 #if CARD_WRITE
 #if ENGINE_PACK && !FAR_PART
+#if ENGINE_ABI3 && ABI3_C1_PROBE
+    if (cmd == 0x10 && len >= 9 && m[7] == 0x14) {
+        cre3_timing(s, m, len);
+        return;
+    }
+#endif
 #if REMOTE_PACK_LOAD
     if (cmd == 0x10 && len >= 9 && m[7] == 0x10) {
         ep_remote_cmd(s, m, len);
@@ -1477,7 +1532,9 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
 #endif
 #ifdef O1WAIT
     if (cmd == 0x0D) {
+#if !(ABI3_QUERY_CUT & 32)
         o1_sysex(m, len);
+#endif
         return;
     }
 #endif

@@ -1,7 +1,7 @@
 # Circus Arrhythmia FM: the track 8 FM synth
 
-Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358. Test status and known limitations: see the
-[release notes](../../RELEASE-NOTES-0.3.0.md).
+Applies to Circus Arrhythmia FM 0.3.1, firmware build 7388, with the FM engine 2.0.0. Test status and known
+limitations: see the [release notes](../../RELEASE-NOTES-0.3.1.md).
 
 * Track 8 plays either its samples or an engine. The pack chooses ([Engines on track 8](#engines-on-track-8)).
   Tracks 1 to 7 are sample tracks.
@@ -15,6 +15,9 @@ Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358. Test status and know
 An engine is a file on the microSD card. Each pack selects the engine of track 8, or none. The selection applies
 when the pack loads: at power-on and at a pack change. The firmware contains no engine. Without an engine, track 8
 plays the samples of the pack.
+
+**Upgrading from 0.3.0:** firmware 0.3.1 refuses `fm.dse` 1.0.0. Install `fm.dse` 2.0.0. Until then, every pack that
+selects FM plays samples. Pack selections stay valid.
 
 **Upgrading from 0.2.2:** the firmware no longer contains the FM synth. Until you add and select `fm.dse`, track 8
 plays samples, including in existing synth projects. The factory pack needs `engines/default.cfg`.
@@ -50,12 +53,11 @@ by the loader.
 engine keeps pack selections intact; packs still naming the removed file play samples on their next load.
 Changing the default can affect every pack without its own selection, as well as the factory pack.
 
-The FM engine has its own version, **1.0.0**, independent of firmware **0.3.0**. The loader shows engine names and
-versions read from the card. Legacy unmarked engine files have an unknown version. A different checksum does not
-prove that a file is older. The firmware checks engine ABI, load base, kind and body integrity before loading;
-a version number alone does not establish compatibility with future firmware.
-
-The track 8 engine interface (CRE2 container, queue ABI 0x207, load base, kind and base id) is defined only by the published source and tools; a written, stable interface specification is in development.
+The FM engine has its own version, **2.0.0**, independent of firmware **0.3.1**. In the reference scenes in the
+emulator, its output is word for word the output of 1.0.0. The loader shows engine names and versions read from the
+card. A different checksum does not prove that a file is older. Before a load, the firmware applies the checks of engine
+ABI 3 ([checks](engines-dev.md#checks)). A version number alone does not establish compatibility. The interface is
+written in [engines for developers](engines-dev.md). Engines from other authors load if they pass the checks.
 
 ### Select the FM engine with a card reader
 
@@ -98,6 +100,7 @@ A pack with its own `engine.cfg` ignores `default.cfg`. The factory pack has no 
 | No `engine.cfg` and no `default.cfg` | Samples. |
 | `engine.cfg` or `default.cfg` is not valid | Samples. |
 | The named file is missing, damaged or not an engine file | Samples. |
+| The named file is for the interface of 0.3.0, such as `fm.dse` 1.0.0, or fails a check of engine ABI 3 | Samples. `card engstatus` shows the reason. |
 
 * A valid selection is one line: a name of 1 to 8 characters (A to Z, 0 to 9, `_`, `-`, any case) followed by
   `.dse`, or `none`. A line break at the end is allowed. The file is at most 32 bytes.
@@ -114,6 +117,18 @@ A pack with its own `engine.cfg` ignores `default.cfg`. The factory pack has no 
   Note view.
 * Shift + Track 8 opens the scale page only ([The synth page](#the-synth-page)). Up, Down and the macros of the page
   have no function. The chord and arp pages are not available.
+
+### Engines from other authors
+
+* The firmware loads any engine file that passes its checks. Passing the checks does not prove that an engine is
+  safe or that it sounds right.
+* An engine runs with full access to the sound processor of track 8. A faulty engine can stop it. Rec then blinks
+  white, and only a power cycle recovers the unit.
+* If Rec blinks white soon after you chose an engine:
+  1. Save the project.
+  2. Set the pack to Samples with the loader.
+  3. Turn the unit off and on.
+* Without step 2, the same engine loads again at power-on.
 
 ## Choosing a sound: the Sample view
 
@@ -381,7 +396,8 @@ The project saves the synth settings, the selected sound, the sounds per step an
 
 ## Known issues
 
-Details: [release notes, known limitations](../../RELEASE-NOTES-0.3.0.md#known-limitations),
+Details: [0.3.1 known limitations](../../RELEASE-NOTES-0.3.1.md#known-limitations),
+[0.3.0 known limitations](../../RELEASE-NOTES-0.3.0.md#known-limitations),
 [0.2.2 known issues](../../RELEASE-NOTES-0.2.2.md#known-issues),
 [0.2.1 known issues](../../RELEASE-NOTES-0.2.1.md#known-issues) and
 [0.2.0 known issues](../../RELEASE-NOTES-0.2.0.md#known-issues).

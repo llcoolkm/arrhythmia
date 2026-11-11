@@ -12,9 +12,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'tools'))
 from dspvoice207rc import build as b
 ARGS = None
+
+
+class SourceClosureTests(unittest.TestCase):
+    def test_source_closure(self):
+        b.verify_sources()
+
+
 class SourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if ARGS is None or ARGS.stock is None:
+            raise unittest.SkipTest('supply --stock and --assembler for local reproduction')
         cls.ref=b.syx.parse(ARGS.stock.read_bytes())
         cls.c0,cls.c1,cls.meta=b.build_streams(cls.ref['image'],ARGS.assembler)
     def test_golden_streams_and_full_join(self):
@@ -60,4 +69,11 @@ class SourceTests(unittest.TestCase):
             r=subprocess.run([sys.executable,'-I',str(b.HERE/'build.py'),'--stock',str(p/'wrong.syx'),'--assembler',str(ARGS.assembler),'--out',str(p/'out')],capture_output=True,text=True)
             self.assertNotEqual(r.returncode,0);self.assertIn('official input SysEx differs',r.stderr);self.assertFalse((p/'out').exists())
 if __name__=='__main__':
-    ap=argparse.ArgumentParser();ap.add_argument('--stock',type=Path,required=True);ap.add_argument('--assembler',type=Path,required=True);ap.add_argument('--arm-image',type=Path);ARGS=ap.parse_args();unittest.main(argv=[sys.argv[0]])
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--stock', type=Path)
+    parser.add_argument('--assembler', type=Path)
+    parser.add_argument('--arm-image', type=Path)
+    ARGS, rest = parser.parse_known_args()
+    if (ARGS.stock is None) != (ARGS.assembler is None) or (ARGS.arm_image and ARGS.stock is None):
+        parser.error('--stock and --assembler must be supplied together')
+    unittest.main(argv=[sys.argv[0], *rest], verbosity=2)

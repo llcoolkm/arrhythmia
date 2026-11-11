@@ -190,7 +190,7 @@ if len(sys.argv)>4:
  final,stream=build.final_firmware(arm,c0,c1,m,ref)
  assert a.sha(final)=='fef8e4072696e177104aa2d31d7fcc725ba4dc746754e18d1f8a97a33deb5aaf'
  assert a.sha(stream)=='920b2893e8427fc0ea468a414ad7bfc82705aa499828be4375196d6dca2b011b'
- for address in (0,a.PTR_CORE0-a.BASE,a.STREAM1-a.BASE):
+ for address in (0,a.CORE0_STREAM_POINTER-a.BASE,a.STREAM1-a.BASE):
   altered=bytearray(arm); altered[address]^=1
   try: build.final_firmware(bytes(altered),c0,c1,m,ref)
   except ValueError: pass

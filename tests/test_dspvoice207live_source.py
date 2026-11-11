@@ -17,9 +17,31 @@ from dspvoice207live import build as b
 ARGS = None
 
 
+class SourceClosureTests(unittest.TestCase):
+    def test_source_closure_and_binding_refused(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for name in (*b.SOURCE_FILES, 'tools/dspvoice207live/source-manifest.json'):
+                dest = root / name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / name, dest)
+            b.verify_sources(root)
+            source = root / 'tools/dspvoice207live/live.asm'
+            source.write_text(source.read_text() + '\n')
+            with self.assertRaisesRegex(ValueError, 'source manifest mismatch'):
+                b.verify_sources(root)
+            manifest = root / 'tools/dspvoice207live/source-manifest.json'
+            data = json.loads(manifest.read_text()); data['queue_abi'] = 0x208
+            manifest.write_text(json.dumps(data))
+            with self.assertRaisesRegex(ValueError, 'source manifest bindings'):
+                b.verify_sources(root)
+
+
 class ComponentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if ARGS is None or ARGS.stock is None:
+            raise unittest.SkipTest('supply --stock and --assembler for local reproduction')
         cls.ref = b.rel.syx.parse(ARGS.stock.read_bytes())
         cls.c0, cls.c1, cls.body, cls.engine, cls.meta = b.build_streams(cls.ref['image'], ARGS.assembler)
         cls.old0, cls.old1, _, _ = b.m4.build_streams(cls.ref['image'], ARGS.assembler)
@@ -74,24 +96,6 @@ class ComponentTests(unittest.TestCase):
         for start, end in ((0x2D75, 0x2D80), (0x2D8B, 0x2DA0), (0x3261, 0x3300)):
             self.assertEqual(body[3*(start-b.ORIGIN):3*(end-b.ORIGIN)], bytes(3*(end-start)))
 
-    def test_source_closure_and_binding_refused(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            for name in (*b.SOURCE_FILES, 'tools/dspvoice207live/source-manifest.json'):
-                dest = root / name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(ROOT / name, dest)
-            b.verify_sources(root)
-            source = root / 'tools/dspvoice207live/live.asm'
-            source.write_text(source.read_text() + '\n')
-            with self.assertRaisesRegex(ValueError, 'source manifest mismatch'):
-                b.verify_sources(root)
-            manifest = root / 'tools/dspvoice207live/source-manifest.json'
-            data = json.loads(manifest.read_text()); data['queue_abi'] = 0x208
-            manifest.write_text(json.dumps(data))
-            with self.assertRaisesRegex(ValueError, 'source manifest bindings'):
-                b.verify_sources(root)
-
     def test_altered_source_output_refused(self):
         original = Path.read_text
         for file, before, after in [('live.asm', 'asr #6,a,a', 'asr #5,a,a'),
@@ -133,7 +137,9 @@ class ComponentTests(unittest.TestCase):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--stock', type=Path, required=True)
-    parser.add_argument('--assembler', type=Path, required=True)
-    ARGS = parser.parse_args()
-    unittest.main(argv=[sys.argv[0]], verbosity=2)
+    parser.add_argument('--stock', type=Path)
+    parser.add_argument('--assembler', type=Path)
+    ARGS, rest = parser.parse_known_args()
+    if (ARGS.stock is None) != (ARGS.assembler is None):
+        parser.error('--stock and --assembler must be supplied together')
+    unittest.main(argv=[sys.argv[0], *rest], verbosity=2)

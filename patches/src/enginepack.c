@@ -66,6 +66,13 @@ static int32_t ep_slurp(const char *path, volatile uint8_t *b, uint32_t n)
 
 /* Parse a pointer line in b (len bytes): 1 + basename into nm (8 bytes, NUL-padded) for "NAME.DSE", 0 for "NONE",
  * -1 for anything else. */
+#if ABI3_FAR_MORE
+static int32_t ep_parse(volatile uint8_t *b,uint32_t len,volatile char *nm)
+{
+    uint32_t r=far_call(FAR_EP_PARSE,(uint32_t)b,len,(uint32_t)nm,0);
+    return r>=1 && r<=3?(int32_t)r-2:-1;
+}
+#else
 static int32_t ep_parse(volatile uint8_t *b, uint32_t len, volatile char *nm)
 {
     if (len && b[len - 1] == '\n')
@@ -92,6 +99,7 @@ static int32_t ep_parse(volatile uint8_t *b, uint32_t len, volatile char *nm)
         return -1;                            /* DEFAULT is the card default's reserved basename */
     return 1;
 }
+#endif
 
 /* d = "<root>/<folder>/ENGINE.CF" + x (root, folder from the record), or "1:/ENGINES/DEFAULT.CF" + x (rec 0). */
 static void ep_cfgpath(char *d, volatile uint8_t *rec, char x)
@@ -164,6 +172,15 @@ __attribute__((noinline)) static void ep_lookup(struct eo *e)
         e->verdict = r == EP_ABSENT ? EV_NOPTR : r == EP_IOERR ? EV_IOERR : r == 0 ? EV_STOCKPTR : EV_INVALID;
         return;
     }
+#if ENGINE_ABI3
+    char path[24];cd_epath(path,e->c_name);
+    uint32_t fil=file_b(0);
+    if (!fil || cd3_check_path(fil,path,*(volatile uint32_t *)CD_C0_PTR,0)) {
+        e->verdict=EV_HEADER;return;
+    }
+    e->c_kind=CD3->facts.h[24];e->c_crc=CD3->candidate.body_crc;
+    e->c_words=(uint16_t)cre3_u32(CD3->facts.h+8);
+#else
     volatile uint8_t b[64];
     char path[24];
     cd_epath(path, e->c_name);
@@ -181,6 +198,7 @@ __attribute__((noinline)) static void ep_lookup(struct eo *e)
     e->c_kind = (uint8_t)cd_u32(b + 20);
     e->c_crc = cd_u32(b + 8);
     e->c_words = (uint16_t)words;
+#endif
     e->verdict = EV_OK;
 }
 
@@ -206,6 +224,17 @@ static void ep_judge(struct eo *e)
 /* 4B: pass 1 of the candidate (256-byte Main-stack buffer, popped before the load). 1 admitted. */
 __attribute__((noinline)) static uint32_t ep_pass1(struct eo *e)
 {
+#if ENGINE_ABI3
+    volatile uint32_t *m=CD_MARK;
+    if (cd3_session_blocked(e->c_crc,e->bad_crc)) {e->verdict=EV_SESSIONBAD;return 0;}
+    if (itcm_ok() && m[1]==~m[0] && m[0]==CD_BAD && m[2]==e->c_crc) {e->verdict=EV_BAD;return 0;}
+    char path[24];cd_epath(path,e->c_name);
+    uint32_t fil=file_b(0);
+    uint32_t ok=fil && !cd3_check_path(fil,path,*(volatile uint32_t *)CD_C0_PTR,1);
+    if (!ok) e->verdict=EV_PASS1;
+    if (ok && !((e->fl&EF_TRIES) && m[2]==e->c_crc)) e->fl&=(uint8_t)~EF_TRIES;
+    return ok;
+#else
     volatile uint32_t *m = CD_MARK;
     if (e->c_crc == e->bad_crc && e->bad_crc) {
         e->verdict = EV_SESSIONBAD;
@@ -227,6 +256,7 @@ __attribute__((noinline)) static uint32_t ep_pass1(struct eo *e)
     if (!((e->fl & EF_TRIES) && m[2] == crc))
         e->fl &= (uint8_t)~EF_TRIES;
     return 1;
+#endif
 }
 
 /* struct wd's 16-bit fields saturate (enginepack.h). */
@@ -244,6 +274,10 @@ static void ep_load(struct eo *e, uint32_t engine)
         e->c0out = C0_TERMINAL;
         return;
     }
+#if ENGINE_ABI3
+    cd3_health_reset();
+    if (!engine) {CD3->resident_valid=0;CD3->transmitted=0;}
+#endif
     e->c0out = C0_NONE;
     e->fl |= EF_OWN;
     e->sel = engine ? SEL_ENGINE : SEL_STOCK;
@@ -269,8 +303,11 @@ static uint32_t ep_ready(void)
     uint32_t t0 = TICK();
     do {
         O1_KICK();
-        if (q0_header_ok(Q0))
-            return 1;
+#if ENGINE_ABI3
+        if (cd3_ready()) return 1;
+#else
+        if (q0_header_ok(Q0)) return 1;
+#endif
     } while (TICK() - t0 < EP_READY_MS && !o1_faulted());
     return 0;
 }
@@ -306,6 +343,11 @@ typedef uint32_t (*xy_read_fn)(uint32_t core, uint32_t a16);
 static uint32_t ep_own(void)
 {
     struct eo *e = eo();
+#if DSP_C0_LZ
+    /* Only a storage fault extends the existing abort path to boot/foreign loads. */
+    if (c0lz_failed())
+        return 1;
+#endif
     return e && (e->fl & EF_OWN);
 }
 
@@ -314,6 +356,15 @@ static uint32_t ep_ldwait(uint32_t site, uint32_t backstop)
 {
     struct eo *e = eo();
     volatile struct o1 *o = o1();
+#if DSP_C0_LZ
+    if (c0lz_failed()) {
+        if (e) {
+            e->c0out = C0_TERMINAL;
+            e->fl |= EF_ABORT;
+        }
+        return 1;                            /* preserve integrity reason/site 13 */
+    }
+#endif
     if (e->c0out == C0_CANDIDATE && !(o && o->fault)) {
         e->c0out = C0_WAIT;                   /* the trial failed: the transaction's 4E stock load follows */
         e->r_fault = 1;
@@ -412,11 +463,23 @@ __attribute__((naked)) uint32_t hook_ld_hs(uint32_t core, uint32_t a16, uint32_t
 uint32_t hook_sx_factory(uint32_t port, uint32_t msg, uint32_t c, uint32_t d)
 {
     struct eo *e = eo();
+#if ABI3_PRODUCTION_RC
+    /* Committed CRE3 residency, independent of publication, fault and mutable
+     * candidate eligibility. eo() first validates the positively owned region. */
+    uint32_t protected_resident = e && e->r_pair == R_ENGINE &&
+        CD3->resident_valid && cd3_policy()[0] == 1;
+    if (e && (e->phase != EP_IDLE || protected_resident)) {
+#else
     if (e && e->phase != EP_IDLE) {          /* message descriptor: data and length */
+#endif
         uint32_t m = *(volatile uint32_t *)msg, len = *(volatile uint32_t *)(msg + 4);
         const volatile uint8_t *b = (const volatile uint8_t *)m;
         if (len > 8 && b[0] == 0xF0 && b[1] == 0x00 && b[2] == 0x20 && b[3] == 0x29 && b[4] == 0x01
-                && b[5] == 0x63 && b[6] == 0x70) {
+                && b[5] == 0x63 && b[6] == 0x70
+#if ABI3_PRODUCTION_RC
+                && (e->phase != EP_IDLE || b[7] == 0x5E)
+#endif
+                ) {
             e->busy++;
             return 0;
         }
@@ -424,7 +487,9 @@ uint32_t hook_sx_factory(uint32_t port, uint32_t msg, uint32_t c, uint32_t d)
     return EP_SX_FACTORY(port, msg, c, d);
 }
 
+#if !ENGINE_ABI3
 _Static_assert(CW_BASE_ID == CRBC_ID, "cardwrite.c 10 0E admits the base contract's engine files only");
+#endif
 
 /* Watchdog/load timing: hook_feed refreshes IWDG and records the RTOS tick with
  * interrupts masked, preserving PRIMASK. The wrapper preserves registers and flags.
@@ -548,6 +613,12 @@ static uint32_t ep_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
         e->verdict = EV_CHANGED;
     } else
         ep_lookup(e);
+#if ENGINE_ABI3
+    if (o1_faulted()) { /* lookup found an untrusted composition: no stock pair */
+        e->verdict=EV_TERMINAL;e->c0out=C0_TERMINAL;e->phase=EP_IDLE;
+        ep_release(s);wd_mark(0);ep_record(e);o1_refuse();return 1;
+    }
+#endif
     struct q0 *q = Q0;
     uint32_t healthy = e->r_pair == R_ENGINE && !e->r_fault && q->ph == Q_OPEN && !q->excl && !o1_faulted()
                        && a8p->eng == e->r_kind;   /* published: a resident whose publish was withheld takes the full
@@ -555,6 +626,10 @@ static uint32_t ep_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     uint32_t keep = e->r_pair == R_STOCK      /* no selection: the stock pair, or (ENGINE_FLASH regression variant
                                                  only) the flash engine, resident: nothing to load */
                     || (ENGINE_FLASH && e->r_pair == R_ENGINE && !e->r_crc);
+#if ENGINE_ABI3
+    healthy &= abi3_producer_ready() && cd3_health_ready() && abi3_engine_eligible()
+        && cre3l_reuse(CD3,healthy,a8p->eng!=0);
+#endif
     if (e->c_kind ? (healthy && e->c_kind == e->r_kind && e->c_crc == e->r_crc) : keep) {
         if (e->c_kind)
             e->verdict = EV_SAME;             /* same engine, resident and healthy: today's path */
@@ -666,6 +741,10 @@ static void ep_done(void)
     uint32_t ok = e->n_trav == EP_SLOTS && ep_cur_pack() == e->c_pack && !o1_faulted();
     if (e->c_kind)
         ok &= e->r_pair == R_ENGINE && e->r_kind == e->c_kind && e->r_crc == e->c_crc && !e->r_fault;
+#if ENGINE_ABI3
+    if (ok && abi3_engine_eligible()) abi3_controls_commit();
+    ok &= abi3_producer_ready() && cd3_health_ready() && abi3_engine_eligible();
+#endif
     if (a) {
         a->eng = ok && e->c_kind && e->r_pair == R_ENGINE ? e->r_kind : 0;
         if (!a->eng != !(e->fl & EF_WASENG))  /* pub before 4A against pub now */
@@ -861,6 +940,12 @@ static void ep_remote_main(struct state *s)
 
  #endif /* REMOTE_PACK_LOAD */
 
+#if ABI3_FAR_MORE
+static void ep_status(const struct state *s)
+{
+    (void)far_call(FAR_EP_STATUS,(uint32_t)s,0,0,0);
+}
+#else
 static void ep_status(const struct state *s)
 {
     uint8_t r[223];
@@ -898,6 +983,7 @@ static void ep_status(const struct state *s)
     uint32_t out[2] = {(uint32_t)r, sizeof r};
     TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR, 1, out);
 }
+#endif
 
 #if CARD_INVENTORY
 #include "enginelist.c"

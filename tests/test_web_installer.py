@@ -372,10 +372,34 @@ class _Release:
                                  crpatch.apply(self.rel, self.stock, b["name"])[0])
 
 
+class ReleaseV031(unittest.TestCase):
+    def test_release_identity_devkit_and_embedded_manifest(self):
+        current=json.loads((ROOT/'release/v0.3.1.json').read_text())
+        previous=json.loads((ROOT/'release/v0.3.0.json').read_text())
+        self.assertEqual(current['name'],'Circus Arrhythmia FM 0.3.1')
+        self.assertEqual([(b['name'],b['output']['label']) for b in current['builds']],
+                         [('firmware',7388),('devkit',7228)])
+        self.assertEqual(crpatch.select(current,'devkit'),crpatch.select(previous,'devkit'))
+        self.assertEqual(crpatch.select(current,'firmware')['output']['syx_sha256'],
+                         '31b549966b3facc0a1f86e8b7f2c63d90fb2e218027aa664cf78990d85d1192f')
+        html=(ROOT/'web/index.html').read_text()
+        start=html.index(crpatch.BEGIN)+len(crpatch.BEGIN)
+        self.assertEqual(json.loads(html[start:html.index('</script>',start)]),current)
+
+    @unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+    def test_patched_031_matches_both_published_builds(self):
+        release=json.loads((ROOT/'release/v0.3.1.json').read_text())
+        stock=STOCK.read_bytes()
+        self.assertEqual(crpatch.scan(release,syx.parse(stock)['image']),[])
+        for build in release['builds']:
+            result,_=crpatch.apply(release,stock,build['name'])
+            self.assertEqual(hashlib.sha256(result).hexdigest(),build['output']['syx_sha256'])
+
+
 @unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
 class ReleaseV030(unittest.TestCase):
     """The current public image, tested from its committed patch-only manifest in Python and JavaScript."""
-    REL, NAME, EMBEDDED = ROOT / "release/v0.3.0.json", "Circus Arrhythmia FM 0.3.0", True
+    REL, NAME, EMBEDDED = ROOT / "release/v0.3.0.json", "Circus Arrhythmia FM 0.3.0", False
     PINS = {"firmware": "adfd566c1c28d3f9f1484ac44e343d08b3fc7c1638e91b07b2265540af8a852d", "devkit": PIN_7228}
     setUp = _Release.setUp
     test_no_stock_bytes_published = _Release.test_no_stock_bytes_published
@@ -451,6 +475,7 @@ class ReleaseV020(_Release, unittest.TestCase):
         self.assertEqual(new["output"], old["output"])
 
 
+@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
 class ReleaseV011(_Release, unittest.TestCase):
     """release/v0.1.1.json, kept as the 0.1.1 record: firmware 7261 (attack and decay; = development build 7255
     except the build number) and devkit 7228, unchanged from 0.1.0 (same patches, same pin)."""

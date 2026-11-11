@@ -155,7 +155,7 @@ def final_firmware(arm, core0, core1, stock_ref):
         off = address - a.BASE
         if arm[off:off + len(data)] != data:
             raise ValueError('ARM input changed a local input stream')
-    for pointer in (a.PTR_CORE0, a.PTR_CORE1):
+    for pointer in (a.CORE0_STREAM_POINTER, a.CORE1_STREAM_POINTER):
         off = pointer - a.BASE
         if arm[off:off + 4] != stock[off:off + 4]:
             raise ValueError('ARM input already changes a stream pointer')
@@ -166,7 +166,7 @@ def final_firmware(arm, core0, core1, stock_ref):
     image.extend(b'\xff' * (at + len(core0) - len(image)))
     image[a.STREAM1 - a.BASE:a.STREAM1 - a.BASE + len(core1)] = core1
     image[at:at + len(core0)] = core0
-    struct.pack_into('<I', image, a.PTR_CORE0 - a.BASE, CORE0_AT)
+    struct.pack_into('<I', image, a.CORE0_STREAM_POINTER - a.BASE, CORE0_AT)
     struct.pack_into('<H', image, 0x1CA, 7306)
     image.extend(b'\xff' * (-len(image) % 4))
     version = bytes([0, 0, 0, 8, 0, 6])

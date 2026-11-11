@@ -4,7 +4,7 @@
 
 Circus Arrhythmia FM is a patch for the firmware of the Novation Circuit Rhythm. It corrects bugs and adds functions.
 
-Current release: **0.3.0** ([release notes](RELEASE-NOTES-0.3.0.md)). Project objectives: [principles](docs/user/principles.md).
+Current release: **0.3.1** ([release notes](RELEASE-NOTES-0.3.1.md)). Project objectives: [principles](docs/user/principles.md).
 
 Arrhythmia is not affiliated with Novation or Focusrite. Novation and Focusrite do not endorse Arrhythmia.
 
@@ -40,7 +40,8 @@ The synthesizer functions are in arrhythmia-firmware only.
 * **Engines on track 8.** Each card pack makes track 8 play either its samples or an engine. The FM synthesizer is
   the engine file `fm.dse`, a 4-operator FM synthesizer designed for 4 voices. A file on the card selects the engine of a
   pack, and a default file selects it for all packs without a selection
-  ([engines](docs/user/synth.md#engines-on-track-8)).
+  ([engines](docs/user/synth.md#engines-on-track-8)). Any engine file that passes the checks of engine ABI 3 loads;
+  authors read [engines for developers](docs/user/engines-dev.md).
 * **FM feedback.** Macro 1 of track 8 sets the feedback up to 8x and acts on sounding notes
   ([macros](docs/user/synth.md#macros-on-track-8)).
 * **Arpeggiator on track 8.** Page 3 of the synth page turns the arpeggiator on or off and sets mode, latch, rate,
@@ -94,7 +95,7 @@ The synthesizer functions are in arrhythmia-firmware only.
 
 | Image | For | Contents |
 |---|---|---|
-| **arrhythmia-firmware** (build 7358) | users | Track 8 engines (FM synthesizer as a card file), arpeggiator, scales, bug fixes, modules |
+| **arrhythmia-firmware** (build 7388) | users | Track 8 engines (FM synthesizer as a card file), arpeggiator, scales, bug fixes, modules |
 | **arrhythmia-devkit** (build 7228, unchanged from 0.1.0) | developers | DSP load meter, module tools, scales, bug fixes. No synthesizer. |
 
 If you are not sure, install **arrhythmia-firmware**.
@@ -108,7 +109,7 @@ Rebuild from source: [current image](docs/README.md#rebuilding-the-images) and
 * The official firmware file 5706 from Novation.
 * Chrome on Windows or Linux, or Python 3.12 on Linux. macOS is not tested.
 * A USB cable and a microSD card reader.
-* For the FM synthesizer: the file `fm.dse` from the release page.
+* For the FM synthesizer: the file `fm.dse` 2.0.0 from the release page.
 
 ## Return to stock
 

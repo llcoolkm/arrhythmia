@@ -16,7 +16,7 @@ LABEL = re.compile(r'@(\w+)')
 NAME = re.compile(r'[A-Za-z_]\w*\Z')
 
 
-def assemble(executable, source, origin):
+def assemble(executable, source, origin, *, encoder=encode):
     if type(origin) is not int or not 0 <= origin <= 0xFFFFFF:
         raise ValueError('invalid program origin')
     records = [line.split(';', 1)[0].strip() for line in source.splitlines()]
@@ -36,7 +36,7 @@ def assemble(executable, source, origin):
             probe = LABEL.sub('$0', line)
             if head in CONDITIONS and '@' in line:
                 probe = CONDITIONS[head] + probe[len(head):]
-            size = len(encode(executable, [(0, probe)])[0][1])
+            size = len(encoder(executable, [(0, probe)])[0][1])
         if pc + size > 0x1000000:
             raise ValueError('program exceeds unsigned 24-bit address space')
         sized.append((pc, line, size))
@@ -61,7 +61,7 @@ def assemble(executable, source, origin):
             final = LABEL.sub(target, line)
             if head in CONDITIONS and '@' in line:
                 final = CONDITIONS[head] + final[len(head):]
-            encoded = encode(executable, [(at, final)])[0][1]
+            encoded = encoder(executable, [(at, final)])[0][1]
         if len(encoded) != size:
             raise ValueError('instruction length changed during label resolution')
         listing.append((at, encoded, final))

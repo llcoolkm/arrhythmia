@@ -4,17 +4,80 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
+// Process-group inspection below is Linux-specific. Keep unsupported hosts on
+// the explicit browser-test skip path before starting children or reading /proc.
+const groupSupported=(platform,exists)=>platform==='linux' && exists('/proc/self/stat');
+for(const platform of ['darwin','win32']) {
+ assert.equal(groupSupported(platform,()=>{throw Error('unsupported host accessed proc');}),false);
+}
+assert.equal(groupSupported('linux',()=>false),false,'missing proc must skip');
+if(!groupSupported(process.platform,fs.existsSync)) {
+ console.log('Browser smoke and cleanup regression skipped: Linux process groups and proc are required.');
+ process.exit(0);
+}
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// A separate session makes the negative pid ours exclusively. Do not signal
+// Chrome processes selected by name: other browser tests may run concurrently.
+function ownedLiveGroup(pid) {
+ return fs.readdirSync('/proc').filter(name=>/^\d+$/.test(name)).some(name=>{
+  try {
+   const stat=fs.readFileSync(`/proc/${name}/stat`,'utf8');
+   const fields=stat.slice(stat.lastIndexOf(')')+2).split(' ');
+   return Number(fields[2])===pid && !['Z','X'].includes(fields[0]);
+  } catch(error) {if(['ENOENT','ESRCH'].includes(error.code))return false;throw error;}
+ });
+}
+async function waitOwnedGroup(pid,ms) {
+ const end=Date.now()+ms;
+ while(ownedLiveGroup(pid)) {if(Date.now()>=end)return false;await pause(25);}
+ return true;
+}
+async function shutdownBrowser(child,closed,requestClose) {
+ if(requestClose && child.exitCode===null && child.signalCode===null) {
+  // Browser.close flushes profile users; killing only the browser can leave the
+  // network service writing TransportSecurity after the browser's exit event.
+  await Promise.race([requestClose().catch(()=>{}),pause(1000)]);
+ }
+ if(!await waitOwnedGroup(child.pid,2000)) {
+  for(const signal of ['SIGTERM','SIGKILL']) {
+   try {process.kill(-child.pid,signal);}catch(error){if(error.code!=='ESRCH')throw error;}
+   if(await waitOwnedGroup(child.pid,1000))break;
+  }
+ }
+ assert.equal(ownedLiveGroup(child.pid),false,'owned browser process group did not stop');
+ // close also waits for the wrapper's inherited stderr pipe, unlike exit.
+ await Promise.race([closed,pause(1000).then(()=>{throw Error('browser stdio did not close');})]);
+}
+async function cleanupRegression() {
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),'loader-cleanup-'));
+ const marker=path.join(folder,'late-write');
+ const script=`const {spawn}=require('node:child_process');
+ const writer=spawn(process.execPath,['-e',${JSON.stringify("process.on('SIGTERM',()=>{});process.send('ready');setTimeout(()=>{require('node:fs').writeFileSync(process.argv[1],'flushed');process.exit(0);},300);")},process.argv[1]],{stdio:['ignore','ignore','ignore','ipc']});
+ writer.on('message',()=>process.exit(0));`;
+ const leader=spawn(process.execPath,['-e',script,marker],{detached:true,stdio:'ignore'});
+ const closed=new Promise((resolve,reject)=>{leader.once('close',resolve);leader.once('error',reject);});
+ await closed;
+ assert.equal(ownedLiveGroup(leader.pid),true,'regression needs a surviving profile writer');
+ await shutdownBrowser(leader,closed);
+ assert.equal(fs.readFileSync(marker,'utf8'),'flushed');
+ fs.rmSync(folder,{recursive:true});
+ assert.equal(fs.existsSync(folder),false);
+ console.log('Browser cleanup: delayed owned descendant is stopped before profile removal.');
+}
+await cleanupRegression();
+if(process.argv.includes('--cleanup-only'))process.exit(0);
 const chrome=process.env.CHROME || '/usr/bin/google-chrome';
 if(!fs.existsSync(chrome)) {console.log('Chrome unavailable; browser smoke skipped.');process.exit(0);}
 const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'loader-browser-'));
-const child=spawn(chrome,['--headless','--no-sandbox','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${tmp}`,'about:blank'],{stdio:['ignore','ignore','pipe']});
-let ws;
+const child=spawn(chrome,['--headless','--no-sandbox','--disable-gpu','--remote-debugging-port=0',`--user-data-dir=${tmp}`,'about:blank'],{detached:true,stdio:['ignore','ignore','pipe']});
+const closed=new Promise((resolve,reject)=>{child.once('close',resolve);child.once('error',reject);});
+let ws,call;
 try {
  const endpoint=await new Promise((resolve,reject)=>{let text='';const t=setTimeout(()=>reject(Error('Chrome start timeout')),10000);child.stderr.on('data',b=>{text+=b;const m=/DevTools listening on (ws:\/\/\S+)/.exec(text);if(m){clearTimeout(t);resolve(m[1]);}});child.on('error',reject);});
  ws=new WebSocket(endpoint);await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
  let id=0,session;const pending=new Map(),errors=[];
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}else if(m.method==='Runtime.exceptionThrown') errors.push(m.params.exceptionDetails);};
- const call=(method,params={})=>new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params,...(session?{sessionId:session}:{})}));});
+ call=(method,params={})=>new Promise((resolve,reject)=>{const n=++id;pending.set(n,{resolve,reject});ws.send(JSON.stringify({id:n,method,params,...(session?{sessionId:session}:{})}));});
  const target=await call('Target.createTarget',{url:'about:blank'});session=(await call('Target.attachToTarget',{targetId:target.targetId,flatten:true})).sessionId;
  await call('Page.enable');await call('Runtime.enable');
  const shim=`(() => {
@@ -97,5 +160,7 @@ try {
  assert.equal(errors.length,0,JSON.stringify(errors));
  console.log('Chrome: full page connects, streams actual pack mapping, renders Unicode/XSS safely, and sends no writes during scan.');
 } finally {
- if(ws)ws.close();child.kill('SIGTERM');await new Promise(r=>child.once('exit',r));fs.rmSync(tmp,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+ try {await shutdownBrowser(child,closed,call?()=>call('Browser.close'):null);}
+ finally {if(ws)ws.close();}
+ fs.rmSync(tmp,{recursive:true,force:true});
 }
