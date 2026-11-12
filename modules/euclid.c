@@ -1,4 +1,5 @@
-/* euclid.mod: four Euclidean rows of up to 32 steps, ABI 3. Press Play to run.
+/* Euclid revision 9.
+ * euclid.mod: four Euclidean rows of up to 32 steps, ABI 3. Press Play to run.
  * Plays like a four-track drum machine: rows 1..4 default to tracks 1..4.
  * Stock firmware owns Play/Stop; this module never uses them as controls.
  * Before START and after STOP the rows and the Play hint pulse dimly. Only
@@ -150,7 +151,7 @@ static uint32_t flash_fingerprint(uint32_t at,uint32_t len) {
     return h;
 }
 static uint32_t timer_host(void) {
-    /* Qualified 7357/7358 stock-5706 profiles only. ABI magic alone
+    /* Exact qualified host profiles only. ABI magic alone
      * never licenses the absolute RTOS read. The host service pointers, tick
      * getter and tick increment instructions must match the offline pins. */
     const volatile uint32_t *h=(const volatile uint32_t *)0x0806a570u;
@@ -172,9 +173,13 @@ static uint32_t timer_host(void) {
         h[0]==0x31485243u&&h[1]==4&&h[2]==0x0806d463u&&!h[3]&&
         h[4]==0x0806d52bu&&h[5]==0x0806d533u&&h[6]==0x0806d5e1u&&h[7]==0x0806d61du&&
 #else
-    return (label==7357||label==7358)&&
-        h[0]==0x31485243u&&h[1]==4&&h[2]==0x0806d433u&&!h[3]&&
-        h[4]==0x0806d4fbu&&h[5]==0x0806d503u&&h[6]==0x0806d5b1u&&h[7]==0x0806d5edu&&
+    return h[0]==0x31485243u&&h[1]==4&&!h[3]&&(
+        ((label==7357||label==7358)&&
+         h[2]==0x0806d433u&&h[4]==0x0806d4fbu&&h[5]==0x0806d503u&&h[6]==0x0806d5b1u&&h[7]==0x0806d5edu)||
+        (label==7388&&
+         h[2]==0x0806cb83u&&h[4]==0x0806cc4bu&&h[5]==0x0806cc53u&&h[6]==0x0806cd01u&&h[7]==0x0806cd3du)||
+        (label==7391&&
+         h[2]==0x0806c30du&&h[4]==0x0806c38fu&&h[5]==0x0806c397u&&h[6]==0x0806c401u&&h[7]==0x0806c413u))&&
 #endif
         flash_fingerprint(0x08024068u,12)==0x5315a080u&&
         flash_fingerprint(0x08066bfcu,16)==0x2d5b1d35u;

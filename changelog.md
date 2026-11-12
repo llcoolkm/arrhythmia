@@ -2,6 +2,9 @@
 
 ## 0.3.1
 
+Module update 2026-11-12: `10euclid.mod` revision 9 enables Euclid Rec and Clear on firmware build 7388 (they
+worked on 7358 only). Install it with the loader or by copying it to the card.
+
 Changes since 0.3.0. Full installation details, test status and limitations are in the
 [release notes](RELEASE-NOTES-0.3.1.md).
 

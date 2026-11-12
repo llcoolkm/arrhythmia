@@ -93,6 +93,11 @@ The page [engines for developers](docs/user/engines-dev.md) is the contract. In 
 * **Tune.** Tune is not a control source. Clear held with synth page 1 macro 1 does nothing while an engine owns
   track 8.
 * **No append over USB.** A file above 15,360 bytes installs only with a card reader.
+* **Euclid Rec and Clear need module revision 9 (2026-11-12).** The Euclid module of 0.3.0 enables writing to
+  patterns only on firmware build 7358. On 7388 it plays but Rec and Clear stay dark. `10euclid.mod` revision 9
+  (11,776 bytes, SHA-256 `ae2722375255964b5e1264e0cc70736e562c3a2e63bf8110971169968728e3b6`) on the release page and
+  in the loader enables them on 7358 and 7388. Its writing path passed the offline module tests for both builds; on a
+  unit it was loaded and started but writing was not exercised yet.
 * **Modules.** A module that writes a DSP peripheral register voids the platform facts of the engine page. The
   firmware does not detect it.
 * All known limitations of [0.3.0](RELEASE-NOTES-0.3.0.md#known-limitations) and earlier that 0.3.1 does not change
