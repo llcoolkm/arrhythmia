@@ -1,0 +1,11 @@
+--- a/source/dsp56kEmu/peripherals.h
++++ b/source/dsp56kEmu/peripherals.h
+@@ -135,7 +135,7 @@
+ 		PeripheralType m_type;
+ 	};
+ 
+-	class PeripheralsNop final : public IPeripherals
++	class PeripheralsNop : public IPeripherals
+ 	{
+ 	public:
+ 		PeripheralsNop() : IPeripherals(PeripheralType::PeripheralsNop) {}

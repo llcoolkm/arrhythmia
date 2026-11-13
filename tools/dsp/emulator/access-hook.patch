@@ -1,0 +1,75 @@
+--- a/source/dsp56kEmu/memory.h
++++ b/source/dsp56kEmu/memory.h
+@@ -43,6 +43,11 @@
+ 		bool memValidateAccess(EMemArea _area, TWord _addr, bool _write) const override	{ return true; }
+ 	};
+ 
++	// Analysis build: optional access observer, called before address translation.
++	using MemoryAccessHook = void (*)(void* _context, EMemArea _area, TWord _offset, bool _write);
++	extern MemoryAccessHook g_memoryAccessHook;
++	extern void* g_memoryAccessHookContext;
++
+ 	class Memory final
+ 	{
+ 		friend class Jitmem;
+--- a/source/dsp56kEmu/memory.cpp
++++ b/source/dsp56kEmu/memory.cpp
+@@ -11,6 +11,8 @@
+ 
+ namespace dsp56k
+ {
++	MemoryAccessHook g_memoryAccessHook = nullptr;
++	void* g_memoryAccessHookContext = nullptr;
+ 	constexpr bool g_useInitPattern	= false;
+ 	constexpr TWord g_initPattern	= 0xabcabcab;
+ 
+@@ -109,6 +111,7 @@
+ 	//
+ 	bool Memory::dspWrite( EMemArea& _area, TWord& _offset, TWord _value )
+ 	{
++		if (g_memoryAccessHook) g_memoryAccessHook(g_memoryAccessHookContext, _area, _offset, true);
+ #if MEMORY_HEAT_MAP
+ 		++m_heatMap[_area][_offset];
+ #endif
+@@ -161,6 +164,7 @@
+ 	//
+ 	TWord Memory::get( EMemArea _area, TWord _offset ) const
+ 	{
++		if (g_memoryAccessHook) g_memoryAccessHook(g_memoryAccessHookContext, _area, _offset, false);
+ #if MEMORY_HEAT_MAP
+ 		++m_heatMap[_area][_offset];
+ #endif
+--- a/source/dsp56kEmu/dsp.h
++++ b/source/dsp56kEmu/dsp.h
+@@ -41,6 +41,12 @@
+ 
+ 	static constexpr bool g_useJIT = g_jitSupported;
+ 
++	// Analysis build: optional per-instruction observer (interpreter only), called
++	// before each instruction executes, including instructions inside DO loops.
++	using InstructionHook = void (*)(void* _context, TWord _pc);
++	extern InstructionHook g_instructionHook;
++	extern void* g_instructionHookContext;
++
+ 	class DSP final
+ 	{
+ 		friend class InterpreterUnitTests;
+@@ -216,6 +222,7 @@
+ 
+ 			pcCurrentInstruction = reg.pc.toWord();
+ 			m_srCurrentInstruction = reg.sr.toWord();
++			if (g_instructionHook) g_instructionHook(g_instructionHookContext, pcCurrentInstruction);
+ 
+ 			const auto op = fetchPC();
+ 
+--- a/source/dsp56kEmu/dsp.cpp
++++ b/source/dsp56kEmu/dsp.cpp
+@@ -38,6 +38,8 @@
+ 
+ namespace dsp56k
+ {
++	InstructionHook g_instructionHook = nullptr;
++	void* g_instructionHookContext = nullptr;
+ 	constexpr bool g_traceSupported = false;
+ 
+ 	Jumptable g_jumptable;
