@@ -1,6 +1,6 @@
-# Circus Arrhythmia FM modules for developers
+# Arrhythmia modules for developers
 
-Applies to Circus Arrhythmia FM 0.3.0 (firmware build 7358 and arrhythmia-devkit build 7228,
+Applies to Arrhythmia 0.3.0 (firmware build 7358 and arrhythmia-devkit build 7228,
 unchanged from 0.1.0). Test status is in the [release notes](../../RELEASE-NOTES-0.3.0.md). For the 0.1.1
 image, see the [0.1.1 release notes](../../RELEASE-NOTES-0.1.1.md).
 
@@ -219,10 +219,10 @@ before another write. Recovery of engine helper files happens on the next put or
 boot. Until recovery, a missing engine makes the pack play samples. The loader's read-only scan does not invoke
 `engine-verify`. The [scan reference](../dev/loader-scan.md) describes framing, row limits and selection states.
 
-`fm.dse` version 2.0.0 is independent of firmware 0.3.1. Its engine version word (header +28) is the marked semantic
-version `0x80020000`. Engine admission applies the checks of [engine ABI 3](engines-dev.md#checks); version comparison
-does not replace them. The release file is 15,346 bytes, SHA-256
-`9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae`, and declares 65,626 cycles. A checksum difference
+`fm.dse` version 2.1.0 is independent of firmware 0.3.2. Its engine version word (header +28) is the marked semantic
+version `0x80020100`. Engine admission applies the checks of [engine ABI 3](engines-dev.md#checks); version comparison
+does not replace them. The release file is 15,329 bytes, SHA-256
+`e5f074d5b69fc7a27d2b9340acda7dd975849220bbc367cdb2c2125d553da489`, and declares 65,626 cycles. A checksum difference
 alone establishes no version ordering. To write your own engine, read [engines for developers](engines-dev.md),
 including its [restricted instruction sequences](engines-dev.md#restricted-instruction-sequences).
 
@@ -302,8 +302,8 @@ built `.mod` files are release assets. The module files web page also has them
   `fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27`. Copy a built module to `modules` on the card
   and select it with **Shift + Sample Rec** ([Loading](#loading)).
 
-The published source retains earlier image rebuilds. Build 7388 reproduces from the official input with the
-[published patch command](../README.md#reproduce-031-firmware-7388). `tools/dspvoice/` holds the DSP voice source
+The published source retains earlier image rebuilds. Build 7400 reproduces from the official input with the
+[published patch command](../README.md#reproduce-032-firmware-7400). `tools/dspvoice/` holds the DSP voice source
 of the 0.1.1 image.
 
 ## Safety

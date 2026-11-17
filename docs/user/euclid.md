@@ -1,9 +1,15 @@
-# Circus Arrhythmia FM: Euclid
+# Arrhythmia: Euclid
 
-Applies to Circus Arrhythmia FM 0.3.0 and 0.3.1, firmware builds 7358 and 7388, with module revision 9 of
-`10euclid.mod`. Test status and known limitations: see the [0.3.1 release notes](../../RELEASE-NOTES-0.3.1.md#known-limitations).
-Earlier Euclid files enable Rec and Clear on build 7358 only; on 7388 they play but do not write. Install revision 9 with
-the loader (it recognizes and replaces the older file) or by copying `10euclid.mod` to the `modules` folder of the card.
+Applies to Arrhythmia 0.3.2, firmware build 7400, with module revision 10 of `10euclid.mod`. Test status and known
+limitations: see the [0.3.2 release notes](../../RELEASE-NOTES-0.3.2.md#known-limitations).
+
+* Euclid enables Rec and Clear only on the builds that its revision lists. Revision 10 lists 7358, 7388 and 7400.
+* Revision 10 is 11,848 bytes, SHA-256 `b214a506d76f4598407290875883f403a680cc29b7ff613f2e6de113294d6c7f`.
+* Install revision 10 with the loader, which recognizes and replaces an older file, or copy `10euclid.mod` to the
+  `modules` folder of the card.
+* An older revision plays on 7400 but does not write. Revision 9 is the revision for 0.3.1 (build 7388).
+* The module tests of revision 10 pass against the 7400 image. It was written to a unit and read back. Rec and Clear
+  with revision 10 on a unit running 7400 are not yet tested.
 
 Four rhythm rows of up to 32 steps, as a four-track drum machine. Each row spreads its hits as equally as possible
 across its steps (a Euclidean rhythm). Rows 1 to 4 play tracks 1 to 4 at the start.

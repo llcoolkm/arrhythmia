@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.3.2
+
+Changes since 0.3.1. Full installation details, test status and limitations are in the
+[release notes](RELEASE-NOTES-0.3.2.md).
+
+### Added
+
+* Engine config declarations: header byte 27, config macros for sources 9 to 11 with a default and a knob colour,
+  and for the FM class the allowed voice counts ([engines for developers](docs/user/engines-dev.md#engine-config-in-firmware-032)).
+* One config page layout for every engine on Shift + Track 8: page 1 the engine, page 2 scales, page 3 arpeggiator.
+* The engine page for engines other than FM: knobs 1 to 4 the engine controls, knob 5 dark, knobs 6 to 8 the
+  declared macros; undeclared knobs are dark and have no function.
+* The Sample view of track 8 shows the pads that the engine declares: formant its voice and vowel pads and 16
+  sounds, Rings its model and exciter pads and no sounds. FM keeps its 32 sounds.
+* New engine files besides `fm.dse`: `formant.dse` 1.0.0 (class 6) and `rings.dse` 1.0.0 (class 5).
+* `rings.dse` ports the resonators of Mutable Instruments Rings under the MIT licence. The notice is in [the engines guide](docs/user/engines.md#notice-for-the-rings-port).
+* Engine file format minor 1, declared stable. Firmware 0.3.2 reads minors 0 and 1 and refuses any other.
+* `engine_file.py ui3` adds declarations to an engine file without a change to its DSP body. The checker and the
+  loader accept the declarations.
+
+### Changed
+
+* Page 1 of the FM engine no longer has the minor or major pad. Scales are set on the scale page.
+* Without an engine, Shift + Track 8 opens two pages: scales and the arpeggiator.
+* Chords and poly are FM controls. Other engines play one voice per note.
+* `fm.dse` 2.1.0, 15,329 bytes, format minor 0. It plays 6 dB louder than 2.0.0 (measured on a unit). The measured unit level
+  of the released file is in the release notes.
+* Firmware 0.3.1 refuses engine files with the new declarations. `fm.dse` 2.0.0 and 2.1.0 load on both.
+* The loader and `tools/module.py` refuse to install any engine file on firmware below build 7400.
+* arrhythmia-firmware is build 7400. Euclid needs revision 10 of `10euclid.mod` to write on 7400. Rec and Clear on a
+  unit running 7400 are not yet tested.
+* arrhythmia-devkit 7228 is unchanged and not re-released.
+
+### Fixed
+
+* FM page read-only on projects whose FM settings were saved by 0.2.x.
+* Slow sequencer on the track 8 view with an engine that has its own pad page.
+* Silence of the whole unit after a pack switch from the panel, about once in sixteen loads, in 0.3.1 and the
+  unpublished test builds of 0.3.2. The fix is tested offline. Its check on a unit is pending.
+* Knob turns on the engine pages: a left turn no longer jumps to the maximum.
+
 ## 0.3.1
 
 Module update 2026-11-12: `10euclid.mod` revision 9 enables Euclid Rec and Clear on firmware build 7388 (they

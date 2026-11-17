@@ -233,10 +233,22 @@
                                            0 everywhere else: every existing profile keeps its bytes */
 #define ENGINE_OPT 0
 #endif
+#ifndef INTERNAL_HOST_IO
+#define INTERNAL_HOST_IO 0
+#endif
+#ifndef INTERNAL_TEST_TWIN
+#define INTERNAL_TEST_TWIN 0
+#endif
+#if INTERNAL_HOST_IO && (!INTERNAL_TEST_TWIN || !ABI3_QUEUE_TRACE)
+#error "INTERNAL_HOST_IO requires the private diagnostic test twin"
+#endif
 #ifndef REMOTE_PACK_LOAD
 #define REMOTE_PACK_LOAD 0
 #endif
-#define CARD_INVENTORY (!REMOTE_PACK_LOAD)
+#if INTERNAL_HOST_IO && !REMOTE_PACK_LOAD
+#error "Internal host test profile includes bounded remote pack loading"
+#endif
+#define CARD_INVENTORY (!REMOTE_PACK_LOAD || INTERNAL_HOST_IO)
 #define ENGINE_PACK (ENGINE_OPT && CARD_DSP_MAIN)  /* per-pack engines: the pack transaction (enginepack.c) */
 #ifndef DSP_C0_LZ                       /* compressed core-0 storage */
 #define DSP_C0_LZ 0
@@ -320,6 +332,8 @@ struct cre3_facts;
 static void abi3_controls_commit(void);
 static const struct cre3_facts *abi3_resident_facts(void);
 static uint8_t *abi3_current_values(void);
+static uint8_t *abi3_sample_sound_cache(void);
+static void abi3_sample_bind(void);
 static uint32_t abi3_producer_ready(void);
 static uint32_t abi3_engine_eligible(void);
 static const uint8_t *abi3_engine_header(void);
@@ -340,6 +354,40 @@ static uint32_t abi3_platform_offer(void);
 #endif
 #include "synthpage.c"
 #include "notetap.c"
+#if INTERNAL_HOST_IO && !FAR_PART
+#include "hostinput.c"
+#endif
+#if ABI3_QUEUE_TRACE && !FAR_PART
+__attribute__((noinline)) static void q0_trace(uint32_t reason,uint32_t meta)
+{ (void)far_call(FAR_Q0_TELEM,reason,meta,0x51545243u,0); }
+#endif
+#if ABI3_QUEUE_TRACE && !FAR_PART
+/* Bounded observed-frame fingerprints, not a claim that native code wrote every
+ * pad. Header stays in the former132-byte event allocation; counters wrap16bit. */
+static void q0_ui_frame(uint32_t writer,uint32_t buffer,uint32_t meta)
+{
+ struct state *s=region(); if(!s || writer<1 || writer>4 || buffer<SRAM_START || buffer>SRAM_END-LEDS)return;
+ uint32_t h=2166136261u; const uint8_t *map=pad_leds(); volatile uint8_t *b=(volatile uint8_t *)buffer;
+ for(uint32_t i=0;i<96;i++)h=(h^b[map[i]])*16777619u;
+ uint32_t pm; __asm__ volatile("mrs %0,primask\ncpsid i":"=r"(pm)::"memory");
+ uint32_t old=s->ev[7+writer]; s->ev[7+writer]=((old+1)&65535u)|((writer==4 ? ((old>>16)+(meta==2)) : h)<<16);
+ s->ev[12]=writer|((meta&255u)<<8)|((uint32_t)PG->open<<16)|((uint32_t)PG->view<<24);
+ s->ev[14]=h;s->ev[15]=TICK(); /* ev[13]: the 0F v7 pass counters (hook_frame, hook_main) */
+ __asm__ volatile("msr primask,%0"::"r"(pm):"memory");
+}
+#endif
+#if ABI3_QUEUE_TRACE && !FAR_PART
+/* Stock chooser entry/common refusal: replay exact displaced instructions;
+ * save all argument/IP registers and APSR around the bounded RAM-only trace. */
+__attribute__((naked)) uint32_t hook_trace_pack_entry(void)
+{
+ __asm__ volatile("subs r0,#8\npush {r3,r4,r5,lr}\npush {r0,r1,r2,r3,r12,lr}\nmrs r2,apsr\npush {r2,r3}\nmovs r0,#60\nmovs r1,#0\nbl q0_trace\npop {r2,r3}\nmsr apsr_nzcvqg,r2\npop {r0,r1,r2,r3,r12,lr}\nldr.w pc,1f\n.balign 4\n1:.word 0x08039BB9");
+}
+__attribute__((naked)) uint32_t hook_trace_pack_drop(void)
+{
+ __asm__ volatile("push {r0,r1,r2,r3,r12,lr}\nmrs r2,apsr\npush {r2,r3}\nmovs r0,#61\nmovs r1,#0\nbl q0_trace\npop {r2,r3}\nmsr apsr_nzcvqg,r2\npop {r0,r1,r2,r3,r12,lr}\nmovs r0,#1\npop {r1,r4,r5,pc}");
+}
+#endif
 #if PWRITE
 #include "pwrite.c"
 #endif

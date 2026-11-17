@@ -1,81 +1,182 @@
 {
- "source": "devkit-input (label 6006) hardware session 2026-10-16, build/input-session-1.jsonl (2246 events)",
- "buttons": {
-  "btn_1": 0,
-  "btn_2": 1,
-  "btn_3": 2,
-  "btn_4": 3,
-  "btn_5": 4,
-  "btn_6": 5,
-  "btn_7": 6,
-  "btn_8": 7,
-  "btn_Sample": 8,
-  "btn_Note": 9,
-  "btn_Velocity": 10,
-  "btn_Gate": 11,
-  "btn_PatternSettings": 12,
-  "btn_Patterns": 13,
-  "btn_Mixer": 14,
-  "btn_FX": 15,
-  "btn_Rec": 16,
-  "btn_Play": 17,
-  "btn_SampleRec": 18,
-  "btn_Down": 19,
-  "btn_Up": 20,
-  "btn_1-16": 21,
-  "btn_Tempo": 22,
-  "btn_Clear": 23,
-  "btn_Duplicate": 24,
-  "btn_Save": 25,
-  "btn_Projects": 26,
-  "btn_Shift": 27
- },
- "pads": {
-  "pad_r0c0": 0,
-  "pad_r0c1": 1,
-  "pad_r0c2": 2,
-  "pad_r0c3": 3,
-  "pad_r0c4": 4,
-  "pad_r0c5": 5,
-  "pad_r0c6": 6,
-  "pad_r0c7": 7,
-  "pad_r1c0": 8,
-  "pad_r1c1": 9,
-  "pad_r1c2": 10,
-  "pad_r1c3": 11,
-  "pad_r1c4": 12,
-  "pad_r1c5": 13,
-  "pad_r1c6": 14,
-  "pad_r1c7": 15,
-  "pad_r2c0": 16,
-  "pad_r2c1": 17,
-  "pad_r2c2": 18,
-  "pad_r2c3": 19,
-  "pad_r2c4": 20,
-  "pad_r2c5": 21,
-  "pad_r2c6": 22,
-  "pad_r2c7": 23,
-  "pad_r3c0": 24,
-  "pad_r3c1": 25,
-  "pad_r3c2": 26,
-  "pad_r3c3": 27,
-  "pad_r3c4": 28,
-  "pad_r3c5": 29,
-  "pad_r3c6": 30,
-  "pad_r3c7": 31
- },
- "encoders": {
-  "macro1": 0,
-  "macro2": 1,
-  "macro3": 2,
-  "macro4": 3,
-  "macro5": 4,
-  "macro6": 5,
-  "macro7": 6,
-  "macro8": 7
- },
- "pots": {
-  "masterfilter": 0,
-  "mastervolume": 1
- }
+  "source": "devkit-input (label 6006) hardware session 2026-10-16, build/input-session-1.jsonl (2246 events)",
+  "buttons": {
+    "btn_1": 0,
+    "btn_2": 1,
+    "btn_3": 2,
+    "btn_4": 3,
+    "btn_5": 4,
+    "btn_6": 5,
+    "btn_7": 6,
+    "btn_8": 7,
+    "btn_Sample": 8,
+    "btn_Note": 9,
+    "btn_Velocity": 10,
+    "btn_Gate": 11,
+    "btn_PatternSettings": 12,
+    "btn_Patterns": 13,
+    "btn_Mixer": 14,
+    "btn_FX": 15,
+    "btn_Rec": 16,
+    "btn_Play": 17,
+    "btn_SampleRec": 18,
+    "btn_Down": 19,
+    "btn_Up": 20,
+    "btn_1-16": 21,
+    "btn_Tempo": 22,
+    "btn_Clear": 23,
+    "btn_Duplicate": 24,
+    "btn_Save": 25,
+    "btn_Projects": 26,
+    "btn_Shift": 27
+  },
+  "pads": {
+    "pad_r0c0": 0,
+    "pad_r0c1": 1,
+    "pad_r0c2": 2,
+    "pad_r0c3": 3,
+    "pad_r0c4": 4,
+    "pad_r0c5": 5,
+    "pad_r0c6": 6,
+    "pad_r0c7": 7,
+    "pad_r1c0": 8,
+    "pad_r1c1": 9,
+    "pad_r1c2": 10,
+    "pad_r1c3": 11,
+    "pad_r1c4": 12,
+    "pad_r1c5": 13,
+    "pad_r1c6": 14,
+    "pad_r1c7": 15,
+    "pad_r2c0": 16,
+    "pad_r2c1": 17,
+    "pad_r2c2": 18,
+    "pad_r2c3": 19,
+    "pad_r2c4": 20,
+    "pad_r2c5": 21,
+    "pad_r2c6": 22,
+    "pad_r2c7": 23,
+    "pad_r3c0": 24,
+    "pad_r3c1": 25,
+    "pad_r3c2": 26,
+    "pad_r3c3": 27,
+    "pad_r3c4": 28,
+    "pad_r3c5": 29,
+    "pad_r3c6": 30,
+    "pad_r3c7": 31
+  },
+  "encoders": {
+    "macro1": 0,
+    "macro2": 1,
+    "macro3": 2,
+    "macro4": 3,
+    "macro5": 4,
+    "macro6": 5,
+    "macro7": 6,
+    "macro8": 7
+  },
+  "pots": {
+    "masterfilter": 0,
+    "mastervolume": 1
+  },
+  "engine_sample": {
+    "index_base": 0,
+    "entry_buttons": [
+      7,
+      9,
+      8
+    ],
+    "entry_note": "Press and release Track8, Note, Sample in order. Require normal foreground Sample view0 before engine sound pads. Pressing Sample again while already there selects alternate stock view9.",
+    "sound_count": "Read S from the admitted engine header byte46. A sound index is valid only when0<=index<S.",
+    "sound_layout": "The engine controls records determine whether a choice page precedes the sound list. For logical position L=start+sound, page=L//16 and physical pad=16+(L%16). Never treat upper pads0..15 as engine sound selectors.",
+    "examples": {
+      "kind1_fm_32_sounds": {
+        "start": 0,
+        "page0": {
+          "pads": [
+            16,
+            31
+          ],
+          "sounds": [
+            0,
+            15
+          ]
+        },
+        "page1": {
+          "pads": [
+            16,
+            31
+          ],
+          "sounds": [
+            16,
+            31
+          ]
+        }
+      },
+      "kind2_reserved_13_sounds_with_choices": {
+        "start": 16,
+        "page1": {
+          "pads": [
+            16,
+            28
+          ],
+          "sounds": [
+            0,
+            12
+          ]
+        },
+        "inactive_pads": [
+          29,
+          30,
+          31
+        ]
+      },
+      "kind6_formant_16_sounds_with_choices": {
+        "start": 16,
+        "page1": {
+          "pads": [
+            16,
+            31
+          ],
+          "sounds": [
+            0,
+            15
+          ]
+        }
+      }
+    },
+    "release": "Every press must have its matched release; host test leases are a backstop, not a reason to omit release."
+  },
+  "track_button_semantics": {
+    "native_ids": "0..7, zero based",
+    "persistent_select": "Use a short press, for example 150 ms, then verify the selected track in the UI snapshot.",
+    "long_press": "The native history timer is 333 ms. A track press held through that callback restores the previous history/grid track and view on release.",
+    "pad_during_track_hold": "A pad press marks the same momentary/restore path.",
+    "scope": "Native button behavior; not an engine mute or solo command."
+  },
+  "native_chromatic_note_keyboard": {
+    "scope": "Native Note-view chromatic keyboard at default octave 3. These are note pads, not Sample sound-selection pads. All pad IDs are zero based.",
+    "upper_row": {
+      "16": null,
+      "17": 61,
+      "18": 63,
+      "19": null,
+      "20": 66,
+      "21": 68,
+      "22": 70,
+      "23": null
+    },
+    "lower_row": {
+      "24": 60,
+      "25": 62,
+      "26": 64,
+      "27": 65,
+      "28": 67,
+      "29": 69,
+      "30": 71,
+      "31": 72
+    },
+    "gaps": "Null entries are deliberate chromatic keyboard gaps and do not request a low-pitched note.",
+    "native_table": "0x08055E8C",
+    "index_formula": "pad + 8*2*(5-octave)"
+  }
 }

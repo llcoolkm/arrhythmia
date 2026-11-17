@@ -1,6 +1,6 @@
 # DSP emulator harness
 
-An offline harness that runs a Circus Arrhythmia engine file (CRE3) on a software DSP56300
+An offline harness that runs an Arrhythmia engine file (CRE3) on a software DSP56300
 interpreter and measures it: audio level, interpreter cycles per block, and register extremes
 at chosen program addresses. It needs no unit, no MIDI and no firmware.
 

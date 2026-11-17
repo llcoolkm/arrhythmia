@@ -1,19 +1,22 @@
-# Circus Arrhythmia FM documentation
+# Arrhythmia documentation
 
-Circus Arrhythmia FM is custom firmware for the Novation Circuit Rhythm, distributed as a patch that you apply to the official
+Arrhythmia is custom firmware for the Novation Circuit Rhythm, distributed as a patch that you apply to the official
 firmware file on your own computer. No Novation code or firmware is included in this repository.
 
 ## For users
 
 * [README.md](../README.md): what Arrhythmia is, the two images, and the risks.
-* [user/quickstart.md](user/quickstart.md): install and add the FM engine.
+* [user/quickstart.md](user/quickstart.md): install and add an engine.
 * [user/install.md](user/install.md): the full install guide: backup, other download methods, the command line,
   checking, switching images, going back to stock and troubleshooting.
-* [user/synth.md](user/synth.md): the track 8 FM synth, its settings and its known issues.
+* [user/synth.md](user/synth.md): engines on track 8, the FM synth, the synth page, the arpeggiator and the known
+  issues.
+* [user/engines.md](user/engines.md): the formant and Rings engines: install, pads, macros and engine page.
 * [user/scales.md](user/scales.md): scales on tracks 1 to 8.
 * [user/euclid.md](user/euclid.md): the four-row rhythm editor, its controls, pattern write and undo.
 * [user/modules.md](user/modules.md): use the combined loader or a card reader to add modules, then start, stop and control them.
-* [../changelog.md](../changelog.md): the 0.3.1 change summary and earlier release history.
+* [../changelog.md](../changelog.md): the current change summary (0.3.2) and earlier release history.
+* [../RELEASE-NOTES-0.3.2.md](../RELEASE-NOTES-0.3.2.md): the 0.3.2 release notes: changes since 0.3.1, engine files, known limitations, test status, install.
 * [../RELEASE-NOTES-0.3.1.md](../RELEASE-NOTES-0.3.1.md): the 0.3.1 release notes: changes since 0.3.0, known limitations, install.
 * [../RELEASE-NOTES-0.3.0.md](../RELEASE-NOTES-0.3.0.md): the 0.3.0 release notes: changes since 0.2.2, known limitations, install.
 * [../RELEASE-NOTES-0.2.2.md](../RELEASE-NOTES-0.2.2.md): the 0.2.2 release notes: changes since 0.2.1, test status, known issues.
@@ -35,8 +38,37 @@ firmware file on your own computer. No Novation code or firmware is included in 
 
 ## Rebuilding the images
 
-`release/v0.3.1.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
+`release/v0.3.2.json` is the current release in crpatch/1 format (`tools/crpatch.py`); `web/index.html` is the
 installer and embeds it. Earlier release JSON files remain as historical records.
+
+### Reproduce 0.3.2 firmware 7400
+
+Use the official Circuit Rhythm firmware 2.0.1, build 5706, as input. Run from this repository:
+
+```sh
+mkdir -p firmware build
+# Copy your official file to firmware/circuit-rhythm-5706.syx first.
+python3 -I tools/crpatch.py apply release/v0.3.2.json firmware/circuit-rhythm-5706.syx build/arrhythmia-firmware-7400.syx --build firmware
+python3 -I tools/crpatch.py scan release/v0.3.2.json firmware/circuit-rhythm-5706.syx
+python3 -I tools/syx.py unpack build/arrhythmia-firmware-7400.syx build/arrhythmia-firmware-7400.bin
+```
+
+The patched file must have SHA-256 `3f7b4fa2e59f5e3057f2792d7b4b5e4d5a30ddd6a029ed7f37d1441b28b4a021`.
+`crpatch` checks the input pin and the output pin itself. The scan checks that the release file holds no window of
+official firmware bytes. The browser installer applies the same patch. The release test run rebuilt build 7400 this way
+from a copy of the public tree, byte for byte.
+A rebuild does not establish hardware qualification.
+
+The engine files are separate card files, not part of the image:
+
+| File | Version | Size | SHA-256 |
+|---|---|---|---|
+| `fm.dse` | 2.1.0 | 15,329 bytes | `e5f074d5b69fc7a27d2b9340acda7dd975849220bbc367cdb2c2125d553da489` |
+| `formant.dse` | 1.0.0 | 13,037 bytes | `3d4c45bf4018309154d4d2fc72d80615b136c419ad2840c0635464f42017beab` |
+| `rings.dse` | 1.0.0 | 14,979 bytes | `703e91205a2d056c24a0c683ac12f4a2f4f93d1bb9ba086634e7ba002baeb31f` |
+
+Check an engine file with `python3 -I tools/engine_file.py check3 FILE`. arrhythmia-devkit 7228 is not rebuilt for 0.3.2: its
+0.1.0 asset stays valid ([devkit 7228](#historical-02x-rebuilds-and-devkit-7228)).
 
 ### Reproduce 0.3.1 firmware 7388
 
@@ -48,8 +80,8 @@ python3 -I tools/crpatch.py scan release/v0.3.1.json circuit-rhythm-5706.syx
 ```
 
 The patched file must have SHA-256 `31b549966b3facc0a1f86e8b7f2c63d90fb2e218027aa664cf78990d85d1192f`.
-The browser installer applies the same patch. The FM engine remains a separate 15,346-byte card file, version 2.0.0,
-with SHA-256 `9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae`.
+The browser installer applies the same patch. The FM engine of 0.3.1 is a separate 15,346-byte card file, version
+2.0.0, with SHA-256 `9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae`.
 
 ### Rebuild 0.3.0 firmware 7358 and fm.dse
 

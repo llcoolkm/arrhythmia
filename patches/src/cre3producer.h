@@ -113,6 +113,21 @@ static uint32_t c3p_epoch_ack(struct c3p *p, uint32_t ack, const uint32_t hello[
     c3p_mirror(p,snapshot); p->waiting=0; p->open=1; p->resync=0; p->hello_left=4; p->transport_pending=0;
     return 1;
 }
+#if ABI3_QUEUE_TRACE
+/* Passive failure attribution only. Existing trace metadata is16bits: bits0..4
+ * are predicates, bits8..15 the pre-existing staging count. No producer writes. */
+static uint32_t c3p_epoch_ack_diagnostic(const struct c3p *p,uint32_t ack,
+                                      const uint32_t hello[4],const uint32_t values[22])
+{
+    uint32_t why=(!p->waiting?1u:0u)|((ack&C3P_MASK)!=p->epoch?2u:0u);
+    if(!c3p_values_ok(p,values))why|=4u;
+    for(uint32_t i=0;i<4;i++)if(hello[i]>C3P_MASK)why|=8u;
+    struct c3p_entry parameters[12];
+    uint32_t n=c3p_parameters(parameters,p->wanted,values);
+    if(p->count+4+n>C3P_N)why|=16u;
+    return why|((uint32_t)p->count<<8);
+}
+#endif
 /* Pitch is already normalized m (implicit high mantissa bit omitted), exponent
  * and velocity. Generations are assigned only at successful publication. */
 static uint32_t c3p_press(struct c3p *p, const uint32_t values[22], const struct c3p_note *notes, uint32_t count)

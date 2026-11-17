@@ -59,8 +59,21 @@ for(const name of ['01life.mod','18mole.mod']) {
 // The actual published 0.2.2 Euclid identity is recognized under old and relocated numbered names.
 const oldEuclid={size:3144,crc:0x78260738};
 assert.deepEqual(manifest.find(a=>a.file==='10euclid.mod').previous,[{
+ version:'0.3.1',size:11776,crc:3356894883,sha256:'ae2722375255964b5e1264e0cc70736e562c3a2e63bf8110971169968728e3b6',
+},{
+ version:'0.3.0',size:11640,crc:1736228139,sha256:'33d241030311a6e64f579ebc8cf7e7f005b5fee4421e14e6529f9c84ab10a2f1',
+},{
  version:'0.2.2',size:3144,crc:0x78260738,sha256:'626cd28ea95d266fab1418a18debaac0b0ee67b8e46db1433f91df0ad0ae52f4',
 },{size:5976,crc:0xadb76ea3,sha256:'133f0e31bbc8379b4432be9ddfe184e7a4e64f0b1c532f33d06112b06a1e26e0'}]);
+// The published 0.3.1 Euclid (revision 9) on pad 10 is a known identity: the plan replaces it with revision 10.
+{
+ const files=ML.pickerOrder(assets.map(a=>({name:a.file,size:a.file==='10euclid.mod'?11776:a.size})));
+ const ids=new Map(currentIds);ids.set('10euclid.mod',{size:11776,crc:3356894883});
+ const up=plan(files,ids);
+ assert.ok(up.some(j=>j.op==='write'&&j.name==='10euclid'),'revision 9 is replaced by revision 10');
+ ids.set('10euclid.mod',{size:11776,crc:3356894884});
+ assert.throws(()=>plan(files,ids),/Conflict|differs/,'an unknown pad-10 file is not overwritten');
+}
 const legacy022=new Map(identities);legacy022.set('02euclid.mod',oldEuclid);
 assert.deepEqual(plan(legacy,legacy022),jobs);
 for(const name of ['08euclid.mod','10euclid.mod']) {

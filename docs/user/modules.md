@@ -1,6 +1,6 @@
-# Circus Arrhythmia FM: the modules on the microSD card
+# Arrhythmia: the modules on the microSD card
 
-Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358. Test status: see the
+Applies to Arrhythmia 0.3.0, firmware build 7358. Test status: see the
 [release notes](../../RELEASE-NOTES-0.3.0.md#known-limitations).
 
 A module is a small program that runs on the unit. The release has 10 module files. Each file name starts with a

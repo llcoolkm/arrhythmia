@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Circus Arrhythmia FM: loader</title>
+<title>Arrhythmia: loader</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,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">
 <!-- Combined loader. Scans use nonce-scoped, read-only cmd 10 11/12 records; the browser accumulates streamed rows.
 Module list/verify are explicit user jobs and may recover helper files. Engine writes stage 32-byte pieces,
@@ -56,7 +56,7 @@ progress { width:100%; height:18px; }
 </head>
 <body>
 <main>
-<h1>Circus Arrhythmia FM: loader</h1>
+<h1>Arrhythmia: loader</h1>
 <p class="sub">Manage the engines and modules on the unit's microSD card over USB. To update the firmware, use the <a href="index.html">installer page</a>.</p>
 
 <section>
@@ -72,13 +72,16 @@ progress { width:100%; height:18px; }
 <p class="sub">Track 8 instrument</p>
 <div class="row"><button id="scan" disabled>Scan card</button></div>
 <div id="engines">Connect the unit to examine its engines.</div>
-<p>Select a pack to choose Samples or FM. Reload the pack on the unit to apply a change.</p>
+<p>Choose an engine for each pack, or use Samples. Reload the pack on the unit to apply a saved choice.</p>
+<div id="engine-drop">Drop a .dse file here, or <input type="file" id="engine-file" accept=".dse"></div>
+<p class="warn">Local engine files are not reviewed. Engines contain DSP code that runs on the unit. Only install files from authors you trust.</p>
+<div id="engine-local-status"></div>
 <div id="packs" class="pack-grid" aria-label="Packs"></div>
 <div id="default-engine"></div>
 <div id="pack-details"></div>
 <div id="instrument" role="radiogroup" aria-label="Track 8 instrument">
 <label><input type="radio" name="instrument" value="samples" disabled> Samples</label>
-<label><input type="radio" name="instrument" value="fm" disabled> FM</label>
+<span id="instrument-engines"></span>
 <button id="set-engine" disabled>Save choice</button>
 </div>
 </section>
@@ -91,7 +94,7 @@ progress { width:100%; height:18px; }
 <div id="module-plan" class="mono" aria-live="polite"></div>
 <div id="pad-panel"><h3 id="pad-label">Pad 1</h3>
 <label for="module-choice">Module</label> <select id="module-choice"></select>
-<p class="warn">This firmware sets colours from file names using an 11-colour palette. Configurable colours are planned for 0.3.1.</p>
+<p class="warn">This firmware sets colours from file names using an 11-colour palette.</p>
 <p>Your own module file (.mod):</p>
 <div id="drop">Drop a .mod file here, or <input type="file" id="pick" accept=".mod"></div>
 <div id="userfile" class="mono"></div>
@@ -137,7 +140,7 @@ const RESULT = ['none', 'OK', 'No microSD card in the unit.',
   'The unit is in the wrong state for this request.', 'The module memory of the unit is not available.',
   'Recovery of the helper files (name.tmp, name.old) on the card failed. Do not delete them by hand. Examine the card in a card reader.'];
 const PUBLISHED = ['01life.mod', '02rain.mod', '03balls.mod', '04stars.mod', '05lights.mod', '09paint.mod', '10euclid.mod', '11pulse.mod', '17snake.mod', '18mole.mod'];
-const MODULE_ASSETS = [{"file":"01life.mod","legacy":"03life.mod","size":3148,"crc":3297797465,"sha256":"5afda39947642c887b7d746328d4b84e823a4647598677b92d5e6fdc8176ae21"},{"file":"02rain.mod","legacy":"04rain.mod","size":3036,"crc":1374716334,"sha256":"52bb93a6ba80d3570435bb503d67d5d9fb88806d93f9ae28a44c07202bde4c59"},{"file":"03balls.mod","legacy":"05balls.mod","size":3164,"crc":3843932333,"sha256":"944c2bb7da3bb0f76e707704a2fd875875d35abf08f2c80252814bf978092f14"},{"file":"04stars.mod","legacy":"10stars.mod","size":164,"crc":1776939352,"sha256":"fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27"},{"file":"05lights.mod","legacy":"18lights.mod","size":1788,"crc":1044565864,"sha256":"08c028a9c067f00ba59a3df0933b3690b002e540f87c5827c5a479a8049f7a8e"},{"file":"09paint.mod","legacy":"01paint.mod","size":1612,"crc":4142082120,"sha256":"c10fb6bf9a4462475171e47ee6c02c853a1dee8b8cc1e03f784003d770e08a28"},{"file":"10euclid.mod","legacy":"02euclid.mod","size":11776,"crc":3356894883,"sha256":"ae2722375255964b5e1264e0cc70736e562c3a2e63bf8110971169968728e3b6","previous":[{"version":"0.3.0","size":11640,"crc":1736228139,"sha256":"33d241030311a6e64f579ebc8cf7e7f005b5fee4421e14e6529f9c84ab10a2f1"},{"version":"0.2.2","size":3144,"crc":2015758136,"sha256":"626cd28ea95d266fab1418a18debaac0b0ee67b8e46db1433f91df0ad0ae52f4"},{"size":5976,"crc":2914479779,"sha256":"133f0e31bbc8379b4432be9ddfe184e7a4e64f0b1c532f33d06112b06a1e26e0"}]},{"file":"11pulse.mod","legacy":"09pulse.mod","size":1472,"crc":2421732867,"sha256":"f94e225811cba83505cec20f74663ebe318997942356291d7a736a853369552a"},{"file":"17snake.mod","legacy":"17snake.mod","size":2300,"crc":1688310351,"sha256":"5cd832b88e0f1d02b282b7ee430778e96b26fab194c981917ee8a0484a410c40"},{"file":"18mole.mod","legacy":"19mole.mod","size":1864,"crc":1704705003,"sha256":"feaa70a5e5ccb1c22295315a911dfab7c7df76583969fa52182a4065d9a3133d"}];
+const MODULE_ASSETS = [{"file":"01life.mod","legacy":"03life.mod","size":3148,"crc":3297797465,"sha256":"5afda39947642c887b7d746328d4b84e823a4647598677b92d5e6fdc8176ae21"},{"file":"02rain.mod","legacy":"04rain.mod","size":3036,"crc":1374716334,"sha256":"52bb93a6ba80d3570435bb503d67d5d9fb88806d93f9ae28a44c07202bde4c59"},{"file":"03balls.mod","legacy":"05balls.mod","size":3164,"crc":3843932333,"sha256":"944c2bb7da3bb0f76e707704a2fd875875d35abf08f2c80252814bf978092f14"},{"file":"04stars.mod","legacy":"10stars.mod","size":164,"crc":1776939352,"sha256":"fe63caa0e36500b0150f9580ca356e36dbdd5f31ecfe522f26206b58f56c5c27"},{"file":"05lights.mod","legacy":"18lights.mod","size":1788,"crc":1044565864,"sha256":"08c028a9c067f00ba59a3df0933b3690b002e540f87c5827c5a479a8049f7a8e"},{"file":"09paint.mod","legacy":"01paint.mod","size":1612,"crc":4142082120,"sha256":"c10fb6bf9a4462475171e47ee6c02c853a1dee8b8cc1e03f784003d770e08a28"},{"file":"10euclid.mod","legacy":"02euclid.mod","size":11848,"crc":3273891736,"sha256":"b214a506d76f4598407290875883f403a680cc29b7ff613f2e6de113294d6c7f","previous":[{"version":"0.3.1","size":11776,"crc":3356894883,"sha256":"ae2722375255964b5e1264e0cc70736e562c3a2e63bf8110971169968728e3b6"},{"version":"0.3.0","size":11640,"crc":1736228139,"sha256":"33d241030311a6e64f579ebc8cf7e7f005b5fee4421e14e6529f9c84ab10a2f1"},{"version":"0.2.2","size":3144,"crc":2015758136,"sha256":"626cd28ea95d266fab1418a18debaac0b0ee67b8e46db1433f91df0ad0ae52f4"},{"size":5976,"crc":2914479779,"sha256":"133f0e31bbc8379b4432be9ddfe184e7a4e64f0b1c532f33d06112b06a1e26e0"}]},{"file":"11pulse.mod","legacy":"09pulse.mod","size":1472,"crc":2421732867,"sha256":"f94e225811cba83505cec20f74663ebe318997942356291d7a736a853369552a"},{"file":"17snake.mod","legacy":"17snake.mod","size":2300,"crc":1688310351,"sha256":"5cd832b88e0f1d02b282b7ee430778e96b26fab194c981917ee8a0484a410c40"},{"file":"18mole.mod","legacy":"19mole.mod","size":1864,"crc":1704705003,"sha256":"feaa70a5e5ccb1c22295315a911dfab7c7df76583969fa52182a4065d9a3133d"}];
 
 class CardError extends Error {
   constructor(kind, message, st) { super(message); this.kind = kind; this.st = st || null; }
@@ -720,7 +723,7 @@ async function checkUnit(card) {
     return { ok: false, v, text: `Bootloader ${v.boot.build}: this page supports one instrument only.` };
   const app = v.app.build;
   if (app === STOCK_LABEL)
-    return { ok: false, v, text: 'The unit runs the stock firmware (build 5706). It has no card writer. Install Circus Arrhythmia FM first.' };
+    return { ok: false, v, text: 'The unit runs the stock firmware (build 5706). It has no card writer. Install Arrhythmia first.' };
   if (!(app >= 6000 && app <= 9999))
     return { ok: false, v, text: `The unit runs build ${app}. This page does not know it, so it sends nothing more.` };
   const st = await card.probe();
@@ -739,12 +742,12 @@ if (typeof module !== 'undefined') module.exports = ML;
 
 <script>
 /* LLCORE BEGIN */
-/* published-engines: [{"name":"fm.dse","size":15346,"crc32":"0b9611b1","sha256":"9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae","version":"2.0.0"}] */
+/* Engine identities are published in engines/index.json. */
 /* CRE3USB GENERATED BEGIN */
 // Generated static CRE3 validation only; READY and execution remain device checks.
 const CRE3USB = (() => {
 'use strict';
-const policy={"format":"cre3-usb-policy/1","platform_id":1,"queue_abi":768,"memory_grants":7,"offered_capabilities":32,"shim_crc32":2960114900,"cycle_limit":65626,"max_bytes":15360,"envelope_state":"measured","release_version":"0.3.1","minimum_app_build":7388};
+const policy={"format":"cre3-usb-policy/1","platform_id":1,"queue_abi":768,"memory_grants":7,"offered_capabilities":32,"shim_crc32":2960114900,"cycle_limit":65626,"max_bytes":15360,"envelope_state":"measured","release_version":"0.3.2","minimum_app_build":7400,"cre2_refused_from_app_build":7388,"cre2_refusal_release":"0.3.1","ui_minimum_app_build":7400};
 const metadataBounds={"1":[1,24],"2":[1,32],"3":[1,32],"4":[1,128],"16":[2,13],"17":[3,3],"32":[11,22],"48":[2,13],"80":[21,52],"96":[10,10]};
 const reasons = {
  1: 'The file header or length is invalid.',
@@ -761,11 +764,11 @@ const reasons = {
  12: 'This queue ABI does not support table descriptors.',
  13: 'The declared cycle budget must be positive and within the platform limit.',
  15: 'The engine needs too many queue entries for one pad press.',
- 16: 'The engine class or reserved field is invalid.',
+ 16: 'The engine class or config declaration is invalid.',
  17: 'The engine control records are invalid.',
  18: 'The validator could not read the file.'
 };
-const image=Uint8Array.from(atob('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AiAGIAAtAAA6AAAgAkF/aiECIABBAWohACAGQQFqIQYMAAsLIAkgAUHAAWogBCAJayICQcAAIAJBwABJGyIFEIKAgIAARQ0JDAILIAkNAUEAIQIDQCACQQRGDQIgCCACakEAOgAAIAJBAWohAgwACwtBfyEGAkAgASgCPCAKc0F/Rg0AQQIhAgwJCyADQYDAAGohCUEAIQBBfyEFAkADQCAHIABNDQEgACAEaiABQcABaiAHIABrIgJBwAAgAkHAAEkbIgMQgoCAgABFDQkgBiABQcABaiADEIOAgIAAIQYCQAJAIABB/whLDQAgBSABQcABaiADEIOAgIAAIQUMAQsgAEGACUcNAEELIQIgAS0AwAFBCkcNCyABLQDBAUH/AXFB8AFHDQsgAS0AwgFBgAFHDQsgAS0AwwFBEHQgAS0AxAFBCHRyIAEtAMUBciIIQYTDAEkNCyAIIAlPDQsgAS0AxgFB/wFxDQsgAS0AxwFB/wFxDQsgAS0AyAFB/wFxDQsgAS0AyQFB/wFxDQsgAS0AygFB/wFxDQsgAS0AywFB/wFxDQsLIAMgAGohAAwACwsgASgCDCAGc0F/Rw0GQQBBCiAFQav2wPwERhshAgwICyAFIAlqIQkgCiABQcABaiAFEIOAgIAAIQoMAAsLIAxBAyAXQQFGG0EDIBAbIRZBACEPIAshBSAYIQBBACEJAkADQCAFRQ0BAkAgAEF5ai0AACIIQQ5xQQJHDQAgCEEEdiAXRw0AQQEhCgJAIAhBA3FBAkcNACAAQX1qLQAAIQoLIA8gAC0AAEEGdiAJQQBHcSAKIAlqQQhLciIIaiIPIBZLDQhBACAJIAgbIApqIQkLIAVBf2ohBSAAQQhqIQAMAAsLIBdBAWohFwwACwsgAkEBcSAFaiEFIAJBAXYhAgwACwtBCiECDAELQRIhAgsgAUGAAmokgICAgAAgAgtaAQF/QQAhAwJAIABBgPgASw0AIAJBgPgAIABrSw0AIABBgIiAgABqIQBBASEDA0AgAkUNASABIAAtAAA6AAAgAUEBaiEBIABBAWohACACQX9qIQIMAAsLIAMLWwEBfwN/AkACQCACRQ0AIAJBf2ohAiAAIAEtAABzIQBBCCEDA0AgA0UNAkEAIABBAXFrQaCG4u1+cSAAQQF2cyEAIANBf2ohAwwACwsgAA8LIAFBAWohAQwACwsATgRuYW1lAA8OdmFsaWRhdG9yLndhc20BIgQACmlucHV0X2Jhc2UBBWNoZWNrAgJyZAMIY3JlM19jcmMHEgEAD19fc3RhY2tfcG9pbnRlcgA4CXByb2R1Y2VycwEMcHJvY2Vzc2VkLWJ5AQxVYnVudHUgY2xhbmcRMjEuMS44ICg2dWJ1bnR1MSkAlAEPdGFyZ2V0X2ZlYXR1cmVzCCsLYnVsay1tZW1vcnkrD2J1bGstbWVtb3J5LW9wdCsWY2FsbC1pbmRpcmVjdC1vdmVybG9uZysKbXVsdGl2YWx1ZSsPbXV0YWJsZS1nbG9iYWxzKxNub250cmFwcGluZy1mcHRvaW50Kw9yZWZlcmVuY2UtdHlwZXMrCHNpZ24tZXh0'), c=>c.charCodeAt(0));
+const image=Uint8Array.from(atob('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'), c=>c.charCodeAt(0));
 let instance=null;
 function fail(s){throw new ML.CardError('invalid',s);}
 function metadata(b,H,C,wanted,slots,minor) {
@@ -812,10 +815,12 @@ function check(b) {
  new Uint8Array(instance.exports.memory.buffer,instance.exports.input_base(),policy.max_bytes).set(b);
  const code=instance.exports.check(b.length);
  if(code)fail(`CRE3 check ${code}: ${reasons[code] || "The file failed validation."}`);
+ // Host policy only; the firmware's shared grammar still accepts experimental classes.
+ if(b[24]>127)fail('CRE3 check 16: Engine classes 128 to 255 are experimental and are not supported by the platform 1 host policy.');
  const d=new DataView(b.buffer,b.byteOffset,b.byteLength),u=o=>d.getUint32(o,true),H=d.getUint16(4,true);
  const warnings=metadata(b,H,b[26],u(40),b[46],u(20)-0x300);
  return {format:'CRE3',size:b.length,crc:ML.crc32(b),build:u(28),kind:b[24],abi:u(20),base:u(16),bodyCRC:u(12),headerCRC:u(60),
-  declaredCycles:u(52),staticEligible:true,runtimeReady:'not checked',deviceAdmissible:false,warnings};
+  declaredCycles:u(52),uiCapabilities:b[27],staticEligible:true,runtimeReady:'not checked',deviceAdmissible:false,warnings};
 }
 return {check,policy};
 })();
@@ -826,27 +831,60 @@ const LL = (() => {
 const enc = {
  scan: n => Uint8Array.from([...ML.PRE, 0x10, 0x11, ...ML.p7(n, 2), 0xF7]),
  row: (n, i) => Uint8Array.from([...ML.PRE, 0x10, 0x12, ...ML.p7(n, 2), i, 0xF7]),
- engineBegin: (b) => Uint8Array.from([...ML.PRE, 0x10, 0x0E, ...ML.nameBytes('fm'), ...ML.p7(b.length, 3), ...ML.p7(ML.crc32(b), 5), 0xF7]),
- engineVerify: () => Uint8Array.from([...ML.PRE, 0x10, 0x0F, ...ML.nameBytes('fm'), 0xF7]),
- engineDelete: () => Uint8Array.from([...ML.PRE, 0x10, 0x13, ...ML.nameBytes('fm'), 0xF7]),
- pointer: (p, fm) => Uint8Array.from([...ML.PRE, 0x10, 0x0D, p, ...(fm ? ML.nameBytes('fm') : new Array(8).fill(0)), 0xF7]),
+ engineBegin: (b, name='fm') => Uint8Array.from([...ML.PRE, 0x10, 0x0E, ...ML.nameBytes(engineName(name)), ...ML.p7(b.length, 3), ...ML.p7(ML.crc32(b), 5), 0xF7]),
+ engineVerify: (name='fm') => Uint8Array.from([...ML.PRE, 0x10, 0x0F, ...ML.nameBytes(engineName(name)), 0xF7]),
+ engineDelete: (name='fm') => Uint8Array.from([...ML.PRE, 0x10, 0x13, ...ML.nameBytes(engineName(name)), 0xF7]),
+ pointer: (p, fm) => Uint8Array.from([...ML.PRE, 0x10, 0x0D, p, ...(fm ? ML.nameBytes(engineName(fm===true?'fm':fm)) : new Array(8).fill(0)), 0xF7]),
  dump: a => Uint8Array.from([...ML.PRE, 0x7D, ...ML.p7(a, 5), 0xF7]),
 };
 const fail = s => { throw new ML.CardError('invalid', s); };
+function engineName(file) {
+ if(typeof file!=='string') fail('Choose an engine filename.');
+ const name=file.toLowerCase().replace(/\.dse$/,'');
+ if(!/^[a-z0-9]{1,8}$/.test(name) || ['default','none'].includes(name)) fail('Engine filenames need 1 to 8 letters or digits followed by .dse; default and none are reserved.');
+ return name;
+}
+async function sha256(blob) {
+ if(!globalThis.crypto?.subtle) fail('This browser cannot verify engine SHA-256. Nothing written.');
+ return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',blob)),x=>x.toString(16).padStart(2,'0')).join('');
+}
+function catalogue(value) {
+ if(!value || value.format!=='engine-catalogue/1' || !Array.isArray(value.engines) || value.engines.length>127 || Object.keys(value).sort().join(',')!=='engines,format') fail('Invalid engine catalogue.');
+ const names=new Set(),files=new Set(),kinds=new Set();
+ const text=(value,max)=>typeof value==='string' && value.trim()===value && value.length>=1 && value.length<=max && /^[\x20-\x7e]+$/.test(value);
+ for(const row of value.engines) {
+  if(!row || Object.keys(row).sort().join(',')!=='author,file,kind,licence,name,sha256,size,status,version') fail('Invalid engine catalogue entry.');
+  if(typeof row.file!=='string' || !/^[a-z0-9]{1,8}\.dse$/.test(row.file) || engineName(row.file)+'.dse'!==row.file || files.has(row.file)) fail('Invalid or repeated catalogue filename.');
+  if(!Number.isInteger(row.size) || row.size<64 || row.size>CRE3USB.policy.max_bytes || !Number.isInteger(row.kind) || row.kind<1 || row.kind>127 || typeof row.sha256!=='string' || !/^[0-9a-f]{64}$/.test(row.sha256) || typeof row.version!=='string' || !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(row.version)) fail('Invalid catalogue identity.');
+  if(!text(row.name,64) || !text(row.author,64) || !text(row.licence,32) || !/^[A-Za-z0-9][A-Za-z0-9.+-]*$/.test(row.licence) || !['official','community'].includes(row.status)) fail('Invalid catalogue description.');
+  if(names.has(row.name.toLowerCase()) || kinds.has(row.kind)) fail('Repeated catalogue name or kind.');
+  names.add(row.name.toLowerCase());files.add(row.file);kinds.add(row.kind);
+ }
+ return value.engines;
+}
+async function checkAsset(blob,entry,appBuild) {
+ const asset=checkEngine(blob,appBuild), digest=await sha256(blob);
+ if(entry && asset.format!=='CRE3') fail('Catalogue engines must use CRE3.');
+ if(entry && (blob.length!==entry.size || digest!==entry.sha256 || asset.kind!==entry.kind || asset.version!==entry.version)) fail('Engine download does not match its catalogue identity. Nothing written.');
+ return {...asset,sha256:digest};
+}
 function version(b) {
  b >>>= 0;
  return (b & 0xFF000000) >>> 0 === 0x80000000 ? [b >>> 16 & 255, b >>> 8 & 255, b & 255] : null;
 }
 const versionText = b => { const v = version(b); return v ? v.join('.') : 'unknown version'; };
 function checkEngine(b, appBuild = CRE3USB.policy.minimum_app_build) {
- if (!(b instanceof Uint8Array) || b.length < 35 || b.length > ML.MOD_MAX) fail('FM file has an invalid size.');
+ if (!(b instanceof Uint8Array) || b.length < 35 || b.length > ML.MOD_MAX) fail('Engine file has an invalid size.');
  const d = new DataView(b.buffer, b.byteOffset, b.byteLength), u = o => d.getUint32(o, true);
  const production = appBuild >= CRE3USB.policy.minimum_app_build;
+ const cre3Firmware=appBuild>=(CRE3USB.policy.cre2_refused_from_app_build || CRE3USB.policy.minimum_app_build);
  if (u(0) === 0x33455243) {
   if (!production) fail(`CRE3 engine files require firmware ${CRE3USB.policy.release_version} or newer.`);
-  const asset=CRE3USB.check(b); return {...asset,version:versionText(asset.build)};
+  const asset=CRE3USB.check(b);
+  if(asset.uiCapabilities && appBuild<(CRE3USB.policy.ui_minimum_app_build || CRE3USB.policy.minimum_app_build)) fail('This engine requires newer firmware for its controls.');
+  return {...asset,version:versionText(asset.build)};
  }
- if (u(0) === 0x32455243 && production) fail(`FM 1.0.0 (CRE2) does not run on firmware ${CRE3USB.policy.release_version}. Install fm.dse 2.0.0.`);
+ if (u(0) === 0x32455243 && cre3Firmware) fail(`FM 1.0.0 (CRE2) does not run on firmware ${production?CRE3USB.policy.release_version:(CRE3USB.policy.cre2_refusal_release || CRE3USB.policy.release_version)}. Install fm.dse 2.1.0.`);
  if (u(0) !== 0x32455243 || !u(4) || u(4) > 0x2000 || b.length !== 32 + 3 * u(4)) fail('FM file has an invalid header or length.');
  if (u(12) !== 0x207 || u(16) !== 0xFE80B6B5 || u(20) !== 1 || u(28) !== 0) fail('FM file is incompatible with this firmware.');
  if (ML.crc32(b.subarray(32)) !== u(8)) fail('FM file is damaged (body CRC mismatch).');
@@ -929,13 +967,14 @@ async function scan(card, nonce) {
   if(index>64) throw new ML.CardError('invalid','Too many card scan records.');
  }
 }
-async function put(card, blob, appBuild) {
- const asset=checkEngine(blob, appBuild);
- return card.run({op:'engine-write',what:'Put FM on card',name:'fm',size:asset.size,crc:asset.crc},async()=>{
-  await card.must(enc.engineBegin(blob),'Put FM on card');
+async function put(card, blob, appBuild, options={}) {
+ const name=engineName(options.file || 'fm.dse');
+ const asset=await checkAsset(blob,options.entry,appBuild);
+ return card.run({op:'engine-write',what:`Put ${name}.dse on card`,name,size:asset.size,crc:asset.crc},async()=>{
+  await card.must(enc.engineBegin(blob,name),'Put engine on card');
   for(let off=0;off<blob.length;off+=ML.PIECE) {
-   const part=blob.subarray(off,off+ML.PIECE), st=await card.must(ML.enc.piece(off,part),'Send FM');
-   if(st.state!==1 || st.got!==off+part.length) throw new ML.CardError('unknown','The FM transfer offset changed.');
+   const part=blob.subarray(off,off+ML.PIECE), st=await card.must(ML.enc.piece(off,part),'Send engine');
+   if(st.state!==1 || st.got!==off+part.length) throw new ML.CardError('unknown','The engine transfer offset changed.');
    card.ev('progress',{done:off+part.length,size:blob.length});
   }
   for(let off=0;off<blob.length;off+=32) {
@@ -944,17 +983,18 @@ async function put(card, blob, appBuild) {
     if(r.length!==77 || !ML.PRE.every((x,i)=>r[i]===x) || r[6]!==0x7D || r[76]!==0xF7 || ML.g7(r.subarray(7,12))!==addr || Array.from(r.subarray(12,76)).some(x=>x>15)) return null;
     return Uint8Array.from({length:32},(_,i)=>r[12+2*i]*16+r[13+2*i]);
    },card.o.replyMs);
-   if(!back || blob.subarray(off,off+32).some((x,i)=>x!==back[i])) throw new ML.CardError('unknown','FM transfer did not read back correctly.');
+   if(!back || blob.subarray(off,off+32).some((x,i)=>x!==back[i])) throw new ML.CardError('unknown','Engine transfer did not read back correctly.');
   }
-  await card.must(ML.enc.commit(),'Save FM'); await card.wait('Save FM',1);
-  await card.must(enc.engineVerify(),'Verify FM'); const st=await card.wait('Verify FM',4);
-  if(st.size!==asset.size || st.info!==asset.crc) throw new ML.CardError('unknown','FM on the card differs from the intended file.');
+  await card.must(ML.enc.commit(),'Save engine'); await card.wait('Save engine',1);
+  await card.must(enc.engineVerify(name),'Verify engine'); const st=await card.wait('Verify engine',4);
+  if(st.size!==asset.size || st.info!==asset.crc) throw new ML.CardError('unknown','Engine on the card differs from the intended file.');
   await card.must(ML.enc.end(),'End'); return asset;
  });
 }
-async function remove(card) {
- return card.run({op:'engine-delete',what:'Remove FM from card',name:'fm'},async()=>{
-  await card.must(enc.engineDelete(),'Remove FM'); await card.wait('Remove FM',2); await card.must(ML.enc.end(),'End');
+async function remove(card,file='fm.dse') {
+ const name=engineName(file);
+ return card.run({op:'engine-delete',what:`Remove ${name}.dse from card`,name},async()=>{
+  await card.must(enc.engineDelete(name),'Remove engine'); await card.wait('Remove FM',2); await card.must(ML.enc.end(),'End');
  });
 }
 async function pointer(card,row,fm,snapshot) {
@@ -963,7 +1003,7 @@ async function pointer(card,row,fm,snapshot) {
   await card.must(enc.pointer(row.selector,fm),'Save pack instrument'); await card.wait('Save pack instrument',1); await card.must(ML.enc.end(),'End');
  });
 }
-return {enc,version,versionText,checkEngine,frame,decodeRow,validateSnapshot,writable,engineState,scan,put,remove,pointer};
+return {enc,engineName,sha256,catalogue,checkAsset,version,versionText,checkEngine,frame,decodeRow,validateSnapshot,writable,engineState,scan,put,remove,pointer};
 })();
 /* LLCORE END */
 
@@ -985,29 +1025,58 @@ function status(s, cls) { $('status').textContent = s; $('status').className = c
 function line(el, s, cls) { const d = document.createElement('div'); d.textContent = s; d.className = cls || ''; el.appendChild(d); }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; }
 
-let snapshot=null, selectedPack=null, fmBlob=null, fmAsset=null, appBuild=null, scanNonce=crypto.getRandomValues(new Uint16Array(1))[0] & 0x3FFF;
+let snapshot=null, selectedPack=null, appBuild=null, scanNonce=crypto.getRandomValues(new Uint16Array(1))[0] & 0x3FFF;
+let catalogueEntries=[], cataloguePromise=null;
+const engineFiles=new Map();
 function refreshLoader() {
  const ready=!!(session && session.link && !session.link.err && supported && !running && !connecting && !ctx.pending);
  $('scan').disabled=!ready;
  const can=ready && !ctx.needsScan && LL.writable(selectedPack,snapshot);
- for(const input of document.querySelectorAll('input[name="instrument"]')) input.disabled=!can || (input.value==='fm' && !fmAvailable());
- $('set-engine').disabled=!can || !document.querySelector('input[name="instrument"]:checked') ||
-  (document.querySelector('input[name="instrument"]:checked').value==='fm' && !fmAvailable());
- for(const b of document.querySelectorAll('button[data-loader-write]')) b.disabled=!ready || ctx.needsScan || !snapshot || !!snapshot.flags || !fmAsset;
+ for(const input of document.querySelectorAll('input[name="instrument"]')) input.disabled=!can || (input.value!=='samples' && !availableEngine(input.value));
+ const selected=document.querySelector('input[name="instrument"]:checked');
+ $('set-engine').disabled=!can || !selected || (selected.value!=='samples' && !availableEngine(selected.value));
+ for(const b of document.querySelectorAll('button[data-loader-write]')) b.disabled=!ready || ctx.needsScan || !snapshot || !!snapshot.flags || b.dataset.valid!=='1';
+ $('engine-file').disabled=running;
 }
-function fmAvailable() {
- const r=snapshot && snapshot.rows.find(r=>r.type===2 && r.file.toLowerCase()==='fm.dse');
- return !!r && r.compatible===1 && fmAsset && r.kind===fmAsset.kind && r.abi===fmAsset.abi && r.base===fmAsset.base && (r.engineFormat||'CRE2')===(fmAsset.format||'CRE2');
+function availableEngine(file) {
+ const row=snapshot?.rows.find(r=>r.type===2 && r.file.toLowerCase()===file);
+ return !!row && row.compatible===1 && row.kind>=1 && row.kind<=127 && (appBuild<CRE3USB.policy.minimum_app_build || row.engineFormat==='CRE3');
 }
-async function getFM() {
- if(!fmBlob) {
-  const r=await fetch('engines/fm.dse',{cache:'no-cache'});
-  if(!r.ok) throw new ML.CardError('fetch',`Cannot get FM from this site (HTTP ${r.status}).`);
-  fmBlob=new Uint8Array(await r.arrayBuffer());
- }
- fmAsset=LL.checkEngine(fmBlob, appBuild);
- return fmBlob;
+async function loadCatalogue() {
+ if(!cataloguePromise) cataloguePromise=(async()=>{
+  const response=await fetch('engines/index.json',{cache:'no-cache'});
+  if(!response.ok) throw new ML.CardError('fetch','Cannot get the engine catalogue.');
+  catalogueEntries=LL.catalogue(await response.json());
+  await Promise.all(catalogueEntries.map(async entry=>{
+   if(engineFiles.get(entry.file)?.origin==='local') return;
+   const item={entry,origin:'catalogue'};engineFiles.set(entry.file,item);
+   try {
+    const r=await fetch('engines/'+entry.file,{cache:'no-cache'});
+    if(!r.ok) throw new ML.CardError('fetch',`Cannot get ${entry.file} (HTTP ${r.status}).`);
+    item.blob=new Uint8Array(await r.arrayBuffer());item.asset=await LL.checkAsset(item.blob,entry,appBuild ?? CRE3USB.policy.minimum_app_build);
+   } catch(e) {item.error=e.message;item.blob=null;}
+  }));
+ })().catch(e=>{cataloguePromise=null;log(e.message,'warn');});
+ await cataloguePromise;
 }
+async function takeEngineFile(file) {
+ if(!file || running) return;
+ try {
+  if(!/\.dse$/i.test(file.name)) throw new ML.CardError('invalid','Choose a .dse engine file.');
+  if(file.size<64 || file.size>CRE3USB.policy.max_bytes) throw new ML.CardError('invalid','The engine file is outside the USB size limit.');
+  const name=LL.engineName(file.name)+'.dse',blob=new Uint8Array(await file.arrayBuffer());
+  const asset=await LL.checkAsset(blob,null,appBuild ?? CRE3USB.policy.minimum_app_build);
+  if(asset.format!=='CRE3') throw new ML.CardError('invalid','Local engine files must use CRE3.');
+  const entry={file:name,name:name,sha256:asset.sha256,size:blob.length,kind:asset.kind,version:asset.version,author:'Not supplied',licence:'Not supplied',status:'not reviewed'};
+  engineFiles.set(name,{entry,asset,blob,origin:'local'});
+  $('engine-local-status').textContent=name+': checked, not reviewed. DSP code will run on the unit.';
+  showEngines();refreshLoader();
+ } catch(e) {$('engine-local-status').textContent=e.message;status(e.message,'bad');}
+}
+$('engine-file').onchange=()=>takeEngineFile($('engine-file').files[0]);
+const engineDrop=$('engine-drop');
+engineDrop.addEventListener('dragover',e=>e.preventDefault());
+engineDrop.addEventListener('drop',e=>{e.preventDefault();takeEngineFile(e.dataTransfer.files[0]);});
 function cfgText(r) {
  if(!snapshot || snapshot.flags || (r.flags & 2)) return 'Configuration unknown';
  if(r.flags & 8) return 'engine.cfg is missing · using the previous engine choice: '+(r.effective===1?'Samples':r.effective===2?r.effectiveName.toLowerCase()+'.dse':'unknown');
@@ -1026,7 +1095,7 @@ function choosePack(r) {
  if(r.type===3) line($('pack-details'),'Changing the default also changes every pack without its own engine.cfg.');
  if(!LL.writable(r,snapshot)) line($('pack-details'),'This pack’s identity or configuration is unknown. Its choice cannot be changed here.','warn');
  for(const input of document.querySelectorAll('input[name="instrument"]')) input.checked=
-  LL.writable(r,snapshot) && (input.value==='samples'?r.effective===1 || r.effective===0:r.effective===2 && r.effectiveName.toLowerCase()==='fm');
+  LL.writable(r,snapshot) && (input.value==='samples'?r.effective===1 || r.effective===0:r.effective===2 && input.value===r.effectiveName.toLowerCase()+'.dse');
  refreshLoader();
 }
 function showPacks() {
@@ -1048,31 +1117,43 @@ function showPacks() {
  if(d) { const b=el('button','Default instrument'); b.disabled=!LL.writable(d,snapshot); b.onclick=()=>choosePack(d); $('default-engine').appendChild(b); }
  if(snapshot && snapshot.flags) line($('pack-details'),'The card listing is incomplete or unreadable. Writes are disabled.','warn');
 }
+function showInstrumentChoices() {
+ const box=$('instrument-engines');box.replaceChildren();
+ for(const row of snapshot?.rows.filter(r=>r.type===2) || []) {
+  const file=row.file.toLowerCase(),label=el('label'),radio=el('input');radio.type='radio';radio.name='instrument';radio.value=file;
+  radio.onchange=refreshLoader;label.appendChild(radio);label.appendChild(document.createTextNode(' '+file));box.appendChild(label);
+ }
+ if(selectedPack) choosePack(selectedPack);else refreshLoader();
+}
 function showEngines() {
- const box=$('engines'); box.replaceChildren();
- if(!snapshot) {line(box,'Scan the card to examine its engines.');return;}
- const row=snapshot.rows.find(r=>r.type===2 && r.file.toLowerCase()==='fm.dse');
- const t=el('div',null,'row'); t.appendChild(el('strong','FM'));
- if(!fmAsset) {t.appendChild(el('span','Published FM file unavailable or incompatible.','warn'));box.appendChild(t);return;}
- const state=(!row && snapshot.flags) ? {text:'Card listing incomplete · FM status unknown',action:'Put on card'} : LL.engineState(row,fmAsset); t.appendChild(el('span',state.text));
- const b=el('button',state.action,'small'); b.dataset.loaderWrite='1';
- b.onclick=async()=>{
-  if(!snapshot || snapshot.flags || !fmAsset) return;
-  const removing=state.action==='Remove from card';
-  const msg=removing?'Remove FM from the card? Packs that name FM will use Samples when reloaded.':
-   row?`Replace FM on the card with the published ${fmAsset.version} release?`:`Put FM ${fmAsset.version} on the card?`;
-  if(!window.confirm(msg)) return;
-  const result=await act(state.action,async c=>removing?LL.remove(c):LL.put(c,await getFM(),appBuild));
-  if(result.ok) {status(removing?'FM removed from the card.':`FM ${fmAsset.version} is on the card.`,'ok'); await scan();}
-  else {snapshot=null;showEngines();refreshLoader();}
- };
- t.appendChild(b);box.appendChild(t);refreshLoader();
+ const box=$('engines');box.replaceChildren();
+ if(!engineFiles.size) line(box,'The engine catalogue is unavailable. You can choose a local .dse file.');
+ for(const [file,item] of engineFiles) {
+  const entry=item.entry,row=snapshot?.rows.find(r=>r.type===2 && r.file.toLowerCase()===file),t=el('div',null,'row');
+  t.appendChild(el('strong',entry.name));line(t,`${file} · ${entry.version} · ${entry.author} · ${entry.licence} · ${entry.status}`);
+  if(item.error || !item.asset) {line(t,item.error || 'Engine unavailable.','warn');box.appendChild(t);continue;}
+  const state=(!snapshot || snapshot.flags)?{text:'Scan the card before writing.',action:'Put on card'}:LL.engineState(row,item.asset);line(t,state.text);
+  if(item.origin==='local') line(t,'Not reviewed. This file contains DSP code.','warn');
+  const b=el('button',state.action,'small');b.dataset.loaderWrite='1';b.dataset.valid='1';b.dataset.engineFile=file;
+  b.onclick=async()=>{
+   if(!snapshot || snapshot.flags) return;
+   const removing=state.action==='Remove from card';
+   const warning=item.origin==='local'?' This file is not reviewed and contains DSP code.':'';
+   if(!window.confirm((removing?`Remove ${file} from the card?`:`Put ${file} ${entry.version} on the card?`)+warning)) return;
+   const result=await act(state.action,c=>removing?LL.remove(c,file):LL.put(c,item.blob,appBuild,{file,entry}));
+   if(result.ok) {await scan();status(removing?`${file} removed.`:`${file} written and verified.`,'ok');}
+   else {snapshot=null;showEngines();refreshLoader();}
+  };
+  t.appendChild(b);box.appendChild(t);
+ }
+ for(const row of snapshot?.rows.filter(r=>r.type===2 && !engineFiles.has(r.file.toLowerCase())) || []) line(box,`${row.file} · on the card · not reviewed by this catalogue`,'warn');
+ refreshLoader();
 }
 async function scan() {
  snapshot=null;selectedPack=null;showEngines();refreshLoader();
  const result=await act('Scan card',async c=>{
   const value=await LL.scan(c,scanNonce=scanNonce%16383+1);
-  try {await getFM();} catch(e) {log(e.message,'warn');}
+  await loadCatalogue();
   return value;
  });
  if(!result.ok) {
@@ -1080,16 +1161,17 @@ async function scan() {
   $('packs').replaceChildren();refreshLoader();return;
  }
  snapshot=result.value; ctx.needsScan=false;
- showPacks();showEngines();status('Card scanned. Choose an engine or pack.','ok');refreshLoader();
+ showPacks();showInstrumentChoices();showEngines();status('Card scanned. Choose an engine or pack.','ok');refreshLoader();
 }
 $('scan').onclick=scan;
 for(const input of document.querySelectorAll('input[name="instrument"]')) input.onchange=refreshLoader;
 $('set-engine').onclick=async()=>{
  const r=selectedPack, chosen=document.querySelector('input[name="instrument"]:checked');
  if(!chosen || !LL.writable(r,snapshot)) return;
- const fm=chosen.value==='fm'; if(fm && !fmAvailable()) return;
+ const name=chosen.value==='samples'?null:LL.engineName(chosen.value); if(name && !availableEngine(chosen.value)) return;
+ if(name && !engineFiles.has(chosen.value) && !window.confirm('This card engine is not reviewed by this catalogue. It contains DSP code. Select it for this pack?')) return;
  if(r.type===3 && !window.confirm('Change the default instrument? This also changes every pack without its own engine.cfg.')) return;
- const result=await act('Save pack instrument',c=>LL.pointer(c,r,fm,snapshot));
+ const result=await act('Save pack instrument',c=>LL.pointer(c,r,name,snapshot));
  if(result.ok) {await scan();status('Choice saved. Reload the pack on the unit to apply it.','ok');}
  else {snapshot=null;refreshLoader();}
 };
@@ -1182,10 +1264,10 @@ $('disconnect').onclick = async () => {
   status(ctx.pending ? `The outcome of "${ctx.pending.what}" is unknown. Reconnect, then select Check status.` : 'MIDI disconnected.', 'warn');
   connecting = false; refresh();
 };
-$('port').onchange = () => { session.close(); supported = false; appBuild = null; fmAsset = null; refresh(); };
+$('port').onchange = () => { session.close(); supported = false; appBuild = null; refresh(); };
 
 async function check() {
-  supported = false; appBuild = null; fmAsset = null; $('unit').innerHTML = ''; entries = actions.entries = null; $('files').innerHTML = '';
+  supported = false; appBuild = null; $('unit').innerHTML = ''; entries = actions.entries = null; $('files').innerHTML = '';
   await act('Check unit', async c => {
     const r = await ML.checkUnit(c);
     line($('unit'), r.text, r.ok ? 'ok' : 'bad');
@@ -1348,6 +1430,7 @@ showModules();
 $('reconcile').onclick = async () => { await actions.reconcile(); snapshot = null; refreshLoader(); };
 window.addEventListener('beforeunload', e => { if (running) { e.preventDefault(); e.returnValue = ''; } });
 showPacks();
+loadCatalogue().then(()=>{showEngines();refreshLoader();});
 refresh();
 })();
 </script>

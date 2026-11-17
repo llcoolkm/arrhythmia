@@ -225,12 +225,18 @@ def engine_check(blob, *, app_build=None):
         policy = cre3_check.policy()
         release = policy['release_version']
         production = app_build is None or app_build >= policy['minimum_app_build']
+        cre3_firmware = app_build is None or app_build >= policy.get('cre2_refused_from_app_build',policy['minimum_app_build'])
         if blob[:4] == b'CRE3':
             if not production:
                 raise ValueError(f"CRE3 engine files require firmware {release} or newer.")
-            return cre3_check.check(blob)
-        if blob[:4] == b'CRE2' and production:
-            raise ValueError(f"FM 1.0.0 (CRE2) does not run on firmware {release}. Install fm.dse 2.0.0.")
+            info=cre3_check.check(blob)
+            ui_min=policy.get('ui_minimum_app_build',policy['minimum_app_build'])
+            if app_build is not None and info.get('ui_capabilities') and app_build<ui_min:
+                raise ValueError(f"Engine UI declarations require application build {ui_min} or newer.")
+            return info
+        if blob[:4] == b'CRE2' and cre3_firmware:
+            refused_release=release if production else policy.get('cre2_refusal_release',release)
+            raise ValueError(f"FM 1.0.0 (CRE2) does not run on firmware {refused_release}. Install fm.dse 2.1.0.")
     engine_file = _engine_file()
     h = engine_file.parse(blob)
     engine_file.need(h["magic"] == "CRE2", "not CRE2 (convert a CRE1 file first: tools/engine_file.py convert)")
@@ -498,7 +504,7 @@ EP_PTR = ["none", "pack", "pack (.CFO)", "default", "default (.CFO)"]
 EP_SEL = ["stock", "engine armed", "core-1 suppression armed"]
 EP_FL = ["own load", "retry", "abort", "pushed", "was engine", "refreshed", "slot error"]
 EP_QPH = ["closed", "header", "request", "open", "recover", "quarantine", "init", "init wait"]
-EP_KIND = ["stock", "FM", "reserved"]
+EP_KIND = ["stock", "FM", "reserved", "subtractive", "wavetable", "drum or physical model", "formant"]
 EP_EO = ("<I4B4BI2BHIHH4BI4B8s", "magic phase tf sel c0out r_pair r_kind r_fault judged r_crc c_pack c_kind att c_crc "
          "rgen c_words n_trav n_ok n_fail fl bad_crc verdict ptr busy loads c_name")
 EP_EO_MAGIC, EP_TRY, EP_BAD, EP_CBR2 = 0x31504F45, 0x59525443, 0x44414243, 0x32524243
@@ -701,6 +707,9 @@ def app_build(fd):
 
 
 def card_main(args):
+    if args and args[0] in ("pack-load","input","trace"):
+        import private_host_io
+        return private_host_io.main(args)
     if len(args) < 2 or args[0] not in ("write", "delete", "verify", "list", "engine", "engstatus", "engine-put",
                                         "engine-verify"):
         sys.exit(__doc__)

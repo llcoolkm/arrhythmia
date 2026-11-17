@@ -149,7 +149,7 @@ VT_SITES = {"hook_disp": (0x080696AC, 0x08049B29), "hook_macro": (0x08067E44, 0x
             # PWRITE (issue #47): the step player's per-microstep decision and pulse-0 sample flip (same vtable)
             "hook_seqdec": (0x08068D28, 0x0804AEEF), "hook_seqflip": (0x08068D34, 0x0804B061)}
 # function tails replaced by a B.W to a naked hook (stock bytes checked)
-TAIL_SITES = {"hook_pack_done": (0x08053E88, "012070bd"),
+TAIL_SITES = {"hook_trace_pack_entry":(0x08039BB4,"083838b5"),"hook_trace_pack_drop":(0x08039C02,"012032bd"),"hook_sv_selected_page": (0x08057B30,"fff7b8bf"),"hook_pack_done": (0x08053E88, "012070bd"),
               # ENGINE_PACK: the stream loader's ready-line spin (0x08031110, after both core sends)
               "hook_ld_ready": (0x0803117E, "28698068"),
               # ENGINE_PACK: the stock watchdog refresh's first instruction (0x08026DD6; every feed reaches it)
@@ -844,11 +844,14 @@ def main(target, spec_dir="patches"):
             defs.append(f"-DFAR_KEY=0x{far_key:08X}u")
         subprocess.run(["clang", *CFLAGS, *defs, "-c", "patches/src/" + cfg["src"], "-o", obj], check=True)
         rel = subprocess.run(["llvm-readelf-21", "-r", obj], capture_output=True, text=True, check=True).stdout
-        if ".rel.text" in rel:
+        if ".rel.text" in rel and "ABI3_QUEUE_TRACE=1" not in cfg.get("defines",[]):
             sys.exit("relocations in .text; the code must be self-contained:\n" + rel)
         syms = subprocess.run(["llvm-readelf-21", "-s", obj], capture_output=True, text=True, check=True).stdout
         subprocess.run(["llvm-objcopy-21", "-O", "binary", "-j", ".text", obj, text], check=True)
         code = open(text, "rb").read()
+        if ".rel.text" in rel:
+            from abi3_private_main_reloc import relocate
+            code, private_main_relocations = relocate(open(obj,"rb").read(),code,code_at)
     entry, exports = {}, {}
     for line in syms.splitlines():
         f = line.split()

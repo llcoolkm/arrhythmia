@@ -1,6 +1,6 @@
 # Track 8 engines for developers
 
-Applies to Circus Arrhythmia FM 0.3.1, firmware build 7388, and later firmware with engine ABI 3.
+Applies to Arrhythmia 0.3.2 and engine ABI 3. The explicit engine config declarations below require firmware 0.3.2; FM files without declarations, 2.0.0 and 2.1.0, are format minor 0 and also load on firmware 0.3.1. The loader and the tools of 0.3.2 refuse to install any engine file on firmware below build 7400.
 
 An engine is your own program for the digital signal processor (DSP) of the unit. It renders track 8. This page is
 the contract between an engine and the firmware: the file, the checks before a load, the memory, the command queue,
@@ -13,6 +13,13 @@ two numbers are not related.
 **Status marks on this page.** "In development" means that the part is designed but not built or not released. Do
 not rely on these parts as promises. The stability promise starts with the first firmware release that ships this
 interface ([Versioning and compatibility](#versioning-and-compatibility)).
+
+## Catalogue and local files
+
+The [web loader](../../web/loader.html) offers the reviewed engine catalogue and a local `.dse` file selector.
+Local files do not need a catalogue entry. Passing the static checks does not establish that an engine behaves
+correctly; install local DSP code only when you trust its source. See [Contributing an engine](../../CONTRIBUTING-engines.md)
+for catalogue submissions, source and licence information, and author checks.
 
 ## What an engine is
 
@@ -85,15 +92,15 @@ All multi-byte header fields are little-endian.
 |---|---|---|---|
 | 0 | 4 | magic | 0x33455243 (the bytes `CRE3`) |
 | 4 | 2 | H, header size | 64 + 8T + 8C to 4,096, a multiple of 4 |
-| 6 | 2 | format minor | 0; the firmware refuses any other value |
+| 6 | 2 | format minor | 0 or 1 ([Format version](#format-version)); 2 and above are refused |
 | 8 | 4 | n, body words | 389 to 8,192, the shim words included |
 | 12 | 4 | body CRC | CRC-32 of the 3n body bytes |
 | 16 | 4 | platform id | 1 for platform 1 |
 | 20 | 4 | queue ABI | 0x000300 + ABI minor |
-| 24 | 1 | engine class | 0 refused; 1 FM, 2 reserved, 3 subtractive, 4 wavetable, 5 drum or physical model; 6 to 127 for allocation; 128 to 255 experimental |
+| 24 | 1 | engine class | 0 refused; 1 FM, 2 reserved, 3 subtractive, 4 wavetable, 5 drum or physical model, 6 formant; 7 to 127 for allocation; 128 to 255 experimental file values |
 | 25 | 1 | T, table descriptors | 0 to 15; 0 below ABI minor 2 |
 | 26 | 1 | C, control records | 0 to 16 ([Control records](#control-records)) |
-| 27 | 1 | reserved | 0; checked |
+| 27 | 1 | engine config | 0 legacy; 0x80 explicit controls; 0x81 explicit controls with chords, FM class 1 only; 0x80 and 0x81 need format minor 1 |
 | 28 | 4 | engine version | information only; never a compatibility fact |
 | 32 | 4 | engine capabilities | [Engine capability bits](#engine-capability-bits); bits 24 to 31 zero |
 | 36 | 4 | host needs | [Host capability bits](#host-capability-bits); bits 24 to 31 zero |
@@ -111,12 +118,18 @@ All multi-byte header fields are little-endian.
 | 64 + 8T + 8C | rest of H | metadata | [Metadata records](#metadata-records) |
 
 * The class is a label for the loader. The firmware never changes the commands it sends because of the class.
-  Classes 1 to 255 are accepted. The loader shows an unallocated class as unallocated.
+  Platform 1's standard host tools accept classes 1 to 127. Ask for a class allocation before distributing an engine.
+  The loader shows an unallocated class as unallocated.
+* The file grammar can represent experimental classes 128 to 255, and `inspect3` can describe them. The platform 1
+  host policy refuses them at check 16. Firmware 0.3.1 itself still accepts every nonzero class byte; this host
+  restriction is not an on-device guard. Its separate engine-status publication field is seven bits, so a class
+  with its high bit set cannot be reported faithfully there. The full resident class is retained separately.
 * The engine version is information only. The firmware never checks it.
 * To give a semantic version, use the marked form of the older engine files: bit 31 is 1, bits 30 to 24 are 0, and
   bits 23 to 16, 15 to 8 and 7 to 0 hold major, minor and patch. Any other value is allowed. The tools show it as an
   unknown version and keep the raw word.
-* The format minor (+6) and the ABI minor (+20) are different fields. The format minor stays 0.
+* The format minor (+6) and the ABI minor (+20) are different fields. The format minor versions the file layout.
+  The ABI minor versions the commands, capabilities and sources.
 * The header CRC covers the fixed header, the table descriptors, the control records and the metadata, with +60
   taken as zero. It does not cover the body, which has its own CRC at +12. The CRC parameters of +60 are not yet
   fixed in the design. The zlib parameters of the body CRC are intended.
@@ -130,6 +143,61 @@ All multi-byte header fields are little-endian.
   platform 1. A declaration equal to the maximum you observed fails a later trial that reaches a heavier block.
 * A figure from the emulator is not silicon timing, and no conversion factor turns one into the other.
 * A reserved field is always checked, never ignored.
+
+### Format version
+
+Firmware 0.3.2 declares the engine file format stable at format minor 1. Every header byte has a defined meaning. The
+firmware states which minors it reads, and refuses any other at check 1. This page is the contract. The same table is
+the docstring of `tools/cre3_check.py`, which applies it.
+
+| Minor | Meaning |
+|---|---|
+| 0 | legacy layout: +27 is 0, and the file declares no config macros and no polyphony |
+| 1 | stable layout of firmware 0.3.2: +27 may be 0, 0x80 or 0x81, with the declarations of [Engine config in firmware 0.3.2](#engine-config-in-firmware-032) |
+| 2 and above | not defined; refused at check 1 |
+
+Header bytes at each minor. "Same" means that the minor 0 rule applies.
+
+| Bytes | Field | Minor 0 | Minor 1 |
+|---|---|---|---|
+| 0 to 3 | magic | `CRE3` (check 1) | same |
+| 4, 5 | H, header size | 64 + 8T + 8C to 4,096, a multiple of 4 (check 1) | same |
+| 6, 7 | format minor | 0 (check 1) | 1 (check 1) |
+| 8 to 11 | n, body words | 389 to 8,192; file size H + 3n (checks 1 and 10) | same |
+| 12 to 15 | body CRC | CRC-32 of the body (check 10) | same |
+| 16 to 19 | platform id | 1 (check 4) | same |
+| 20 to 23 | queue ABI | 0x000300 + ABI minor (checks 3 and 5) | same |
+| 24 | engine class | 1 to 255; the host policy allows 1 to 127 (check 16) | same |
+| 25 | T, table descriptors | 0 to 15; 0 below ABI minor 2 (check 12) | same |
+| 26 | C, control records | 0 to 16 (check 17) | same |
+| 27 | engine config | 0 only (check 16) | 0, 0x80, or 0x81 with FM class 1 (check 16) |
+| 28 to 31 | engine version | any value; information only | same |
+| 32 to 35 | engine capabilities | CORE set; bits defined at the ABI minor; bits 24 to 31 zero (check 5) | same |
+| 36 to 39 | host needs | bits defined at the ABI minor; bits 24 to 31 zero (checks 5 and 6) | same |
+| 40 to 43 | wanted sources | bits defined at the ABI minor; bits 22 to 31 zero (check 5) | same |
+| 44 | lanes | 1 to 4; 5 to 8 with LANES8 (check 7) | same |
+| 45 | K | 4 to 16 (check 7) | same |
+| 46 | sound slots | 0 to 32; up to 128 at ABI minor 1 (check 7) | same |
+| 47 | flags | bit 0 with NOTEPITCH only; bits 1 to 7 zero (check 8) | same |
+| 48 to 51 | release tail | any value; 0 the firmware default | same |
+| 52 to 55 | declared cycles | 1 to E (check 13) | same |
+| 56 to 59 | memory claims | a subset of the granted windows (check 9) | same |
+| 60 to 63 | header CRC | CRC-32 of bytes 0 to H - 1, this field as zero (check 2) | same |
+
+* Bytes 64 to H - 1 keep one grammar at both minors. A config macro declaration or a polyphony declaration in a
+  file with +27 = 0 fails check 17, so a minor 0 file cannot carry one.
+* A reserved bit that is not 0 refuses the file at every minor. A new field needs a higher format minor.
+* Firmware 0.3.2 reads minors 0 and 1. Firmware 0.3.1 reads minor 0 only, and refuses a minor 1 file at check 1. The
+  pack then plays samples.
+* A minor 0 file becomes a minor 1 file by a change of +6 and of the header CRC. The body and its CRC stay the same.
+  The header CRC is part of the residency key, so the unit loads the changed file once more.
+
+**How an author chooses.**
+
+* Without declarations (+27 = 0), write minor 0. The file loads on 0.3.1 and on 0.3.2. FM 2.0.0 and 2.1.0 are such files.
+* With declarations (+27 = 0x80 or 0x81), write minor 1. The file needs firmware 0.3.2. Every engine of a class other
+  than FM class 1 needs declarations on platform 1, so it is always minor 1.
+* `ui3` writes minor 1. A file with +27 = 0 at minor 1 is valid, but it needs firmware 0.3.2 for no gain.
 
 ### Engine capability bits
 
@@ -226,9 +294,10 @@ The loader, the card scan and the tools read them.
 
 An engine declares its controls on the unit with C control records (+26). The records start at byte 64 + 8T,
 directly after the table descriptors. Each record is 8 bytes. The records are part of format minor 0 and ABI minor 0.
+The config macro and polyphony declarations need format minor 1.
 No capability bit gates them.
 
-* An engine with C = 0 has no Sample view controls and no synth page 4. It plays its built-in defaults for every
+* An engine with C = 0 has no Sample view controls and no controls on the engine page. It plays its built-in defaults for every
   value that it does not receive.
 * A record carries no label and no meaning. The engine owns the meaning of every value.
 * The header CRC and the residency key cover the records. A change of a record forces a new load.
@@ -237,7 +306,7 @@ No capability bit gates them.
 | Byte | Field | Rule |
 |---|---|---|
 | 0 | kind and surface | bits 3 to 0 kind; bits 5 and 4 surface; bits 7 and 6 zero |
-| 1 | source id | kind 1: 8; kinds 2 and 3: 16 or 21; kind 4: 17 to 20 |
+| 1 | source id | kind 1: 8; kinds 2 and 3: 16 or 21; kind 4: 9 to 11 on surface 0, or 17 to 20 on surface 2 |
 | 2 | bit offset | kinds 2 and 3: 0 to 23, the lowest bit of the field in the bank word |
 | 3 | width | kind 2: 1 to 3 bits; kind 3: 1 |
 | 4 | count | kind 1: equal to +46; kind 2: 2 to 8, and at most 2^width; kind 3: 1 |
@@ -252,12 +321,13 @@ Kinds 5 and 6 use bytes 1 to 7 as their table states.
 | 1 | sounds | 1 | the sound slots of source 8: count, default and colours; at most one |
 | 2 | choice | 1 or 2 | a radio field in a bank word: count pads, one current value |
 | 3 | toggle | 1 or 2 | a one-bit field on one pad |
-| 4 | continuous | 2 | a value 0 to 127 on a knob of synth page 4 |
+| 4 | continuous | 0 or 2 | surface 0 declares a config macro, source 9 to 11 ([Engine config in firmware 0.3.2](#engine-config-in-firmware-032)); surface 2 declares sources 17 to 20 on knobs 1 to 4 of the engine page |
 | 5 | macro defaults | 0 | byte 1 the first source id, 0 or 6; bytes 2 to 7 the defaults 0 to 127 of the six sources from that id |
-| 6 | identity | 0 | the settings key: bytes 1 to 4, not 0, little-endian; bytes 5 to 7 zero; at most one |
+| 6 | identity and polyphony | 0 | bytes 1 to 4: nonzero settings key, little-endian; byte 5: allowed voice-count mask; byte 6: default count; byte 7: zero; at most one |
 
 * Kinds 0 and 7 to 15 are refused.
-* Surface codes: 0 none; 1 the Sample view of track 8, rows 3 and 4; 2 synth page 4; 3 refused.
+* Surface codes: 0 config macro declarations or table state; 1 the Sample view of track 8, rows 3 and 4; 2 the engine
+  page, page 1 of the config page; 3 refused.
 * In a kind 5 record with first id 6, the byte for source 8 is 0. Kind 1 gives the default of source 8.
 * A kind 5 record names all six sources from its first id; with first id 6 that includes source 8. All six must be
   wanted (+40), also a source the engine does not use (check 17, rule 11).
@@ -283,7 +353,7 @@ Capacity:
 | records per engine | 16 |
 | Sample view | 32 pads: rows 3 and 4 of page 1 and of page 2 |
 | Sample view with choices and sounds | 16 choice pads on page 1 and 16 sound slots on page 2 |
-| synth page 4 | 32 pads in rows 1 to 4, and knobs 1 to 4 |
+| engine page | 32 pads in rows 1 to 4, and knobs 1 to 4 |
 | pads per field | 1 for a toggle, 2 to 8 for a choice; a field never spans two rows |
 | bank words | 2 (sources 16 and 21), 24 bits each |
 | fields | at most 16 in all, one per record |
@@ -377,7 +447,7 @@ bytes, and the transmission pass must retain its integrity checks.
 
 | # | Check |
 |---|---|
-| 1 | magic 0x33455243; format minor 0; H from 64 + 8T + 8C to 4,096 and a multiple of 4; file size exactly H + 3n |
+| 1 | magic 0x33455243; format minor 0 or 1 ([Format version](#format-version)); H from 64 + 8T + 8C to 4,096 and a multiple of 4; file size exactly H + 3n |
 | 2 | header CRC (+60) over all H bytes, the control records included |
 | 3 | queue ABI 0x000300 + m, with m at most the ABI minor of the firmware |
 | 4 | the platform id is one that this firmware composes |
@@ -392,7 +462,7 @@ bytes, and the transmission pass must retain its integrity checks.
 | 13 | declared cycles (+52) from 1 to E, the platform budget ([Cycles per block](#cycles-per-block)) |
 | 14 | after the load: ready header MAGIC, VERSION equal to +20, word 4 equal to bits 0 to 23 of +32, word 5 equal to +44 and +45 |
 | 15 | the press size S + L is at most 24, with S computed from the actual wanted sources, 14 to 21 included ([How presses are staged](#how-presses-are-staged)) |
-| 16 | the reserved byte +27 is zero; the class (+24) is not 0 |
+| 16 | +27 is 0, 0x80 or 0x81; 0x80 and 0x81 require format minor 1; 0x81 requires FM class 1; class (+24) is nonzero; host policy in `check3`, `cre3_check` and the web loader also refuses classes 128 to 255 |
 | 17 | the control records and their placement ([Check 17](#check-17-control-records)) |
 
 * Check 5: wanted bits 14 to 21 are defined at ABI minor 0. Bits 12 and 13 need minor 1. Bits 22 to 31 are reserved.
@@ -410,6 +480,109 @@ bytes, and the transmission pass must retain its integrity checks.
 * The scan and the tools never claim check 14. They report static eligibility, or a conformance result recorded
   separately.
 
+### Engine config in firmware 0.3.2
+
+Firmware 0.3.2 lets an engine file declare its own config page. Header byte +27 says how the firmware builds that
+page. A file with +27 = 0x80 or 0x81 is format minor 1 ([Format version](#format-version)).
+
+| +27 | Meaning | Engine classes |
+|---|---|---|
+| 0 | legacy: FM class 1 keeps the published FM controls, chords and polyphony included; other classes get no FM controls and no config macros | all |
+| 0x80 | explicit: the file declares its config macros and, for FM, its polyphony | all |
+| 0x81 | explicit, with the FM chord controls | FM class 1 only |
+
+Any other value refuses the file at check 16.
+
+**Config macro declarations.** A kind 4 record on surface 0 declares one config macro: source 9, 10 or 11. It needs
++27 = 0x80 or 0x81.
+
+| Byte | Value |
+|---|---|
+| 0 | 0x04: kind 4, surface 0 |
+| 1 | source id 9, 10 or 11; each at most once |
+| 2 to 4 | 0 |
+| 5 | default, 0 to 127 |
+| 6 | knob hue, 0 to 7 ([hue ids](#control-records)) |
+| 7 | flags: enable reference and sense as for the other records; 0 means always enabled |
+
+* Declare only sources that the engine wants (+40).
+* A config macro without a declaration has a dark knob with no function. So has a disabled declaration. A disabled
+  declaration keeps its value.
+* Use the default of the kind 5 record with first id 6 for that source. The authoring tool below copies it.
+* A declaration alone needs no settings key.
+
+**Polyphony, FM class 1 only.** With +27 = 0x80 or 0x81, bytes 5 and 6 of the kind 6 record declare the notes per
+press and poly controls of the FM page.
+
+1. Byte 5, bits 0 to 3, allow the counts 1 to 4.
+2. Byte 6 is the default count. It must be one of the allowed counts.
+3. Bytes 5 and 6 both 0 hide the controls.
+
+With +27 = 0, and for every other class, bytes 5 and 6 are 0. Byte 7 is always 0.
+
+**Other classes.** Chords, notes per press and poly are FM controls. An engine of another class plays one lane per
+note, up to its declared lanes (+44). Its own model can still make more than one oscillator or resonance per lane.
+An engine with 4 lanes plays 4 notes at a time. The settings key does not change when you add declarations.
+
+**The config page.** Shift + Track 8 opens it ([synth.md](synth.md#the-synth-page)). The firmware builds it the same
+way for every class. Down shows the next page. Up shows the previous page.
+
+| Page | FM class 1 | Other classes | No engine: samples |
+|---|---|---|---|
+| 1 | the FM page | the engine page | scales |
+| 2 | scales | scales | arpeggiator |
+| 3 | arpeggiator | arpeggiator | none |
+
+Knobs on page 1:
+
+| Knob | FM class 1 | Other classes |
+|---|---|---|
+| 1 to 4 | Tune, then sources 9 to 11 | the kind 4 records of surface 2 (sources 17 to 20), in record order |
+| 5 | none | none (dark) |
+| 6 to 8 | none | sources 9 to 11 |
+
+* Tune exists only on the FM page (knob 1). It is not a source. On the engine page of another class, knob 5 is
+  dark and has no function: pitch comes from the pads, the scale and MIDI notes.
+* A knob without a record or declaration is dark and has no function.
+* The pads of the engine page are the choice and toggle records of surface 2 ([Placement](#placement)).
+* The engine page exists for every loaded engine of another class, also without records. Then every knob and pad
+  of the page is dark.
+* Firmware 0.3.2 has no page 4. Surface 2 records in an FM class 1 file pass check 17, which does not test the class,
+  but they have no page: page 1 of FM is the FM page, and only the other classes get the engine page. No panel
+  control edits them.
+
+**Compatibility.**
+
+* Firmware 0.3.1 and earlier refuse a file with +27 not 0. Such a file is format minor 1, so they refuse it at
+  check 1. The pack plays samples.
+* The loader and `tools/module.py` of 0.3.2 refuse to install any engine file on firmware below build 7400, format
+  minor 0 included. On older firmware, install the firmware first.
+* A file with +27 = 0 loads on 0.3.1 and on 0.3.2. FM 2.0.0 and 2.1.0 are such files.
+* The `check3` and `cre3_check` tools of 0.3.2 accept +27 = 0x80 and 0x81 at format minor 1. They refuse them at
+  minor 0. The tools and the loader of 0.3.1 refuse a minor 1 file at check 1.
+
+**Add declarations to an existing file.** The tool changes only the header. The DSP body does not change.
+
+1. Run the tool:
+
+   ```sh
+   python3 -I tools/engine_file.py ui3 in.dse out.dse --macro-hues 4,4,4
+   ```
+
+2. For an FM class 1 engine, add `--chords 1 --poly-allowed 1,2,4 --poly-default 2` to declare those controls.
+3. Check the result:
+
+   ```sh
+   python3 -I tools/engine_file.py check3 out.dse
+   ```
+
+* The tool accepts only a file with +27 = 0.
+* It declares only the wanted sources among 9 to 11. It copies their defaults from the kind 5 record with first id 6,
+  which must then exist.
+* It keeps the settings key, writes +27, C and format minor 1, and computes the header CRC again.
+* Hue ids follow the [hue table](#control-records).
+* This is metadata authoring, not runtime qualification. Test the result on a unit with firmware 0.3.2.
+
 ### Check 17: control records
 
 Every site that applies the file checks applies check 17 with the same written rule. A failure refuses the file with
@@ -421,10 +594,10 @@ the reason "controls", and the pack plays samples.
    slots (ABI minor 1), no other record uses the Sample view.
 4. At most two kind 5 records exist, with first ids 0 and 6, each at most once. The byte for source 8 is 0. Every
    default is 0 to 127.
-5. At most one kind 6 record exists, and its key is not 0. Kind 6 must exist if a kind 2, 3 or 4 record exists.
+5. At most one kind 6 record exists, and its key is not 0. A kind 2 or 3 record, or a kind 4 record on surface 2, requires it. With header +27 = 0, bytes 5 to 7 are zero. With explicit declarations, only FM class 1 may declare polyphony: byte 5 uses bits 0 to 3 for allowed counts 1 to 4; byte 6 must name a count in that set. An empty set requires default 0. Non-FM records require both bytes zero; byte 7 is always zero.
 6. Kinds 2 and 3: offset + width is at most 24. In one bank word, the fields do not overlap.
 7. Kind 2: count 2 to 8, count at most 2^width, default below count. Kind 3: width 1, count 1, default 0 or 1.
-8. Kind 4: surface 2, at most 4 records, each of sources 17 to 20 at most once.
+8. Kind 4: surface 2 allows sources 17 to 20 once each. Surface 0 requires header bit 7, allows sources 9 to 11 once each, and has offset, width and count zero. Both forms require a default from 0 to 127 and hue from 0 to 7.
 9. Every hue is 0 to 7.
 10. An enable reference points to an earlier kind 3 record that has no enable reference of its own.
 11. Every source that a record names is wanted (+40). Every wanted bank source (16, 21) has at least one field
@@ -913,13 +1086,13 @@ Values are 0 to 127 unless the row states otherwise.
 | 1 to 4 | 0 to 127 | 0 | main macros 2 to 5 |
 | 5 to 7 | 0 to 127 | 0 | main macros 6 to 8 |
 | 8 | 0 to 127 | 0 | sound: the Sample view slot of track 8, the validated full-width value |
-| 9 to 11 | 0 to 127 | 0 | synth page macros 2 to 4 |
+| 9 to 11 | 0 to 127 | 0 | config macros: FM page knobs 2 to 4; engine page knobs 6 to 8 with a declaration |
 | 12 | 0 to 127 | 1 | pad pressure of track 8 |
 | 13 | 0 to 16,383, PARAM only | 1 | pitch bend |
 | 14 | tempo: BPM x 16; 0 no tempo, else 320 to 4,080 (20 to 255 BPM); PARAM only | 0 | the clock of the unit |
 | 15 | transport, 24-bit, PARAM only ([Tempo and transport](#tempo-and-transport)) | 0 | Play and Stop |
 | 16 | choice bank A, 24-bit, PARAM only | 0 | choice and toggle records |
-| 17 to 20 | 0 to 127, PARAM only | 0 | knobs 1 to 4 of synth page 4 (kind 4 records) |
+| 17 to 20 | 0 to 127, PARAM only | 0 | knobs 1 to 4 of the engine page (kind 4 records) |
 | 21 | choice bank B, 24-bit, PARAM only | 0 | choice and toggle records |
 | 22 to 31 | reserved | | |
 | 32 to 255 | 24-bit, PARAM only | 2 | engine parameters, set by the host over SysEx (in development) |
@@ -930,7 +1103,8 @@ Values are 0 to 127 unless the row states otherwise.
 * At ABI minor 0 the firmware has 20 fixed sources: 0 to 11 and 14 to 21. Minor 1 adds 12 and 13.
 * A bank word is the OR of each field value shifted left by its offset. Bits that no record declares are 0. The ARM
   never sends a field value at or above its count.
-* Tune (synth page macro 1) is part of the pitch, not a source.
+* Tune (knob 1 of the FM page) is part of the pitch, not a source. It has no knob on the engine page of another
+  class.
 * Set bit s of +40 for each source s that the engine wants. A bit for a source that is not defined at the minor of
   the file refuses the file.
 * The labels on the unit do not change. The loader shows the source labels (tag 0x10) and the control labels (tag
@@ -1021,11 +1195,11 @@ surface and can force a new row. They never name a pad. The firmware has no mapp
 | Surface | Where | When it exists |
 |---|---|---|
 | 1, Sample view of track 8 | page 1: pad rows 3 and 4; page 2: pad rows 3 and 4. Rows 1 and 2 stay the steps | when a kind 1 record or another surface 1 record exists. Page 2 exists only if a record uses it. Down shows page 2, Up shows page 1; the Down light is off on the last page |
-| 2, synth page 4 | a page after the arp page (page 3): pad rows 1 to 4 and knobs 1 to 4 | when a kind 2, 3 or 4 record uses surface 2. A page with knobs only and dark pads exists. With no such record, the synth page has pages 1 to 3 only |
-| 0, the existing macros | main macros (sources 0 to 7) and synth page 1 macros 2 to 4 (sources 9 to 11) | always; kind 5 gives only their defaults |
+| 2, the engine page | page 1 of the config page, for engine classes other than FM: pad rows 1 to 4 and knobs 1 to 4 | for every loaded engine of another class; pads and knobs without a record are dark ([The config page](#engine-config-in-firmware-032)) |
+| 0, the existing macros | main macros (sources 0 to 7) and the config macros (sources 9 to 11) | always; kind 5 gives only their defaults; with +27 = 0x80 or 0x81, kind 4 declares the config macros |
 
 * With no surface 1 record and +46 = 0, the Sample view stays stock.
-* For an engine with a low-frequency oscillator (LFO), synth page 4 is the page of its LFO controls.
+* For an engine with a low-frequency oscillator (LFO), the engine page is the page of its LFO controls.
 
 ### Placement
 
@@ -1039,7 +1213,7 @@ Permitted rows:
 | Sample view, with sounds and choices | page 1, rows 3 and 4 (16 pads) | page 2, rows 3 and 4 (16 slots) |
 | Sample view, with choices only | page 1 and page 2, four rows (32 pads) | none |
 | Sample view, with sounds only | none | page 1 and page 2, four rows (32 slots) |
-| synth page 4 | rows 1 to 4 (32 pads) | none |
+| engine page | rows 1 to 4 (32 pads) | none |
 
 For each surface, the renderer places the kind 2 and kind 3 records in record order:
 
@@ -1049,11 +1223,12 @@ For each surface, the renderer places the kind 2 and kind 3 records in record or
 4. A field that needs a row after the last permitted row refuses the file (check 17).
 
 * Kind 1 places the sound slots left to right in their rows.
-* Kind 4 records go to knobs 1 to 4 of synth page 4, in record order.
+* Kind 4 records of surface 2 go to knobs 1 to 4 of the engine page, in record order. A kind 4 record of surface 0
+  goes to the knob of its source.
 * Pad i of a choice field, counted from 0, sets value i.
 * Pads that no field uses are dark and have no function.
 * The firmware never scrolls, truncates or adds a page. A fifth row is refused.
-* Above 32 sound slots (ABI minor 1), the Sample view holds sound slots only. Choices then go to synth page 4.
+* Above 32 sound slots (ABI minor 1), the Sample view holds sound slots only. Choices then go to the engine page.
 
 ### Lights
 
@@ -1068,7 +1243,8 @@ For each surface, the renderer places the kind 2 and kind 3 records in record or
 | any pad of a disabled field | dark |
 | unused pad | dark |
 | knob of a kind 4 record | its hue, from off to full with the value, as the stock macro lights |
-| knob of a disabled kind 4 record; knobs 5 to 8 on synth page 4 | dark |
+| knob of a disabled kind 4 record; knob without a record or declaration | dark |
+| knob 5 of the engine page | dark |
 
 ### Input
 
@@ -1080,8 +1256,9 @@ For each surface, the renderer places the kind 2 and kind 3 records in record or
 | pad of a disabled field, unused pad | nothing |
 | Clear held + a choice or toggle pad | the field returns to its default |
 | kind 4 knob | sets its value 0 to 127; a disabled record ignores the turn |
-| Clear held + a kind 4 knob, a main macro or synth page 1 macros 2 to 4 | the declared default of kind 4 or kind 5; without a kind 5 record for that macro, nothing changes |
-| Clear held + synth page 1 macro 1 (Tune) | nothing, while an engine owns track 8; Tune is not a source and has no kind 5 default |
+| Clear held + a kind 4 knob, a main macro or a config macro | the declared default of kind 4 or kind 5; without a kind 5 record for that macro, nothing changes |
+| Clear held + Tune (FM page knob 1) | Tune returns to 64 (no offset) |
+| knob 5 of the engine page, with or without Clear | nothing; the knob is dark |
 | Shift + pad | the same as the pad |
 | busy | the Track 8 light blinks red and the edit is ignored |
 
@@ -1099,7 +1276,7 @@ For each surface, the renderer places the kind 2 and kind 3 records in record or
   keeps no values per sound.
 * A choice never changes when a slot is selected. A slot never changes when a choice changes.
 * An engine can declare no sound slots and put its choices on the Sample view. It can also declare slots and put its
-  choices on Sample view page 1 or on synth page 4.
+  choices on Sample view page 1 or on the engine page.
 
 ### Values per project
 
@@ -1139,6 +1316,8 @@ where the firmware already keeps them: the macros and the sound slot of track 8.
 * The ARM owns the allocation of notes to lanes and the stealing of voices.
 * The engine declares 1 to 8 lanes (+44). More than 4 lanes needs LANES8 on both sides (ABI minor 1).
 * Polyphony equals the lane count. A mono engine declares 1 lane.
+* Notes per press, chords and poly are FM class 1 controls ([Engine config in firmware 0.3.2](#engine-config-in-firmware-032)).
+  Another class plays one lane per note.
 * The ARM ranks voices with the declared release tail (+48). With 0, it uses 15,669 blocks. The ranking is a choice
   of the allocator. It is not a proof that a voice is silent.
 * With VOICEMAP, the ARM can read ready header word 6 and rank a silent lane as free.
@@ -1364,6 +1543,11 @@ and budget E) belong to its platform contract. E is frozen per platform id: a fi
 platform id, so a declaration is never judged against another budget. Until the first release ships, this page can
 change.
 
+Firmware 0.3.2 defines header +27, kind 4 records on surface 0 and bytes 5 and 6 of the kind 6 record at format
+minor 1 ([Format version](#format-version)). This follows the rule of the frozen scope below: an extension of the
+control records takes a higher format minor. Minor 0 keeps its meaning. Firmware 0.3.2 also places surface 2 on page 1
+of the config page instead of a page 4. Firmware 0.3.1 refuses a minor 1 file at check 1.
+
 ### Frozen scope
 
 | Item | Scope |
@@ -1371,11 +1555,11 @@ change.
 | queue transport: X:0x4D00 to X:0x4D4F layout, entry words, commit rule, epoch handshake, FAULT conditions | frozen; identical to the older interface |
 | ready header words 0 to 3 and the initialization order | frozen |
 | ready header words 4 to 15, the reply block | frozen |
-| CRE3 fixed header, table descriptors and metadata rules | frozen; new fields only in reserved fields, defined at a higher minor |
+| CRE3 fixed header, table descriptors and metadata rules | frozen at format minor 1; new fields only in reserved fields, defined at a higher format minor |
 | platform contract: shim vectors, accepted shim images, entry state, return rules, memory grants, stack grant G, budget E, output facts | frozen per platform id; a change of E takes a new platform id |
 | command encodings of ABI 3.0 and their required effects | frozen |
 | source ids 0 to 11 and 14 to 21 at ABI minor 0, 12 and 13 at minor 1, and their value ranges | frozen; new ids only at a higher minor |
-| control records: the byte format, the kinds, the hue ids, the surfaces and the placement rule | frozen for format minor 0; an extension needs a higher format minor, and a new source also needs a higher ABI minor |
+| control records: the byte format, the kinds, the hue ids, the surfaces and the placement rule | frozen for format minors 0 and 1; an extension needs a higher format minor, and a new source also needs a higher ABI minor |
 | minimum service per block | frozen |
 | reply protocol | frozen from ABI minor 2, after the QUERY answers are decided |
 | minor versions | additive only |
@@ -1403,7 +1587,7 @@ These can change with any firmware update:
 | Case | Result |
 |---|---|
 | an engine of minor 0 on a firmware of a higher minor | loads; the firmware sends only what the engine declared |
-| an engine of a higher minor than the firmware | refused, samples |
+| an engine of a higher ABI minor or format minor than the firmware | refused, samples |
 | an engine that needs a host capability the firmware lacks | refused, samples |
 | an engine for another platform id | refused, samples; rewrap it for that platform and test it again |
 | a CRE2 engine on an ABI 3 firmware | refused at the magic check, samples, reason shown |
@@ -1487,7 +1671,7 @@ is not known. The ARM promises no fixed write size and no fixed pass rate.
 |---|---|
 | control records | 16 per engine, 8 bytes each |
 | Sample view | 32 pads; with choices and sounds, 16 choice pads and 16 sound slots |
-| synth page 4 | 32 pads and 4 knobs |
+| engine page | 32 pads and 4 knobs |
 | bank words | 2, 24 bits each, at most 16 fields in all |
 | engines with stored values per project | 6; the least recently edited entry is evicted |
 
@@ -1504,7 +1688,7 @@ is not known. The ARM promises no fixed write size and no fixed pass rate.
 
 * The shim words count against the USB limit. The production shim adds 1,152 bytes to every engine file.
 * The USB writer accepts a file only if H + 3n is at most 15,360 bytes.
-* The FM engine 2.0 file is 15,346 bytes. It fits the USB writer.
+* The FM engine 2.1.0 file is 15,329 bytes. It fits the USB writer.
 * Install a larger file with a card reader ([synth.md](synth.md#select-the-fm-engine-with-a-card-reader)). This firmware
   has no append job for larger files.
 
@@ -1518,4 +1702,7 @@ is not known. The ARM promises no fixed write size and no fixed pass rate.
 
 The FM engine 2.0.0 is the FM engine of 0.3.0, ported to engine ABI 3. It keeps the file name `fm.dse`, so a pack that
 selects FM needs no change. In the reference scenes in the emulator, its output is word for word the output of FM 1.0.0.
+FM 2.1.0, the file of 0.3.2, adds one output scaling step to the 2.0.0 engine. It was built to play 6 dB louder
+than 2.0.0.
+The measured unit level of the released file is in the [release notes](../../RELEASE-NOTES-0.3.2.md#engine-files).
 Engines ship on their own cadence; the [changelog](../../changelog.md) lists each release.

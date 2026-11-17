@@ -1,10 +1,10 @@
-# Circus Arrhythmia FM: scales on tracks 1 to 8
+# Arrhythmia: scales on tracks 1 to 8
 
-Applies to Circus Arrhythmia FM 0.3.0, firmware build 7358 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
-Test status: see the [release notes](../../RELEASE-NOTES-0.3.0.md#known-limitations) and the
+Applies to Arrhythmia 0.3.2, firmware build 7400 (arrhythmia-devkit build 7228, unchanged from 0.1.0).
+Test status: see the [release notes](../../RELEASE-NOTES-0.3.2.md#known-limitations) and the
 [0.1.0 release notes](../../RELEASE-NOTES-0.1.0.md).
 
-Scales are in both images. In arrhythmia-firmware (build 7358), set them on the synth page. In
+Scales are in both images. In arrhythmia-firmware (build 7400), set them on the synth page. In
 arrhythmia-devkit (build 7228), set them over SysEx only.
 
 ## What it is
@@ -24,7 +24,8 @@ of the unit, refer to [Range](#range-dark-pads).
 ## Turn scales on for a track (arrhythmia-firmware)
 
 1. Press **Shift + Track 8** to open the synth page.
-2. With the FM engine, use **Up** or **Down** to show page 2 (scale). Without an engine, the scale page opens directly.
+2. Use **Up** or **Down** to show the scale page. With an engine on track 8, it is page 2. Without an engine, it is
+   page 1.
 3. Press pad 1 to 8 of the top row to turn scales on or off for track 1 to 8. Each pad is below its track button.
    A scaled track has a bright green pad. The other pads are dim.
 4. Press a view or track button to close the page.
@@ -36,13 +37,14 @@ The synth page: [synth.md](synth.md#the-synth-page).
 ## Choose the scale and the key (arrhythmia-firmware)
 
 1. Open the synth page (**Shift + Track 8**).
-2. With the FM engine, use **Up** or **Down** to show page 2 (scale). Without an engine, the scale page opens directly.
+2. Use **Up** or **Down** to show the scale page. With an engine on track 8, it is page 2. Without an engine, it is
+   page 1.
 3. Press a pad in the second row to select a scale. The row has eight violet pads, one per scale. The bright pad is
    the scale in use. From the left: major, natural minor, dorian, mixolydian, harmonic minor, major pentatonic,
    minor pentatonic, blues.
 4. Press a key on the bottom two rows (a keyboard, C to B) to set the key. The key in use is yellow.
 
-* On page 1 of the synth page, the last pad of the second row switches between natural minor and major.
+* The scale page is the only place to set the scale on the unit. Page 1 of the synth page has no scale pad.
 * arrhythmia-firmware has no Phrygian and no Lydian. A project that has Phrygian plays and shows natural minor. A
   project that has Lydian plays and shows major. The project keeps its stored value.
 
@@ -69,7 +71,7 @@ synth page.
 Intervals are semitones above the key note. The notes are in the key of C. arrhythmia-firmware has the eight
 scales with a pad number. arrhythmia-devkit has all ten.
 
-| No. | Pad (page 2, second row) | Scale | Notes per octave | Intervals | In C |
+| No. | Pad (scale page, second row) | Scale | Notes per octave | Intervals | In C |
 |---|---|---|---|---|---|
 | 0 | 1 | Major | 7 | 0 2 4 5 7 9 11 | C D E F G A B |
 | 1 | 2 | Natural minor | 7 | 0 2 3 5 7 8 10 | C D Eb F G Ab Bb |

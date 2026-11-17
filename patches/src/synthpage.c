@@ -106,7 +106,9 @@ static void arp_leds(struct state *s, const uint8_t *t);
 #endif
 #if PG_NAV
 #define PG_FMDEF        5u              /* op: FM field (codec 2 byte offset SF_FB..SF_MF) = its default */
-#if ARP
+#if ENGINE_ABI3 && !FAR_PART
+#define PG_PAGES        3u              /* engine config0, global scales1, arp2 */
+#elif ARP
 #define PG_PAGES        3u              /* pg.view: 0 chord, 1 scale, tracks and key, 2 arp (arp.c) */
 #else
 #define PG_PAGES        2u              /* pg.view: 0 chord, 1 scale, tracks and key */
@@ -179,6 +181,22 @@ static void pg_clr(uint32_t down)       /* route(): every Clear edge, under the 
 }
 #endif
 
+#if ENGINE_ABI3 && !FAR_PART && PG_NAV
+/* Visible order is engine config0, project scales1, arp2.
+ * Without a loaded engine only the two global pages are offered. */
+static uint32_t pg_engine_view(uint32_t view)
+{
+    if(view>2)return 2;
+    return view==0 && !t8_eng()?1u:view;
+}
+static uint32_t pg_engine_step(uint32_t view,uint32_t down)
+{
+    view=pg_engine_view(view);
+    uint32_t first=t8_eng()?0u:1u;
+    return down?(view<2?view+1:view):(view>first?view-1:view);
+}
+#endif
+
 /* The page is open and allowed: anything else in front (s->mode != 0) closes it. Caller holds the suspension. */
 static uint32_t pg_live(struct state *s)
 {
@@ -186,8 +204,7 @@ static uint32_t pg_live(struct state *s)
     if (g->open && s->mode)
         g->open = 0;
 #if ENGINE_ABI3 && !FAR_PART && PG_NAV
-    uint32_t pages=PG_PAGES+engctl_synth_pages();
-    if(g->view>=pages)g->view=(uint8_t)(pages-1);
+    g->view=(uint8_t)pg_engine_view(g->view);
 #endif
     return g->open;
 }
@@ -207,10 +224,20 @@ static uint32_t pg_edit_cb(volatile uint8_t *b, uint32_t arg)
             return TS_REFUSED;
         }
         struct tm *t = tm();                  /* b was captured before the suspension: a project applied in between */
-        if (!t || b != (volatile uint8_t *)(t->store + TM_EXT))   /* (B owns the deltas, b is still A): A is */
+        if (!t || (!(arg&TM_PREPARE) && b != (volatile uint8_t *)(t->store + TM_EXT)))   /* (B owns the deltas, b is still A): A is */
             return TS_BUSY;                   /* never touched, the deltas stay for the next pass with B's block */
         volatile uint8_t *p = b + SYN_PATCH_AT;
         uint32_t st = syn_fm_status(p);
+#if ENGINE_ABI3 && !FAR_PART && defined(FB_MACRO1) && FB_MACRO1
+        /* ENGINE_ABI3 compiles out the once-only load conversion of a 0.2.0 or older slot (notetap.c ad_preapply,
+         * ad_boot_default), so such a slot (syn_fm_old: codec 2 version 1 or 2) stays SYN_UNKNOWN for good and every FM
+         * edit was READONLY. It is a known older layout, not future data, and every reader (page lights, DSP sources,
+         * Tune) already reads it as the defaults (syn_fm_get): the first FM edit creates codec 2 version 3 at those
+         * defaults over it (syn_fm_create below), as over an unset or codec-1 slot. Any other unknown slot stays
+         * read-only. */
+        if (st == SYN_UNKNOWN && syn_fm_old(p))
+            st = SYN_FM_SUB;
+#endif
         if (st == SYN_UNKNOWN) {
 #if !ENGINE_ABI3
             for (uint32_t i = 0; i < 4; i++)
@@ -222,13 +249,13 @@ static uint32_t pg_edit_cb(volatile uint8_t *b, uint32_t arg)
         if(off<SF_TUNE || off>SF_MF)return TS_REFUSED;
         /* The normalized source is reserved before any codec/project mutation.
          * Tune has no PARAM source: the next ONSET captures its pitch. */
-        if(off>SF_TUNE && !abi3_stage_control(8u+off-SF_TUNE,(uint32_t)v))return TS_BUSY;
+        if(!(arg&TM_PREPARE) && off>SF_TUNE && !abi3_stage_control(8u+off-SF_TUNE,(uint32_t)v))return TS_BUSY;
 #endif
         if (st != SYN_V1)
             syn_fm_create(p);
 #if ENGINE_ABI3 && !FAR_PART
         p[off]=(uint8_t)v;
-        g->acc[off-SF_TUNE]=0;
+        if(!(arg&TM_PREPARE))g->acc[off-SF_TUNE]=0;
 #else
 #if FM_BANKVIEW                             /* no FMSET op: +2 and +3 are reserved, never edited */
 #if PG_NAV
@@ -283,24 +310,30 @@ static uint32_t pg_edit_cb(volatile uint8_t *b, uint32_t arg)
     return TS_OK;
 }
 
+#if ENGINE_ABI3 && !FAR_PART
+static uint32_t pg_edit_publish(volatile uint8_t *copy,uint32_t arg)
+{
+    uint32_t op=(arg>>16)&255u,off=arg&127u;
+    if(op>=PG_FMSET){
+        if(off<SF_TUNE || off>SF_MF)return TS_REFUSED;
+        if(off>SF_TUNE && !abi3_stage_control(8u+off-SF_TUNE,copy[SYN_PATCH_AT+off]))return TS_BUSY;
+        PG->acc[off-SF_TUNE]=0;
+    }
+    return TS_OK;
+}
+#endif
 static void pg_edit(struct state *s, uint32_t field, int32_t v, uint32_t op)
 {
-    volatile struct pg *g = PG;
+    volatile struct pg *g=PG;
+    uint32_t arg=field|((uint32_t)v&255u)<<8|op<<16;
 #if ENGINE_ABI3 && !FAR_PART
-    uint32_t irq;
-    __asm__ volatile("mrs %0, primask\n\tcpsid i":"=r"(irq)::"memory");
+    uint32_t r=tm_edit_staged(s,pg_edit_cb,pg_edit_publish,arg);
+#else
+    uint32_t r=tm_edit(s,pg_edit_cb,arg);
 #endif
-    uint32_t r = tm_edit(s, pg_edit_cb, field | ((uint32_t)v & 0xFF) << 8 | op << 16);
-#if ENGINE_ABI3 && !FAR_PART
-    __asm__ volatile("msr primask, %0"::"r"(irq):"memory");
-#endif
-    g->res = (uint8_t)r;
-    if (r == TS_OK) {
-        g->edits++;
-    } else {
-        g->refused++;
-        g->fb = PG_FB_FRAMES;
-    }
+    g->res=(uint8_t)r;
+    if(r==TS_OK)g->edits++;
+    else {g->refused++;g->fb=PG_FB_FRAMES;}
 }
 
 #if SCALES
@@ -338,10 +371,34 @@ static int32_t pg_key(uint32_t pad)
 static void pg_pad(struct state *s, uint32_t pad)
 {
 #if ENGINE_ABI3 && !FAR_PART && PG_NAV
-    if(PG->view==PG_PAGES) {
+    if(PG->view==0 && !engctl_is_fm()) {
         engctl_synth_pad(s,pad,PG->clear);
         return;
     }
+#endif
+#if ENGINE_ABI3 && !FAR_PART && PG_NAV
+#if ARP
+    if(PG->view==2){arp_pad(s,pad);return;}
+#endif
+    if(PG->view==1) {
+        if(pad<SC_TRACKS)pg_sc(s,SC_OP_TOGGLE|pad<<8);
+        else if(pad>=8 && pad<16)pg_sc(s,SC_OP_SCALE|PG_SCALE_ID(pad-8)<<8);
+        else if(pad>=16){int32_t k=pg_key(pad);if(k>=0)pg_sc(s,SC_OP_ROOT|(uint32_t)k<<8);}
+        return;
+    }
+    if(PG->view || !engctl_is_fm())return;
+    uint32_t poly=engctl_poly_mask();
+    if(pad<4){
+        if(poly&(1u<<pad))pg_edit(s,SR_NPP,(int32_t)pad+1,PG_SET);
+        return;
+    }
+    if(pad==23){if(poly)pg_edit(s,SR_POLY,0,PG_TOGGLE);return;}
+    if(!engctl_chords())return;
+    if(pad>=8 && pad<=13)pg_edit(s,SR_TYPE,(int32_t)pad-8,PG_SET);
+    else if(pad==14)pg_edit(s,SR_INKEY,0,PG_TOGGLE);
+    else if(pad>=16 && pad<=19)pg_edit(s,SR_VOICING,(int32_t)pad-16,PG_SET);
+    else if(pad>=24 && pad<=28)pg_edit(s,SR_OCTAVE,(int32_t)pad-26,PG_SET);
+    return;
 #endif
 #if PG_NAV
 #if ARP
@@ -420,7 +477,12 @@ static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit)
             g->opens++;
 #if ENGINE_OPT
         if (!t8_eng())
-            g->view = 1;                    /* no engine: the scale page only (tracks 1..8, scale, key) */
+#if ENGINE_ABI3 && !FAR_PART
+            g->view = 1;
+#else
+            g->view = 1;
+#endif
+                    /* no engine: the scale page only (tracks 1..8, scale, key) */
 #endif
         s->btn_eat |= bit;                  /* both edges of the gesture are nobody's */
         return 1;
@@ -440,18 +502,16 @@ static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit)
         return 0;
     }
     s->btn_eat |= bit;
-#if ENGINE_OPT
-    if (!t8_eng())
-        return 1;                           /* no engine: Up and Down inert (one page) */
+#if ENGINE_OPT && (!ENGINE_ABI3 || FAR_PART)
+    if (!t8_eng())return 1;
 #endif
-    if (index == BTN_UP && g->view)
-        g->view--;
 #if ENGINE_ABI3 && !FAR_PART
-    else if (index == BTN_DOWN && g->view < PG_PAGES+engctl_synth_pages()-1)
+    if(index==BTN_UP || index==BTN_DOWN)
+        g->view=(uint8_t)pg_engine_step(g->view,index==BTN_DOWN);
 #else
-    else if (index == BTN_DOWN && g->view < PG_PAGES - 1)
+    if (index == BTN_UP && g->view)g->view--;
+    else if (index == BTN_DOWN && g->view < PG_PAGES - 1)g->view++;
 #endif
-        g->view++;
     return 1;
 #endif
     s->btn_eat |= bit;                      /* consumed: the release is swallowed, also after the page closed */
@@ -486,7 +546,7 @@ static void pg_default(struct state *s, uint32_t knob)
     const volatile uint8_t *pat = m && m->why == TM_OK && m->store ? (const volatile uint8_t *)(m->store + TM_EXT +
                                                                                                SYN_PATCH_AT) : 0;
 #if ENGINE_ABI3 && !FAR_PART
-    uint32_t value=engctl_macro_default(8u+knob); /* Tune/id8 has no kind5 default. */
+    uint32_t value=knob?engctl_macro_default(8u+knob):64u; /* Tune/id8 has no kind5 default: its own, 64 (no offset) */
     if(value>127)return;
     if(!PG->acc[knob] && (uint32_t)syn_fm_get(pat,off)==value)return;
     pg_edit(s,off,(int32_t)value,PG_FMDEF);
@@ -504,19 +564,30 @@ static uint32_t pg_encoder(struct state *s, uint32_t knob, uint32_t delta)
     if (!pg_live(s))
         return 0;
 #if ENGINE_ABI3 && !FAR_PART && PG_NAV
-    if(PG->view==PG_PAGES) {
-        engctl_synth_encoder(s,knob,delta,PG->clear);
-        return 1;
+    uint32_t engine_macro=0;
+    if(PG->view==0 && !engctl_is_fm()) {
+        if(knob<4) {
+            engctl_synth_encoder(s,knob,delta,PG->clear);
+            return 1;
+        }
+        knob-=4;engine_macro=1;
     }
 #endif
 #if ENGINE_OPT
     if (!t8_eng())
         return 1;                           /* no engine: the page's macros are consumed, no edit */
 #endif
+#if ENGINE_ABI3 && !FAR_PART
+    if(knob>=4 || !engctl_macro_declared(8u+knob))return 1;
+#endif
     int32_t d = (int16_t)delta;
 #if FM_PATCH
     if (FM_BANKVIEW || PG->view) {          /* summed here, written by pg_fm_tick (one CRC per PG_FM_PACE_MS) */
-        if (knob < 4 && !(PAGE030 && PG->view)) {   /* PAGE030: macros 1..4 act on page 1 only; on the other pages they
+        if (knob < 4 && (!(PAGE030 && PG->view)
+#if ENGINE_ABI3 && !FAR_PART && PG_NAV
+            || engine_macro
+#endif
+        )) {   /* PAGE030: macros 1..4 act on page 1 only; on the other pages they
                                                        are consumed and do nothing (Clear + macro included) */
 #if PG_NAV
             if (PG->clear) {
@@ -639,10 +710,6 @@ static void pg_shift_frame(struct state *s, uint32_t *src)
  * lit like the other buttons that have a Shift function (issue #29). The page's and modules' frames are untouched. */
 static void pg_shift_light(struct state *s, uint32_t *src)
 {
-#if ENGINE_ABI3 && !FAR_PART
-    if(s && src!=s->fake_src && PG_IN_SRAM(src[4],LEDS))
-        abi3_sample_frame(s,(uint8_t *)src[4]);
-#endif
     if (!s || src == s->fake_src || !PG_SHIFT_UI(s) || !PG_IN_SRAM(src[4], LEDS))
         return;
     volatile uint8_t *l = (volatile uint8_t *)src[4];
@@ -676,9 +743,34 @@ static void pg_stock_leds(struct state *s, uint32_t *src, uint32_t flag)
         PG_RENDER_RGB(src);
         PG_RENDER_MONO(src);
     }
+    if (!(b & 3u) && !((uint32_t)s->leds & 3u)) {   /* word copy: every ready frame of the owned views copies it */
+        for (uint32_t i = 0; i < LEDS / 4u; i++)
+            ((volatile uint32_t *)s->leds)[i] = ((const volatile uint32_t *)b)[i];
+        return;
+    }
     for (uint32_t i = 0; i < LEDS; i++)
         s->leds[i] = ((const volatile uint8_t *)b)[i];
 }
+
+#if ENGINE_ABI3 && !FAR_PART
+static void pg_sample_frame(struct state *s,uint32_t *src,uint32_t flag)
+{
+    pg_stock_leds(s,src,flag);
+    abi3_sample_frame(s,s->leds);
+}
+/* The stock frame changed, the owned page did not (abi3_sample_changed SV_STOCK): the stock frame into s->leds with
+ * pads 16..31, the only pads sv_sample_paint draws, kept from the last paint (s->leds is that paint's buffer while
+ * the owner tag is set; btn_8 is the stock one unless the blink runs, which repaints every frame). No metadata walk,
+ * no repaint of the owned pads. UI task, LED frame, under the suspension. */
+static void pg_sample_merge(struct state *s,uint32_t *src,uint32_t flag)
+{
+    const uint8_t *t=pad_leds()+48;
+    uint8_t keep[48];
+    for(uint32_t i=0;i<48;i++)keep[i]=s->leds[t[i]];
+    pg_stock_leds(s,src,flag);
+    for(uint32_t i=0;i<48;i++)s->leds[t[i]]=keep[i];
+}
+#endif
 
 /* The PG_OWN LED bytes the page draws over the stock frame: macro 1..8 knob lights, btn_8, Up,
  * Down; the 32 pads are drawn in full by pg_leds. Shift keeps its stock light; Clear is the stock one unless held (or
@@ -714,40 +806,63 @@ static void pg_nav_leds(struct state *s)
     for (uint32_t i = 0; i < 32; i++)
         pad_rgb(s, t, i, 0, 0, 0);
 #if ENGINE_ABI3 && !FAR_PART
-    if(view==PG_PAGES) {
+    if(view==0 && !engctl_is_fm()) {
         engctl_synth_render(s);
     } else
 #endif
     if (view == 0) {                        /* chord: as the single view */
         int32_t npp = syn_rec_get(rec, SR_NPP), type = syn_rec_get(rec, SR_TYPE), inkey = syn_rec_get(rec, SR_INKEY);
         int32_t voicing = syn_rec_get(rec, SR_VOICING), oct = syn_rec_get(rec, SR_OCTAVE);
+#if ENGINE_ABI3 && !FAR_PART
+        uint32_t poly_mask=engctl_poly_mask();
+        if(poly_mask && ((!rec || syn_rec_status(rec)!=SYN_V1) || !(poly_mask&(1u<<((uint32_t)npp-1)))))
+            npp=(int32_t)engctl_poly_default();
+#endif
         for (uint32_t i = 0; i < 4; i++) {
+#if ENGINE_ABI3 && !FAR_PART
+            if(!(poly_mask&(1u<<i)))continue;
+#endif
             v = (int32_t)i + 1 == npp ? BRIGHT : DIM;
             pad_rgb(s, t, i, v, v, v);
         }
+#if ENGINE_ABI3 && !FAR_PART
+        if(engctl_chords()) {
+#endif
         for (uint32_t i = 0; i < 6; i++) {
             v = (int32_t)i == type ? (inkey ? 0x30 : BRIGHT) : (inkey ? 0x04 : DIM);
             pad_rgb(s, t, 8 + i, v, v >> 2, 0);
         }
         v = inkey ? BRIGHT : DIM;
         pad_rgb(s, t, 14, 0, v, 0);
+#if !ENGINE_ABI3 || FAR_PART
         v = sc_scale() == SYN_MINOR ? BRIGHT : DIM;
         pad_rgb(s, t, 15, v >> 1, 0, v);
+#endif
         for (uint32_t i = 0; i < 4; i++) {
             v = (int32_t)i == voicing ? BRIGHT : DIM;
             pad_rgb(s, t, 16 + i, 0, v, v);
         }
+#if !ENGINE_ABI3 || FAR_PART
         v = syn_rec_get(rec, SR_POLY) ? BRIGHT : DIM;
         pad_rgb(s, t, 23, v, 0, 0);
+#endif
         for (uint32_t i = 0; i < 5; i++) {
             v = (int32_t)i - 2 == oct ? BRIGHT : DIM;
             pad_rgb(s, t, 24 + i, 0, 0, v);
         }
+#if ENGINE_ABI3 && !FAR_PART
+        }
+        if(engctl_poly_mask()) {
+            v=syn_rec_get(rec,SR_POLY)?BRIGHT:DIM;
+            pad_rgb(s,t,23,v,0,0);
+        }
+#endif
 #if ARP
     } else if (view == 2) {
         arp_leds(s, t);
 #endif
-    } else {                                /* tracks (green, bright = scaled), scales (violet), key (yellow) */
+    } else {
+        /* Global project scales: all tracks, scales and key remain editable. */
         uint32_t sc = sc_scale(), bits = sc_bits();
         for (uint32_t i = 0; i < SC_TRACKS; i++) {
             v = (bits >> i & 1) ? BRIGHT : DIM;
@@ -764,30 +879,33 @@ static void pg_nav_leds(struct state *s)
                 pad_rgb(s, t, pad, k == root ? BRIGHT : DIM, k == root ? BRIGHT : DIM, k == root ? 0 : DIM);
         }
     }
-    if (ENGINE_OPT && !t8_eng()) {
-        /* no engine: no synth macros, one page (Up, Down and the knob lights dark) */
+    if (ENGINE_OPT && !t8_eng() && (!ENGINE_ABI3 || FAR_PART)) {
+        /* Older profiles keep their single no-engine page. */
     } else {
 #if ENGINE_ABI3 && !FAR_PART
-    if ((!PAGE030 || !view) && view!=PG_PAGES) {
+    if ((!PAGE030 || !view) && engctl_is_fm()) {
 #else
     if (!PAGE030 || !view) {
 #endif
                                            /* knob lights 1, 4, 57, 60 (macros 1..4, green); Tune centred; page 1
                                                only, the other pages leave them dark */
+#if ENGINE_ABI3 && !FAR_PART
+        engctl_config_macros(s,pat);
+#else
         int32_t tu = syn_fm_get(pat, SF_TUNE);
         s->leds[1] = (uint8_t)(((tu < 64 ? 63 - tu : tu - 64) << 1) & 0x7E);
         s->leds[4] = (uint8_t)(syn_fm_get(pat, SF_MA) & 0x7E);
         s->leds[57] = (uint8_t)(syn_fm_get(pat, SF_MD) & 0x7E);
         s->leds[60] = (uint8_t)(syn_fm_get(pat, SF_MF) & 0x7E);
-    }
-    if (view)                               /* btn_Up G 55, btn_Down G 52 */
-        s->leds[55] = DIM;
-#if ENGINE_ABI3 && !FAR_PART
-    if (view < PG_PAGES+engctl_synth_pages()-1)
-#else
-    if (view < PG_PAGES - 1)
 #endif
-        s->leds[52] = DIM;
+    }
+#if ENGINE_ABI3 && !FAR_PART
+    if(pg_engine_step(view,0)!=view)s->leds[55]=DIM;
+    if(pg_engine_step(view,1)!=view)s->leds[52]=DIM;
+#else
+    if(view)s->leds[55]=DIM;
+    if(view<PG_PAGES-1)s->leds[52]=DIM;
+#endif
     }
     if (g->fb) {                            /* btn_8: 212, 213, 214 */
         g->fb--;
@@ -804,6 +922,9 @@ static void pg_nav_leds(struct state *s)
     } else if (!(s->leds[160] | s->leds[161] | s->leds[162])) {
         s->leds[160] = DIM;                 /* stock Clear dark: dim red, Clear + macro is available (#29) */
     }
+#if ABI3_QUEUE_TRACE && !FAR_PART
+    q0_ui_frame(2u,(uint32_t)s->leds,0);
+#endif
 }
 
 /* far table FAR_PGLEDS (hook_frame via pg_frame, notetap.c): the stock frame of source `src` and the page over it into

@@ -8,6 +8,14 @@
                                                                       a stage-1 CRE1 file to CRE2
     python3 -I tools/engine_file.py show file.dse
     python3 -I tools/engine_file.py inspect3|check3 file.dse
+    python3 -I tools/engine_file.py ui3 in.dse out.dse [--macro-hues 4,4,4]
+        [--chords 0|1] [--poly-allowed 1,2,4 --poly-default 2]
+
+CRE3 format minor (+6): ui3 writes format minor 1, the stable engine file format of firmware 0.3.2
+(header byte table: tools/cre3_check.py). It accepts a legacy input at minor 0 or 1 with +27 = 0 and
+changes only the header. inspect3 reports format_minor, also for a file it refuses. Minor 0 stays
+valid for a legacy file (+27 = 0, no declarations); such a file also loads on firmware 0.3.1.
+The fm, reheader and convert commands write CRE2, which has no format minor field.
 
 The 32-byte little-endian header ('CRE2'):
     +0 magic   +4 words   +8 CRC-32 (zlib) of the body   +12 queue ABI   +16 base id (CRBC, tools/crbc.py)
@@ -153,14 +161,19 @@ def inspect_cre3(path, *, details):
 
     with open(path, 'rb') as stream:
         data = stream.read()
-    info = cre3_check.parse(data) if details else {}
     checks = dict(static_eligible=True, runtime_check_14='NOT_RUN', device_admissible=False, errors=[])
     try:
         cre3_check.check(data)
     except ValueError as exc:
         checks.update(static_eligible=False, errors=[str(exc)])
     if details:
-        info.pop('body')
+        try:
+            info = cre3_check.parse(data)
+            info.pop('body')
+        except ValueError:
+            # A refused file still shows the layout version it claims.
+            info = dict(magic=data[:4].decode('latin-1'),
+                        format_minor=int.from_bytes(data[6:8], 'little') if len(data) >= 8 else None)
         info['checks'] = checks
         print(json.dumps(info, sort_keys=True, indent=2))
         return 0
@@ -168,13 +181,64 @@ def inspect_cre3(path, *, details):
     return int(not checks['static_eligible'])
 
 
+def ui3(data, *, macro_hues=(4, 4, 4), chords=False, poly_allowed=(), poly_default=0):
+    """Declare engine config controls without changing DSP instructions or the settings key."""
+    import cre3_check
+    info = cre3_check.parse(data)
+    need(info['ui_capabilities'] == 0, 'ui3 expects a legacy header without UI declarations')
+    need(len(macro_hues) == 3 and all(type(h) is int and 0 <= h <= 7 for h in macro_hues),
+         'macro hues must be three integers from 0 to 7')
+    allowed = tuple(poly_allowed)
+    need(all(type(n) is int and 1 <= n <= 4 for n in allowed) and len(set(allowed)) == len(allowed),
+         'poly allowed values must be distinct voice counts from 1 to 4')
+    need(type(poly_default) is int and ((poly_default in allowed) if allowed else poly_default == 0),
+         'poly default must belong to the allowed set')
+    need(info['engine_class'] == 1 or not (chords or allowed), 'chords and polyphony controls are FM-only')
+    records = [bytes.fromhex(r) for r in info['controls']]
+    defaults = next((r for r in records if r[0] == 5 and r[1] == 6), None)
+    wanted = info['wanted_sources']
+    need(defaults is not None or not wanted & 0xe00, 'source 6 to 11 defaults are required for macro declarations')
+    for source, hue in zip((9, 10, 11), macro_hues):
+        if wanted & (1 << source):
+            records.append(bytes((4, source, 0, 0, 0, defaults[source-4], hue, 0)))
+    if allowed:
+        identities = [i for i, r in enumerate(records) if r[0] == 6]
+        need(len(identities) == 1, 'polyphony controls require one settings identity record')
+        i = identities[0]
+        r = bytearray(records[i])
+        r[5] = sum(1 << (n-1) for n in allowed)
+        r[6] = poly_default
+        records[i] = bytes(r)
+    need(len(records) <= 16, 'control declaration count exceeds 16')
+    h, count, tables = info['header_size'], data[26], data[25]
+    start = 64 + 8*tables
+    metadata = data[start + 8*count:h]
+    header = bytearray(data[:start] + b''.join(records) + metadata)
+    header[26], header[27] = len(records), 129 if chords else 128
+    struct.pack_into('<H', header, 6, 1)      # format minor 1: declarations need it
+    struct.pack_into('<H', header, 4, len(header))
+    header[60:64] = bytes(4)
+    struct.pack_into('<I', header, 60, zlib.crc32(header))
+    output = bytes(header) + data[h:]
+    need(output[len(header):] == info['body'], 'DSP body changed')
+    cre3_check.check(output)
+    return output
+
+
 def main(a):
     """The CLI: every input read and checked and the result built before the output is touched. Returns the code."""
     try:
-        if a and a[0] in ("inspect3", "check3"):
+        if a[:1] == ["ui3"] and len(a) >= 3:
+            o = _opts(a[3:], ("--macro-hues", "--chords", "--poly-allowed", "--poly-default"))
+            need(o.get("--chords", "0") in ("0", "1"), '--chords must be 0 or 1')
+            hues = tuple(int(v, 0) for v in o.get("--macro-hues", "4,4,4").split(","))
+            allowed = tuple(int(v, 0) for v in o.get("--poly-allowed", "").split(",") if v)
+            out = ui3(open(a[1], "rb").read(), macro_hues=hues, chords=o.get("--chords", "0") == "1",
+                      poly_allowed=allowed, poly_default=int(o.get("--poly-default", "0"), 0))
+        elif a and a[0] in ("inspect3", "check3"):
             need(len(a) == 2, f"{a[0]} FILE")
             return inspect_cre3(a[1], details=a[0] == "inspect3")
-        if a and a[0] in ("make3", "wrap3", "rewrap3"):
+        elif a and a[0] in ("make3", "wrap3", "rewrap3"):
             try:
                 import abi3_file
             except ModuleNotFoundError as exc:
@@ -182,7 +246,7 @@ def main(a):
                     raise
                 raise ValueError("CRE3 authoring tools are unavailable in this checkout.") from None
             return abi3_file.cli(a)
-        if a[:1] == ["fm"] and len(a) == 3:
+        elif a[:1] == ["fm"] and len(a) == 3:
             out = make(fm_body(open(a[1], "rb").read()), KINDS["fm"], QUEUE_ABI, QUEUE_ABI)
         elif a[:1] == ["reheader"] and len(a) == 3:
             out = reheader(open(a[1], "rb").read())

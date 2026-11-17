@@ -249,8 +249,15 @@
 #define CRE3L_STATE_AT  (C0LZ_AT - CRE3L_STATE_SIZE)
 #define CRE3L_LAST_CHECK_OFFSET 227u
 #define CRE3L_HEALTH_OFFSET 240u
+#define CRE3L_SAMPLE_SOUND_OFFSET 239u
 #undef HEAP_FLOOR
 #define HEAP_FLOOR      CRE3L_STATE_AT
+#endif
+#if INTERNAL_HOST_IO
+#define HOSTINPUT_AT (CRE3L_STATE_AT - 24u)
+#undef HEAP_FLOOR
+#define HEAP_FLOOR HOSTINPUT_AT
+_Static_assert((HOSTINPUT_AT & 3u)==0,"private input state aligned below loader ownership");
 #endif
 #define TRANSPORT_VT    0x080683E0u     /* transport object check */
 #define EV_START        1u
@@ -361,7 +368,7 @@ typedef void (*mod_input_fn)(uint8_t *leds, uint32_t kind, uint32_t index, uint3
 #define STOCK_BUTTON    ((ui_fn)0x0804012Bu)    /* (ctx, code, down) */
 #define STOCK_POT       ((ui_fn)0x08040141u)    /* (ctx, which, value) */
 #define STOCK_PRESSURE  ((ui_fn)0x08040153u)    /* (ctx, pad, value) */
-#define STOCK_ENCODER   ((ui_fn)0x0804015Fu)    /* (ctx, knob, int16 delta) */
+#define STOCK_ENCODER   ((ui_fn)0x0804015Fu)    /* native dispatch sign-extends the delta byte */
 #define DSP_READ    ((dsp_read_fn)0x08031269u)  /* DSP word read */
 #define ORIG_TIMERS ((sched_fn1)0x0802677Bu)    /* Main loop timer service */
 typedef void (*sched_fn1)(uint32_t a);
@@ -511,6 +518,26 @@ static void tm_sysex(struct state *s, const uint8_t *m, uint32_t len);
 static void pl_host(uint32_t t, uint32_t idx);
 #endif
 #ifdef SYNTHPAGE
+#define MODE_SAMPLE 7u
+/* abi3_sample_changed results (defined here: the unity build includes this file before notetap.c) */
+#ifndef SV_OWNED
+#define SV_PAINT_TAG 0x53565054u
+#define SV_STOCK 2u
+#define SV_OWNED 1u
+#endif
+static uint32_t abi3_sample_owned(struct state *s);
+static uint32_t abi3_sample_changed(struct state *s,uint32_t *src);
+static void ui_snap(struct state *s);
+static void pg_sample_frame(struct state *s,uint32_t *src,uint32_t flag);
+static void pg_sample_merge(struct state *s,uint32_t *src,uint32_t flag);
+#if !ENGINE_ABI3
+/* The owned Sample page exists only with ENGINE_ABI3 (notetap.c, synthpage.c); profiles without it never own it.
+ * ENGINE_ABI3 compiles (Main and Far) are left untouched: the Far copy of hook_frame is never linked. */
+#define abi3_sample_owned(s) 0u
+#define abi3_sample_changed(s,src) 0u
+#define pg_sample_frame(s,src,flag) ((void)0)
+#define pg_sample_merge(s,src,flag) ((void)0)
+#endif
 #define MODE_PAGE   5u                        /* hook_frame only: s->mode == 0 and the page is open */
 static uint32_t pg_live(struct state *s);
 static uint32_t pg_button(struct state *s, uint32_t index, uint32_t bit);
@@ -531,6 +558,11 @@ static void sc_main(struct state *s);
 static void sc_copy(const volatile uint8_t *b);
 static void sc_sysex(struct state *s, const uint8_t *m, uint32_t len);
 #endif
+#if ABI3_QUEUE_TRACE && !FAR_PART
+static void q0_ui_frame(uint32_t writer,uint32_t buffer,uint32_t meta);
+#else
+#define q0_ui_frame(writer,buffer,meta) ((void)0)
+#endif
 #if CORE0_BENCH
 static void q0_telem(const uint8_t *m, uint32_t len);   /* SysEx 0F, diagnostic core-0 telemetry (patches/src/core0feed.c) */
 #endif
@@ -542,6 +574,10 @@ static void o1_sysex(const uint8_t *m, uint32_t len);
 static void o1_frame(uint32_t *src);      /* stock display shown: blink the DSP-fault LED (patches/src/o1wait.c) */
 #endif
 
+#if INTERNAL_HOST_IO && !FAR_PART
+static void hostinput_cmd(struct state *s,const uint8_t *m,uint32_t len);
+static void hostinput_main(struct state *s);
+#endif
 static struct state *region(void)
 {
     volatile uint32_t *ctl = (volatile uint32_t *)HEAP_CTL;
@@ -797,17 +833,28 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
     struct state *s = region();
     if (!s) {
         ORIG_FRAME(frame, src, flag);
+        q0_ui_frame(4,src[4],0);
         return;
     }
+#if ABI3_QUEUE_TRACE && !FAR_PART
+    ((volatile uint16_t *)&s->ev[13])[0]++;   /* 0F v7: UI loop passes mod 65536 (this halfword: UI task only) */
+#endif
     SUSPEND_ALL();
     uint8_t mode = s->mode;
 #ifdef SYNTHPAGE
+    if (!mode) ui_snap(s); /* checked live view, not the preceding Main snapshot */
     if (pg_live(s))                         /* also closes the page when anything else is in front */
         mode = MODE_PAGE;
+    else if (!mode && abi3_sample_owned(s))
+        mode = MODE_SAMPLE;
 #endif
 #if BOOT_PULSE
     if (!mode && bp_on())
         mode = MODE_PULSE;
+#endif
+#ifdef SYNTHPAGE
+    if (mode != MODE_SAMPLE)
+        s->fake_src[2] = 0;                   /* s->leds is not the Sample composite: its next frame repaints */
 #endif
     if (!mode) {
         uint8_t was_on = s->was_on;
@@ -822,6 +869,7 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
         o1_frame(src);
 #endif
         ORIG_FRAME(frame, src, flag);
+        q0_ui_frame(4,src[4],0);
         return;
     }
     uint32_t ready = ((volatile uint8_t *)frame)[2] != 0;
@@ -840,6 +888,7 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
         o1_frame(src);
 #endif
         ORIG_FRAME(frame, src, flag);
+        q0_ui_frame(4,src[4],0);
         return;
     }
     if (!ready) {
@@ -847,6 +896,14 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
         return;
     }
     s->was_on = 1;
+#ifdef SYNTHPAGE
+    uint32_t changed = mode == MODE_SAMPLE ? abi3_sample_changed(s, src) : 0;
+    if (mode == MODE_SAMPLE && !changed) {
+        RESUME_ALL();                         /* as last encoded: the LEDs stand, the ready token stays, as the stock
+                                                 frame leaves both for a clean source */
+        return;
+    }
+#endif
     s->frames++;
     if (mode == 1)
         glitter(s);
@@ -863,6 +920,12 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
     else if (mode == MODE_PICK)
         picker_leds(s);
 #ifdef SYNTHPAGE
+    else if (mode == MODE_SAMPLE) {
+        if (changed == SV_OWNED)
+            pg_sample_frame(s,src,flag);      /* the owned page changed: stock frame and the full engine paint */
+        else
+            pg_sample_merge(s,src,flag);      /* the stock frame changed: the owned pads as last painted */
+    }
     else if (mode == MODE_PAGE) {
 #if PG_NAV
         pg_frame(s, src, flag);             /* the stock frame under the page, the page's lights over it */
@@ -875,6 +938,7 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
     else if (mode == MODE_PULSE && !bp_leds(s)) {
         RESUME_ALL();                         /* no far blob: the stock frame */
         ORIG_FRAME(frame, src, flag);
+        q0_ui_frame(4,src[4],0);
         return;
     }
 #endif
@@ -882,6 +946,7 @@ void hook_frame(void *frame, uint32_t *src, uint32_t flag)
     s->fake_src[4] = (uint32_t)s->leds;
     RESUME_ALL();
     ORIG_FRAME(frame, s->fake_src, 0);
+    q0_ui_frame(4,s->fake_src[4],mode == MODE_SAMPLE ? 2 : 1);
 }
 
 static void put7(volatile uint8_t *p, uint32_t v, int n)
@@ -1264,20 +1329,22 @@ static uint32_t event(uint32_t kind, uint32_t index, uint32_t value)
     if (!s)
         return 0;
     SUSPEND_ALL();
+#if !ABI3_QUEUE_TRACE
     s->ev[s->ev_seq % EV_SLOTS] = kind | (index & 0xFF) << 8 | (value & 0xFFFF) << 16;
     s->ev_seq++;
+#endif
     uint32_t swallow = route(s, kind, index, value);
     RESUME_ALL();
     return swallow;
 }
 
-void hook_pad(uint32_t ctx, uint32_t pad, uint32_t velocity, uint32_t on)
+static __attribute__((used)) void hook_pad(uint32_t ctx, uint32_t pad, uint32_t velocity, uint32_t on)
 {
     if (!event(EV_PAD, pad, (velocity & 0xFF) | (on ? 0x100 : 0)))
         STOCK_PAD(ctx, pad, velocity, on);
 }
 
-void hook_button(uint32_t ctx, uint32_t code, uint32_t down, uint32_t d)
+static __attribute__((used)) void hook_button(uint32_t ctx, uint32_t code, uint32_t down, uint32_t d)
 {
     if (!event(EV_BUTTON, code, down))
         STOCK_BUTTON(ctx, code, down, d);
@@ -1295,8 +1362,11 @@ void hook_pressure(uint32_t ctx, uint32_t pad, uint32_t value, uint32_t d)
         STOCK_PRESSURE(ctx, pad, value, d);
 }
 
-void hook_encoder(uint32_t ctx, uint32_t knob, uint32_t delta, uint32_t d)
+static __attribute__((used)) void hook_encoder(uint32_t ctx, uint32_t knob, uint32_t delta, uint32_t d)
 {
+    /* Native encoder entry0804015E sign-extends the wire byte before dispatch.
+     * Owned routing bypasses that entry, so preserve its signed-byte contract. */
+    delta=(uint32_t)(int32_t)(int8_t)delta;
     if (!event(EV_ENCODER, knob, delta))
         STOCK_ENCODER(ctx, knob, delta, d);
 }
@@ -1452,6 +1522,9 @@ void hook_sysex(uint32_t a, uint32_t *msg, uint32_t c)
         send_status(s);
         return;
     }
+#if INTERNAL_HOST_IO && !FAR_PART
+    if (cmd == 0x12) {hostinput_cmd(s,m,len);return;}
+#endif
     if (cmd == 0x0A) {
         if (len == 9 && m[7] <= 1) {
             SUSPEND_ALL();
@@ -1626,7 +1699,7 @@ static uint32_t note_q(uint32_t track, uint32_t note, uint32_t velocity, uint32_
     return 1;
 }
 
-uint32_t host_note(uint32_t track, uint32_t note, uint32_t velocity)
+static __attribute__((used)) uint32_t host_note(uint32_t track, uint32_t note, uint32_t velocity)
 {
     return note_q(track, note, velocity, T_NOTE);
 }
@@ -1651,7 +1724,7 @@ static uint32_t enqueue(struct state *s, uint32_t e, uint32_t need)
 }
 
 /* Module ABI 3 (word 5): queue channel parameter idx (0..24) of track t := val (0..127, stored encoding). */
-uint32_t host_param(uint32_t track, uint32_t idx, uint32_t val)
+static __attribute__((used)) uint32_t host_param(uint32_t track, uint32_t idx, uint32_t val)
 {
     struct state *s = region();
     if (!s || track > 7 || idx >= CH_PARAMS || val > 127)
@@ -1678,7 +1751,12 @@ uint32_t host_midi(uint32_t msg)
 }
 
 /* The word at p + off, or 0 (never a valid link) unless p is word aligned and the whole word lies in SRAM. */
+#if ABI3_PRODUCTION_RC && !INTERNAL_TEST_TWIN
+/* Production Main must not materialize absolute pointers to its own code. */
+__attribute__((always_inline)) static inline uint32_t link(uint32_t p, uint32_t off)
+#else
 static uint32_t link(uint32_t p, uint32_t off)
+#endif
 {
     if ((p & 3) || (off & 3) || p < SRAM_START || p >= SRAM_END || off > SRAM_END - 4 - p)
         return 0;
@@ -2364,7 +2442,13 @@ void hook_main(uint32_t timers)
     struct state *s = region();
     if (!s)
         return;
+#if ABI3_QUEUE_TRACE && !FAR_PART
+    ((volatile uint16_t *)&s->ev[13])[1]++;   /* 0F v7: Main loop passes mod 65536 (this halfword: Main task only) */
+#endif
     ui_snap(s);
+#if INTERNAL_HOST_IO && !FAR_PART
+    hostinput_main(s);
+#endif
     clock_poll(s);
     drain(s);
     loader(s);

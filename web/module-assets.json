@@ -44,10 +44,22 @@
   {
     "file": "10euclid.mod",
     "legacy": "02euclid.mod",
-    "size": 11640,
-    "crc": 1736228139,
-    "sha256": "33d241030311a6e64f579ebc8cf7e7f005b5fee4421e14e6529f9c84ab10a2f1",
+    "size": 11848,
+    "crc": 3273891736,
+    "sha256": "b214a506d76f4598407290875883f403a680cc29b7ff613f2e6de113294d6c7f",
     "previous": [
+      {
+        "version": "0.3.1",
+        "size": 11776,
+        "crc": 3356894883,
+        "sha256": "ae2722375255964b5e1264e0cc70736e562c3a2e63bf8110971169968728e3b6"
+      },
+      {
+        "version": "0.3.0",
+        "size": 11640,
+        "crc": 1736228139,
+        "sha256": "33d241030311a6e64f579ebc8cf7e7f005b5fee4421e14e6529f9c84ab10a2f1"
+      },
       {
         "version": "0.2.2",
         "size": 3144,

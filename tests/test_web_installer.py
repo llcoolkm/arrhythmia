@@ -282,8 +282,8 @@ class Release6013(unittest.TestCase):
     def test_page_naming(self):
         """Arrhythmia in title, heading and filenames; the maker's name only in the descriptive line."""
         html = (ROOT / "web/index.html").read_text()
-        self.assertIn("<title>Circus Arrhythmia FM Installer</title>", html)
-        self.assertIn("<h1>Circus Arrhythmia FM</h1>", html)
+        self.assertIn("<title>Arrhythmia Installer</title>", html)
+        self.assertIn("<h1>Arrhythmia</h1>", html)
         self.assertIn("Custom firmware for the Novation Circuit Rhythm", html)
         body = html[html.index("<body>"):html.index("<script")]
         self.assertEqual(body.count("Novation"), 1)
@@ -384,7 +384,7 @@ class ReleaseV031(unittest.TestCase):
                          '31b549966b3facc0a1f86e8b7f2c63d90fb2e218027aa664cf78990d85d1192f')
         html=(ROOT/'web/index.html').read_text()
         start=html.index(crpatch.BEGIN)+len(crpatch.BEGIN)
-        self.assertEqual(json.loads(html[start:html.index('</script>',start)]),current)
+        self.assertNotEqual(json.loads(html[start:html.index('</script>',start)]),current)   # 0.3.2 is embedded
 
     @unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
     def test_patched_031_matches_both_published_builds(self):
@@ -394,6 +394,53 @@ class ReleaseV031(unittest.TestCase):
         for build in release['builds']:
             result,_=crpatch.apply(release,stock,build['name'])
             self.assertEqual(hashlib.sha256(result).hexdigest(),build['output']['syx_sha256'])
+
+
+class ReleaseV032(unittest.TestCase):
+    """release/v0.3.2.json: firmware 7400 derived from the stock file, devkit 7228 carried from 0.3.1, embedded."""
+    REL, NAME, EMBEDDED = ROOT / "release/v0.3.2.json", "Arrhythmia 0.3.2", True
+    PINS = {"firmware": "3f7b4fa2e59f5e3057f2792d7b4b5e4d5a30ddd6a029ed7f37d1441b28b4a021", "devkit": PIN_7228}
+
+    def setUp(self):
+        self.rel = json.loads(self.REL.read_text())
+
+    def test_release_identity_devkit_and_embedded_manifest(self):
+        check_shape(self, self.rel)
+        previous = json.loads((ROOT / 'release/v0.3.1.json').read_text())
+        self.assertEqual(self.rel['name'], self.NAME)
+        self.assertEqual(self.rel['input'], previous['input'])
+        self.assertEqual([(b['name'], b['output']['label']) for b in self.rel['builds']],
+                         [('firmware', 7400), ('devkit', 7228)])
+        self.assertEqual(crpatch.select(self.rel, 'devkit'), crpatch.select(previous, 'devkit'))
+        fw = crpatch.select(self.rel, 'firmware')
+        self.assertEqual(fw['output']['syx_sha256'], self.PINS['firmware'])
+        self.assertEqual(fw['output']['image_sha256'], '1b481a0d504efc29dc0de28cb06b2bddce11c17a1adc1a202c6fb20b7e18591a')
+        self.assertTrue(fw['description'].startswith('Arrhythmia 0.3.2.'))
+        self.assertEqual(crpatch.select(self.rel)['name'], 'firmware')
+
+    def test_no_raw_stock_fields(self):
+        text = self.REL.read_text()
+        self.assertNotIn('"expect"', text)
+        self.assertNotIn('"new"', text)
+
+    test_page_embeds_this_release = _Release.test_page_embeds_this_release
+
+
+@unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")
+class ReleaseV032Stock(unittest.TestCase):
+    """0.3.2 against the stock file: no stock bytes published, both pins reproduce, JS equals Python."""
+    REL, NAME, EMBEDDED = ReleaseV032.REL, ReleaseV032.NAME, True
+    PINS = ReleaseV032.PINS
+    setUp = _Release.setUp
+    test_no_stock_bytes_published = _Release.test_no_stock_bytes_published
+    test_js_equals_python = _Release.test_js_equals_python
+
+    def test_both_pins_and_label(self):
+        for b in self.rel['builds']:
+            out, image = crpatch.apply(self.rel, self.stock, b['name'])
+            self.assertEqual(hashlib.sha256(out).hexdigest(), self.PINS[b['name']])
+        _, image = crpatch.apply(self.rel, self.stock, 'firmware')
+        self.assertEqual(int.from_bytes(image[0x1CA:0x1CC], 'little'), 7400)
 
 
 @unittest.skipUnless(STOCK.exists(), "firmware/circuit-rhythm-5706.syx not present")

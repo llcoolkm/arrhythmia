@@ -170,6 +170,28 @@ static void q0_wr1(uint32_t addr, uint32_t v)
 }
 
 /* One hold: k entries in sequence order, then PROD once, the slot wrap 15 -> 0 included. Nothing here can fail or re-enter (no callback; the semaphore take yields to other tasks only). */
+#if ABI3_QUEUE_TRACE
+#if !FAR_PART
+static void q0_trace(uint32_t reason,uint32_t meta);
+#else
+/* Owned former event ring: header16 words +2 records of8 words. No allocation. */
+static void q0_trace_store(uint32_t reason,uint32_t meta)
+{
+    struct state *s=region(); if(!s)return;
+    struct q0 *q=Q0; uint32_t pm; __asm__ volatile("mrs %0,primask\ncpsid i":"=r"(pm)::"memory");
+    uint32_t seq=s->ev_seq, *r=s->ev+16+8*(seq%2);
+    r[0]=TICK(); r[1]=(reason&255u)|((uint32_t)q->ph<<8)|(meta<<16);
+    r[2]=q->req; r[3]=s->ev[0]; r[4]=s->ev[1]; r[5]=q->prod; r[6]=q->cons; r[7]=q->epoch;
+    struct eo *e=eo(); if(e){s->ev[6]=e->att|((uint32_t)e->rgen<<16);s->ev[7]=e->c_pack|((uint32_t)e->r_kind<<8)|((uint32_t)e->r_pair<<16)|((uint32_t)e->phase<<24);}
+    s->ev[2]=0x51545243u; s->ev[3]=7; s->ev[4]=q->bulk|((uint32_t)q->busy<<8)|((uint32_t)q->excl<<16); s->ev_seq=seq+1;
+    __asm__ volatile("msr primask,%0"::"r"(pm):"memory");
+}
+#define q0_trace q0_trace_store
+#endif
+#else
+#define q0_trace(reason,meta) ((void)0)
+#endif
+
 static void q0_write(struct q0 *q, uint32_t (*w)[2], uint32_t k)
 {
 #if CORE0_RECOVER
@@ -385,7 +407,7 @@ static uint32_t q0_abi3_user_ready(struct a1 *a)
 static uint32_t abi3_stage_control(uint32_t id, uint32_t value)
 {
     struct a1 *a=a1();
-    if (!q0_abi3_user_ready(a) || !((id>=9 && id<=11) || (id>=16 && id<=21))) return 0;
+    if (!q0_abi3_user_ready(a) || !((id>=8 && id<=11) || (id>=16 && id<=21))) return 0;
     uint32_t accepted=c3p_control(&a->producer,id,value);
     q0_abi3_sync(a); return accepted;
 }
@@ -1030,7 +1052,7 @@ static void q0_reent_note(struct a1 *a, uint32_t src, int32_t note, uint32_t vel
 static void q0_close(void)
 {
     struct q0 *q = Q0;
-    q->ph = Q_CLOSED;
+    q->ph = Q_CLOSED; q0_trace(1u,0);
     q->reval = 0;
     q->slow = 0;
 }
@@ -1066,12 +1088,18 @@ static uint32_t q0_header_ok(struct q0 *q)
 static void q0_request(struct q0 *q, uint32_t now)
 {
     uint32_t r[4];
-    q0_rd(Q0_ACK, 4, r);                      /* ACK, PROD, CONS, FAULT */
+    #if ABI3_QUEUE_TRACE
+    uint32_t qr[5]; q0_rd(Q0_REQ,5,qr);
+    for(uint32_t qi=0;qi<4;qi++)r[qi]=qr[qi+1];
+    if(region()){region()->ev[0]=qr[0];region()->ev[1]=qr[1];region()->ev[5]=1;}
+#else
+    q0_rd(Q0_ACK, 4, r);
+#endif                      /* ACK, PROD, CONS, FAULT */
     q->prod = r[1];                           /* adopted; the ARM does not write PROD until the ACK */
     q->cons = r[2];
 #if ENGINE_ABI3
     struct a1 *a=a1(); const uint8_t *header=abi3_engine_header();
-    if (!a || !header || !abi3_engine_eligible()) { q->ph=Q_CLOSED; return; }
+    if (!a || !header || !abi3_engine_eligible()) { q->ph=Q_CLOSED; q0_trace(2u,0); return; }
     a->producer.wanted=q0_abi3_u32(header+40); a->producer.lanes=header[44]; a->producer.slots=header[46];
     a->producer.epoch=r[0];
     c3p_epoch_begin(&a->producer,(r[0]+1u)&M24); q0_abi3_sync(a);
@@ -1081,7 +1109,7 @@ static void q0_request(struct q0 *q, uint32_t now)
     q->t_ack0 = TICK();                       /* immediately before the REQ frame */
 #endif
     q0_wr1(Q0_REQ, q->req);
-    q->ph = Q_REQ_PH;
+    q->ph = Q_REQ_PH; q0_trace(3u,0);
     q->t_ph = q->t_poll = now;
     q->slow = 0;
     q->c_req++;
@@ -1094,7 +1122,7 @@ static void q0_open(struct a1 *a, uint32_t now)
     struct q0 *q = Q0;
 #if CORE0_BULK_EXCLUDE
     if (q->excl) {                            /* the reset has hard-cleared the voices: stay closed until a DSP load */
-        q->ph = Q_CLOSED;
+        q->ph = Q_CLOSED; q0_trace(4u,0);
         q->c_excl++;
         return;
     }
@@ -1104,7 +1132,7 @@ static void q0_open(struct a1 *a, uint32_t now)
     q->cons = q->prod;
     q->t_read = now;
     q->reval = 0;
-    q->ph = Q_OPEN;
+    q->ph = Q_OPEN; q0_trace(5u,0);
 #if CORE0_BENCH
     q->bst |= BST_OPENED;
 #endif
@@ -1118,7 +1146,9 @@ static void q0_open(struct a1 *a, uint32_t now)
     uint32_t saved; __asm__ volatile("mrs %0, primask\ncpsid i":"=r"(saved)::"memory");
     uint32_t staged=c3p_epoch_ack(&a->producer,q->req,hello,values);
     __asm__ volatile("msr primask, %0"::"r"(saved):"memory");
-    if (!staged) { q->ph=Q_REQ_PH; eng_unlock(sem); return; }
+    /* A refused barrier waits for room in N at the same epoch; a producer no longer waiting for this epoch (a flush
+     * since the request) can never accept its ACK, so the next pass requests a new epoch from the header. */
+    if (!staged) { q->ph=a->producer.waiting?Q_REQ_PH:Q_HEADER; q0_trace(6u,c3p_epoch_ack_diagnostic(&a->producer,q->req,hello,values)); eng_unlock(sem); return; }
     q0_abi3_sync(a);
 #else
     a->ad_pub = AD_DEFAULT;
@@ -1151,7 +1181,13 @@ static void q0_reconcile(struct a1 *a, uint32_t now)
 #endif
     uint32_t h[3], r[4];
     q0_rd(Q0_MAGIC_AT, 3, h);
+    #if ABI3_QUEUE_TRACE
+    uint32_t qr[5]; q0_rd(Q0_REQ,5,qr);
+    for(uint32_t qi=0;qi<4;qi++)r[qi]=qr[qi+1];
+    if(region()){region()->ev[0]=qr[0];region()->ev[1]=qr[1];region()->ev[5]=1;}
+#else
     q0_rd(Q0_ACK, 4, r);
+#endif
     q->reval = 0;
     if (h[0] == Q0_MAGIC && h[1] == Q0_VERSION && h[2] == Q0_READY && r[0] == q->epoch && !r[3] && r[1] == q->prod
             && ((r[1] - r[2]) & M24) <= Q0_CAP) {
@@ -1209,13 +1245,13 @@ static void q0_service(struct a1 *a)
 #endif
 #if ENGINE_ABI3
     if (q->ph==Q_OPEN && a->producer.resync && !q->bulk && !q->excl) {
-        q->ph=Q_RECOVER; a->phase=PH_CLOSED;
+        q->ph=Q_RECOVER; q0_trace(7u,0); a->phase=PH_CLOSED;
     }
 #endif
     if (q->ph == Q_CLOSED || q->ph == Q_QUAR)
         return;
     if (o1_faulted()) {                       /* O1 quarantine: closed, no further queue access, no healing */
-        q->ph = Q_QUAR;
+        q->ph = Q_QUAR; q0_trace(8u,0);
         a1_close(a);
         return;
     }
@@ -1225,11 +1261,11 @@ static void q0_service(struct a1 *a)
     if (q->ph == Q_RECOVER) {                 /* the in-flight producer has finished: purge, reset, then a new epoch */
         a1_close(a);
 #if CORE0_RECOVER
-        q->ph = (q->rf & RF_RINIT) ? Q_INIT : Q_HEADER;
+        q->ph = (q->rf & RF_RINIT) ? Q_INIT : Q_HEADER; q0_trace(9u,0);
         q->rf &= (uint8_t)~(RF_RINIT | RF_POST);   /* a recovery ends a pending post-init check (a reinit, if any,
                                                       zeroes REJECTED again) */
 #else
-        q->ph = Q_HEADER;
+        q->ph = Q_HEADER; q0_trace(10u,0);
 #endif
         q->t_ph = q->t_poll = now;
         q->slow = 0;
@@ -1270,7 +1306,7 @@ static void q0_service(struct a1 *a)
 #endif
             q->t_ph = TICK();                 /* the deadline's origin: immediately before the single READY=0 frame */
             q0_wr1(Q0_READY_AT, 0);
-            q->ph = Q_INITW;
+            q->ph = Q_INITW; q0_trace(11u,0);
             return;
         }
         uint32_t want = (q->init_c0 + 1u) & M24;
@@ -1287,7 +1323,7 @@ static void q0_service(struct a1 *a)
                 if (late && q->c_init_late != 0xFFu)
                     q->c_init_late++;
 #endif
-                q->ph = Q_HEADER;
+                q->ph = Q_HEADER; q0_trace(12u,0);
                 q->t_ph = q->t_poll = now;
                 q->rf = (uint8_t)((q->rf & ~(RF_SEEN | RF_TX)) | RF_POST);   /* confirmed: the attempt is over;
                                                                  its epoch ACK still owes the REJECTED check */
@@ -1305,7 +1341,7 @@ static void q0_service(struct a1 *a)
 shut:                                         /* uncertain: closed until a DSP load, no retry */
         q->rf &= (uint8_t)~RF_POST;           /* also the post-init epoch's refusals (pre-REQ, post-ACK) */
         q->excl = 1;
-        q->ph = Q_CLOSED;
+        q->ph = Q_CLOSED; q0_trace(13u,0);
         q->c_excl++;
         return;
     }
@@ -1349,7 +1385,13 @@ shut:                                         /* uncertain: closed until a DSP l
         }
     } else if (q->ph == Q_REQ_PH) {
         uint32_t r[4];
-        q0_rd(Q0_ACK, 4, r);
+        #if ABI3_QUEUE_TRACE
+    uint32_t qr[5]; q0_rd(Q0_REQ,5,qr);
+    for(uint32_t qi=0;qi<4;qi++)r[qi]=qr[qi+1];
+    if(region()){region()->ev[0]=qr[0];region()->ev[1]=qr[1];region()->ev[5]=1;}
+#else
+    q0_rd(Q0_ACK, 4, r);
+#endif
         if (r[0] == q->req && !r[3] && r[1] == q->prod && r[2] == q->prod) {
 #if CORE0_RECOVER_TIMING
             q0_tmax(&q->t_ack_max, TICK() - q->t_ack0);  /* after the ACK read and its checks */
@@ -1370,7 +1412,7 @@ shut:                                         /* uncertain: closed until a DSP l
             q0_open(a, now);
         } else if (!q->slow && (int32_t)(now - q->t_ph) >= (int32_t)Q0_WAIT_MS) {
             q->slow = 1;
-            q->c_noack++;
+            q->c_noack++; q0_trace(40,0);
         }
     }
 }
@@ -1387,13 +1429,25 @@ static void q0_silence(struct a1 *a)
 {
     struct q0 *q = Q0;
     uint32_t r[4];
+    #if ABI3_QUEUE_TRACE
+    uint32_t qr[5]; q0_rd(Q0_REQ,5,qr);
+    for(uint32_t qi=0;qi<4;qi++)r[qi]=qr[qi+1];
+    if(region()){region()->ev[0]=qr[0];region()->ev[1]=qr[1];region()->ev[5]=1;}
+#else
     q0_rd(Q0_ACK, 4, r);
+#endif
     uint32_t req = (r[0] + 1u) & M24, t0 = TICK();
     q0_wr1(Q0_REQ, req);
     q->req = req;
     for (uint32_t n = 0; n < Q0_SILENCE_POLLS && (int32_t)(TICK() - t0) <= (int32_t)Q0_SILENCE_MS; n++) {
 #if CORE0_RECOVER
-        q0_rd(Q0_ACK, 4, r);                  /* ACK..FAULT: quiet = ACK with FAULT 0 */
+        #if ABI3_QUEUE_TRACE
+    uint32_t qr[5]; q0_rd(Q0_REQ,5,qr);
+    for(uint32_t qi=0;qi<4;qi++)r[qi]=qr[qi+1];
+    if(region()){region()->ev[0]=qr[0];region()->ev[1]=qr[1];region()->ev[5]=1;}
+#else
+    q0_rd(Q0_ACK, 4, r);
+#endif                  /* ACK..FAULT: quiet = ACK with FAULT 0 */
         if (r[0] == req && !r[3]) {
 #else
         q0_rd(Q0_ACK, 1, r);
@@ -1504,7 +1558,7 @@ static void q0_bulk_leave(void)
          * After any OPEN (also during a recovery or a new admission): the runtime rule, excluded. */
         if (!(q->bst & BST_LIVE)) {           /* never OPEN since the latest DSP load: genuine startup */
             if (q->ph == Q_HEADER || q->ph == Q_REQ_PH) {
-                q->ph = Q_HEADER;
+                q->ph = Q_HEADER; q0_trace(14u,0);
                 q->t_ph = q->t_poll = TICK();
                 q->slow = 0;
                 q->c_boot_bulk++;
@@ -1532,7 +1586,7 @@ static void q0_bulk_leave(void)
         if (q->ph == Q_OPEN)
             q->reval = 1;                     /* the next Main pass: q0_fail -> epoch -> closed at the ACK */
         else if (q->ph != Q_QUAR)
-            q->ph = Q_CLOSED;
+            q->ph = Q_CLOSED; q0_trace(15u,0);
 #else
         if (q->ph == Q_OPEN)
             q->reval = 1;
@@ -1579,7 +1633,46 @@ static uint32_t q0_alloc_bad(uint32_t r)
  * b5 rejection quarantine, b6 reconcile pending. Bounded: two reads (3 + 8 words), each its own hold under the bus
  * semaphore with the address cache invalidated (the next write re-addresses); never inside a write hold; no write.
  * Operator rule on top (tool side, as cmd 08): the sequencer stopped, no pack, sample or project loading. */
-#if !ABI3_FM_ACCEPTANCE && !ABI3_GENERAL_BENCH
+#if ABI3_QUEUE_TRACE
+#if FAR_PART
+#include "cre3state.h"
+/* Query-only ARM snapshots. No DSP I/O, caller-controlled address or state. */
+static uint32_t q0_pg_diagnostic(uint32_t cached,uint32_t res,uint32_t fb,
+                                 uint32_t edits,uint32_t refused)
+{return (cached&1u)|((res&3u)<<1)|((fb&31u)<<3)|((edits&255u)<<8)|((refused&255u)<<16);}
+static uint32_t q0_arm_bank(const struct cre3l_state *l,uint32_t kind,uint32_t crc,uint32_t ready)
+{
+    if(!l || !ready || !kind || kind>127 || !l->candidate_valid || !l->resident_valid ||
+       !cre3l_equal(&l->candidate,&l->resident) || l->resident.engine_class!=kind ||
+       l->resident.body_crc!=crc)return 0;
+    /* current[10] immediately follows the immutable loader/key reservation. */
+    const uint8_t *v=(const uint8_t *)(l+1);
+    return 0x1000000u|v[0]|((uint32_t)v[1]<<8)|((uint32_t)v[2]<<16);
+}
+static void q0_telem(const uint8_t *m,uint32_t len)
+{
+    struct state *s=region(); if(len!=10 || !s)return;
+    uint32_t words[38],bank,pm; __asm__ volatile("mrs %0,primask\ncpsid i":"=r"(pm)::"memory");
+    for(uint32_t i=0;i<32;i++)words[i]=s->ev[i]; words[32]=s->ev_seq;
+    words[5]=q0_pg_diagnostic(words[5],PG->res,PG->fb,PG->edits,PG->refused);
+    words[33]=s->ui; words[34]=(PG->open&1u)|((uint32_t)(s->mode&127u)<<1)|((uint32_t)PG->view<<8)|((uint32_t)PG->sv_in<<16)|((uint32_t)PG->sv_gen<<24);
+    struct tm *t=tm(); words[35]=t?t->gen:0; uint32_t h=2166136261u; if(t)for(uint32_t j=0;j<16;j++)h=(h^t->rec[7][j])*16777619u; words[36]=t?h:0; uint32_t ch=pl_channel(rw(PL_R_CELL),A1_T),value=ch?PL_GET(ch,0):0xFFFFFFFFu;
+    struct a1 *a=a1();struct eo *e=eo();
+    uint32_t bound=*(volatile uint8_t *)(CRE3L_STATE_AT+CRE3L_SAMPLE_SOUND_OFFSET)&128u;
+    words[37]=a && e && A_ENG(a) && e->r_pair==1 && e->r_kind==A_ENG(a) && !e->r_fault &&
+        a->producer.open && a->producer.slots && bound && value<a->producer.slots?value:0xFFFFFFFFu;
+    bank=q0_arm_bank((const struct cre3l_state *)CRE3L_STATE_AT,a?A_ENG(a):0,e?e->r_crc:0,
+        a && e && e->r_pair==1 && e->r_kind==A_ENG(a) && !e->r_fault &&
+        a->producer.open && Q0->ph==Q_OPEN && !Q0->busy && !Q0->bulk && !Q0->excl);
+    __asm__ volatile("msr primask,%0"::"r"(pm):"memory");
+    volatile uint8_t r[205]; header(r,0x0F); r[7]=7;r[8]=m[7]&127;r[9]=m[8]&127;
+    volatile uint8_t *p=r+10;
+    for(uint32_t i=0;i<38;i++){put7(p,words[i],5);p+=5;}
+    put7(p,bank,4);p+=4;
+    *p++=0xF7; uint32_t out[2]={(uint32_t)r,(uint32_t)(p-r)};TX_SYSEX(*(volatile uint32_t *)TX_PORT_PTR,1,out);
+}
+#endif
+#elif !ABI3_FM_ACCEPTANCE && !ABI3_GENERAL_BENCH
 #if CORE0_RECOVER_TIMING
 #define TELEM_LEN       (12u + 4u * 16u + 3u * 36u + 1u)   /* + t_ack_max t_init_max t_init_last c_init_late */
 #elif CORE0_RECOVER

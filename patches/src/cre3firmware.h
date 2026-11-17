@@ -6,10 +6,11 @@
 #define CRE3FIRMWARE_H
 #include "cre3loader.h"
 #include "cre3health.h"
-struct cd3_state {struct cre3l_state loader;uint8_t current[10],session_bad_valid,reserved;struct c3h health;};
+struct cd3_state {struct cre3l_state loader;uint8_t current[10],session_bad_valid,sample_sound_cache;struct c3h health;};
 _Static_assert(sizeof(struct cd3_state)==CRE3L_STATE_SIZE,"explicit loader SRAM reservation");
 _Static_assert(__builtin_offsetof(struct cre3l_state,last_check)==CRE3L_LAST_CHECK_OFFSET,"diagnostic check offset");
 _Static_assert(__builtin_offsetof(struct cd3_state,health)==CRE3L_HEALTH_OFFSET,"diagnostic health offset");
+_Static_assert(__builtin_offsetof(struct cd3_state,sample_sound_cache)==CRE3L_SAMPLE_SOUND_OFFSET,"selection cache byte offset");
 #define CD3_STATE ((struct cd3_state *)CRE3L_STATE_AT)
 #define CD3 (&CD3_STATE->loader)
 struct cd3_ctx {uint32_t fil,ptr,c1,aborted;};
@@ -345,6 +346,9 @@ static const uint8_t *abi3_engine_header(void)
 {const struct cre3_facts *f=abi3_resident_facts();return f?f->h:0;}
 static uint8_t *abi3_current_values(void)
 {return CD3_STATE->current;}
+static uint8_t *abi3_sample_sound_cache(void)
+{return &CD3_STATE->sample_sound_cache;}
+
 static uint32_t cd3_ready(void)
 {
     uint32_t r[8];q0_rd(Q0_MAGIC_AT,8,r);

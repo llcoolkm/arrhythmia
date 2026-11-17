@@ -187,6 +187,7 @@ static void tm_apply(uint32_t P, uint32_t site)
     t->gen++;
 #if ENGINE_ABI3 && !FAR_PART
     abi3_controls_commit();
+    abi3_sample_bind();
 #endif
     RESUME_ALL();
 }
@@ -284,6 +285,8 @@ static uint32_t tm_set_mode(struct state *s, uint32_t track, uint32_t mode)
  * the live-tail check against an EMPTY apply, the header on creation, edit(b, arg) on the live block, the CRC and the
  * runtime copy of the records. edit returns TS_OK after writing, or anything else after writing nothing (then no
  * header is created and the CRC is not touched). Main task. TS_* result. */
+#define TM_PREPARE 0x80000000u
+/* A prepared callback may change only its supplied temporary block. */
 typedef uint32_t (*tm_edit_fn)(volatile uint8_t *b, uint32_t arg);
 #if SCALES     /* two callbacks (page, scales): inline every call so each callback stays a direct call (no address
                   constant, which the .text-only build cannot relocate) */
@@ -326,6 +329,59 @@ static TM_EDIT_INLINE uint32_t tm_edit(struct state *s, tm_edit_fn edit, uint32_
     RESUME_ALL();
     return r;
 }
+#if ENGINE_ABI3 && !FAR_PART
+/* Main-task transaction: task ownership protects preparation; IRQs remain live
+ * during CRC. Publish reserves producer state before the bounded live copy.
+ * A caller already holding PRIMASK retains that mask throughout. */
+static __attribute__((always_inline)) inline uint32_t tm_edit_staged(
+    struct state *s,tm_edit_fn prepare,tm_edit_fn publish,uint32_t arg)
+{
+    uint32_t r=TS_REFUSED;
+    SUSPEND_ALL();
+    struct tm *t=tm_attach(s);
+    if(!t || !t->store || store_of(t->P)!=t->store)goto done;
+    if(t->why!=TM_OK && t->why!=TM_EMPTY){r=TS_READONLY;goto done;}
+    uint32_t words[TM_EXT_LEN/4];
+    uint8_t changed[TM_EXT_LEN/4];
+    uint32_t changes=0;
+    volatile uint8_t *copy=(volatile uint8_t *)words;
+    uint32_t store=t->store,project=t->P,why=t->why;
+    r=TS_BUSY;
+    volatile uint8_t *live=(volatile uint8_t *)(store+TM_EXT);
+    if((s->tok&TOK_CONTENT) || phase(project)!=0)goto done;
+    if(why==TM_EMPTY && !all_zero(live,TM_EXT_LEN)){r=TS_READONLY;goto done;}
+    for(uint32_t i=0;i<TM_EXT_LEN/4;i++)words[i]=((volatile uint32_t *)live)[i];
+    r=prepare(copy,arg|TM_PREPARE);
+    if(r!=TS_OK)goto done;
+    if(why==TM_EMPTY){
+        wr32(copy,TM_BLK_MAGIC);copy[4]=TM_VERSION;copy[5]=0;
+        copy[6]=(uint8_t)TM_EXT_LEN;copy[7]=(uint8_t)(TM_EXT_LEN>>8);
+    }
+    wr32(copy+TM_CRC_AT,tm_crc(copy,TM_CRC_AT));
+    for(uint32_t i=0;i<TM_EXT_LEN/4;i++)
+        if(words[i]!=((volatile uint32_t *)live)[i])changed[changes++]=(uint8_t)i;
+    uint32_t irq;
+    __asm__ volatile("mrs %0, primask\n\tcpsid i":"=r"(irq)::"memory");
+    if(t->store!=store || t->P!=project || t->why!=why ||
+       store_of(project)!=store || (s->tok&TOK_CONTENT) || phase(project)!=0)r=TS_BUSY;
+    else if((r=publish(copy,arg))==TS_OK){
+        for(uint32_t i=0;i<changes;i++){
+            uint32_t index=changed[i];((volatile uint32_t *)live)[index]=words[index];
+        }
+        for(uint32_t i=0;i<8*TM_REC_LEN/4;i++)
+            ((volatile uint32_t *)t->rec)[i]=words[TM_REC/4+i];
+#if SCALES
+        sc_copy(live);
+#endif
+        t->why=TM_OK;t->writes++;
+    }
+    __asm__ volatile("msr primask, %0"::"r"(irq):"memory");
+done:
+    RESUME_ALL();
+    return r;
+}
+#endif
+
 #endif
 
 /* ---- SysEx 0C (debug) ------------------------------------------------------------------------------------------- */

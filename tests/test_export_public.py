@@ -506,6 +506,13 @@ def test_provenance_rules():
               '{"hex": "44f057ff44f056fe"}', "ARM region " + "a0d0" + "1b8e...", "review " + "x" * 70 + " " + H7,
               "label " + "1218" + "424f"):
         assert "commit-hash" not in prov(t), t
+    checkout = "df4cb1c069e1874edd31" + "b4311f1884172cec0e10"
+    action = "  uses: actions/checkout@" + checkout + " # v6.0.3\n"
+    action_path = ".github/workflows/community-engine-check.yml"
+    assert prov_details(action, "commit-hash", path=action_path) == []
+    assert prov_details(action, "commit-hash", path="other.yml") == [checkout]
+    assert prov_details("# " + action, "commit-hash", path=action_path) == [checkout]
+    assert prov_details(action.replace(checkout, H40), "commit-hash", path=action_path) == [H40]
     # reviewed exceptions and the tool's own exemption
     assert prov("upstream " + H40, passed=(H40,)) == []
     assert prov("ghid" + "ra_scripts/ docs/a1-notetap.md", path="tools/export_public.py") == []
@@ -700,6 +707,94 @@ def test_web_engine():
         assert not (Path(tmp) / "refused").exists()
 
 
+def refused_export(tmp, repo, target, **kw):
+    try:
+        run(tmp, repo, target, **kw)
+    except ep.Refused:
+        assert not Path(target).exists() or not any(Path(target).iterdir()), "files written despite a refusal"
+        return
+    raise AssertionError(f"accepted: {sorted(kw)}")
+
+
+def engine_fixtures():
+    """Two synthetic CRE3 engines that pass the shared checker, and their catalogue rows."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from test_engine_catalogue import blob, entry
+    fm, demo = blob(1), blob(7)
+    rows = [entry(fm, name="FM", file="fm.dse", kind=1), entry(demo, name="Demo", file="demo.dse", kind=7)]
+    return {"fm.dse": fm, "demo.dse": demo}, rows
+
+
+def test_web_engines_pinned():
+    import hashlib
+    blobs, rows = engine_fixtures()
+    catalogue = json.dumps({"format": "engine-catalogue/1", "engines": rows}).encode()
+    page = b"<script>const PUBLISHED = [];</script>\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = make_repo(tmp, {ep.WEB_PAGE: page, ep.WEB_CATALOGUE: catalogue})
+        src = Path(tmp) / "engines"
+        src.mkdir()
+        pins = []
+        for name, data in blobs.items():
+            (src / ("x" + name)).write_bytes(data)          # the source name differs from the published name
+            pins.append([name, str(src / ("x" + name)), hashlib.sha256(data).hexdigest()])
+        files, _ = run(tmp, repo, engines=pins)
+        for name, data in blobs.items():
+            assert f"{ep.WEB_ENGINES}/{name}" in files
+            assert (Path(tmp) / "out" / ep.WEB_ENGINES / name).read_bytes() == data
+        n = iter(range(100))
+        bad = [dict(engines=[pins[0][:2] + ["0" * 64], pins[1]]),                 # pin is not the file's hash
+               dict(engines=[pins[0][:2] + ["A" * 64], pins[1]]),                 # pin is not lower-case hex
+               dict(engines=[pins[0]]),                                           # a catalogue row has no file
+               dict(engines=pins + [["extra.dse", pins[0][1], pins[0][2]]]),      # a file has no catalogue row
+               dict(engines=[["FM.DSE", pins[0][1], pins[0][2]], pins[1]]),       # not the loader's name
+               dict(engines=[pins[0], pins[0], pins[1]]),                         # one name twice
+               dict(engines=[["fm.dse", pins[1][1], pins[1][2]], ["demo.dse", pins[0][1], pins[0][2]]]),  # swapped
+               dict(fm_engine=pins[0][1]),                                        # single form, two-row catalogue
+               dict(engines=pins, fm_engine=pins[0][1])]                          # both forms
+        for kw in bad:
+            refused_export(tmp, repo, Path(tmp) / f"refused{next(n)}", **kw)
+        (src / "xfm.dse").write_bytes(blobs["fm.dse"][:-1] + b"\0")             # the file changed after pinning
+        refused_export(tmp, repo, Path(tmp) / "changed", engines=pins)
+
+
+def test_web_modules_pinned():
+    import hashlib
+    import zlib
+    want = {"01aa.mod": module_blob(300, 101), "02bb.mod": module_blob(1000, 102)}
+    rows = [{"file": n, "size": len(b), "crc": zlib.crc32(b), "sha256": hashlib.sha256(b).hexdigest()}
+            for n, b in want.items()]
+    page = ("<script>const PUBLISHED = ['01aa.mod', '02bb.mod'];\nconst MODULE_ASSETS = " + json.dumps(rows)
+            + ";\n</script>\n").encode()
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = make_repo(tmp, {ep.WEB_PAGE: page})
+        mods, pinned = Path(tmp) / "assets", Path(tmp) / "pinned"
+        mods.mkdir()
+        pinned.mkdir()
+        for n, b in want.items():
+            (mods / n).write_bytes(b)
+            (pinned / n).write_bytes(b)
+        pin = {n: [n, str(pinned / n), hashlib.sha256(b).hexdigest()] for n, b in want.items()}
+        files, _ = run(tmp, repo, web_modules=mods, modules=[pin["02bb.mod"]])
+        assert (Path(tmp) / "out/web/modules/02bb.mod").read_bytes() == want["02bb.mod"]
+        files, _ = run(tmp, repo, Path(tmp) / "all", modules=list(pin.values()))      # every module pinned
+        assert sorted(p for p in files if p.startswith("web/modules/")) == ["web/modules/01aa.mod",
+                                                                             "web/modules/02bb.mod"]
+        other = module_blob(1000, 104)
+        bad = [dict(modules=[pin["02bb.mod"]]),                                     # not every module, no dir
+               dict(web_modules=mods, modules=[pin["02bb.mod"][:2] + ["0" * 64]]),  # pin is not the file's hash
+               dict(web_modules=mods, modules=[["03cc.mod"] + pin["02bb.mod"][1:]]),  # not on the page
+               dict(web_modules=mods, modules=[pin["02bb.mod"], pin["02bb.mod"]])]  # one name twice
+        n = iter(range(100))
+        for kw in bad:
+            refused_export(tmp, repo, Path(tmp) / f"refused{next(n)}", **kw)
+        (mods / "02bb.mod").write_bytes(other)                       # the directory holds another file
+        refused_export(tmp, repo, Path(tmp) / "differs", web_modules=mods, modules=[pin["02bb.mod"]])
+        (pinned / "x.mod").write_bytes(other)                        # a file the page's MODULE_ASSETS does not name
+        refused_export(tmp, repo, Path(tmp) / "unlisted", web_modules=mods,
+                       modules=[["02bb.mod", str(pinned / "x.mod"), hashlib.sha256(other).hexdigest()]])
+
+
 def run_public_suite(ref):
     """Run the named public tests against the files the exporter writes."""
     root = Path(__file__).resolve().parents[1]
@@ -714,7 +809,7 @@ def run_public_suite(ref):
         if (tree / ("tools/dspvoice/assemble_" + "guarded.py")).exists():
             raise RuntimeError("the internal assembler wrapper entered the export")
         source_tests = (name for name in ep.ALLOW
-                        if name.startswith("tests/test_dspvoice") and name.endswith("_source.py"))
+                        if name.startswith("tests/test_dspvoice") and name.endswith(".py"))
         tests = (*ep.PUBLIC_TESTS, *source_tests)
         failures = []
         passed = 0
@@ -727,7 +822,7 @@ def run_public_suite(ref):
                 continue  # a fixture consumed by the tests
             if suffix == ".py":
                 command = [sys.executable, "-I", "-B", name]
-                if name == "tests/test_web_installer.py" or name.startswith("tests/test_dspvoice"):
+                if name == "tests/test_web_installer.py" or name.endswith("_source.py"):
                     command.append("-v")  # report the missing optional inputs by name
             elif suffix == ".mjs":
                 command = [node, name]

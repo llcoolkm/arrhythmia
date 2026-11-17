@@ -3,6 +3,7 @@
     uv run python -I tools/export_public.py OUTDIR [--ref HEAD] [--deny-file export-deny.json]
                                            [--firmware-dir DIR] [--bootloader FILE] [--allow-email ADDR] [--dry-run]
                                            [--web-modules DIR] [--fm-engine FILE]
+                                           [--engine NAME FILE SHA256 ...] [--module NAME FILE SHA256 ...]
 
 Copies only allow-listed paths (ALLOW, every file by name, minus EXCLUDE) as committed at --ref (never the working tree),
 each to its own path or the one PUBLISH_AS names (docs/user/README.md becomes the export's README.md), and only after
@@ -59,6 +60,14 @@ array) are taken from DIR; each must be there, pass tools/build_module.py check 
 written. Without it, an export that holds web/loader.html has no web/modules/ (a note says so).
 --fm-engine FILE adds only the own-source fm.dse bound by the loader page metadata. Its header,
 version, complete file hash, size, CRC and byte provenance are checked before anything is exported.
+It is the single-engine form: a catalogue (web/engines/index.json) with more than one engine refuses it.
+--engine NAME FILE SHA256 (repeatable, exclusive with --fm-engine) places FILE as web/engines/NAME, the name the loader
+fetches. FILE must have the given SHA-256; the exported catalogue must list exactly the NAMEs given, and each file
+must pass the catalogue binding (size, SHA-256, kind, version) and the shared CRE3 checker, and every check above.
+--module NAME FILE SHA256 (repeatable) places FILE as web/modules/NAME. NAME must be in the page's PUBLISHED list,
+FILE must have the given SHA-256, and the page's MODULE_ASSETS row for NAME must carry the same SHA-256 and size.
+With --web-modules, DIR/NAME (if present) must be byte-identical to FILE; without it, every PUBLISHED module must be
+pinned this way. Any mismatch refuses the export and nothing is written.
 
 OUTDIR must not exist or be empty, and must not lie inside this repository or any of its worktrees.
 """
@@ -79,6 +88,9 @@ import engine_file  # noqa: E402
 WEB_PAGE = "web/loader.html"
 WEB_MODULES = "web/modules"
 WEB_ENGINE = "web/engines/fm.dse"
+WEB_ENGINES = "web/engines"
+WEB_CATALOGUE = "web/engines/index.json"
+ENGINE_NAME = re.compile(r"[a-z0-9]{1,8}\.dse")
 # Independently rebuilt own-source asset: the sole reviewed match is eleven zero
 # words plus two own startup words. Bind the exception to this exact file/range.
 FM_ASSET_SHA = "236b20874ed999c46a8575cd3336b6ac26df9770d11f9f9dfdd6f711cd0029ad"
@@ -90,8 +102,8 @@ FM_MATCH = (0x287F, 39, "a5016d4eeffa0aaa5addf573fbf558cc518609f3698203d36aca112
 # compiled into both 0.1 images, published so that their ARM bytes can be rebuilt and audited; patches/dspmeter.lst is
 # the DSP meter's own program listing, which tools/dspmeter.py builds arrhythmia-devkit's DSP layer from.
 # modules/stars.c is the one published example module (master, 2026-10-19); the other examples stay private.
-PUBLIC_DOCS = ("docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
-               "docs/user/synth.md", "docs/user/engines-dev.md", "docs/user/euclid.md", "changelog.md",
+PUBLIC_DOCS = ("CONTRIBUTING-engines.md", "docs/README.md", "docs/user/README.md", "docs/user/quickstart.md", "docs/user/install.md",
+               "docs/user/synth.md", "docs/user/engines.md", "docs/user/engines-dev.md", "docs/user/euclid.md", "changelog.md",
                "docs/user/scales.md", "docs/user/developers.md", "docs/user/modules.md", "docs/user/principles.md", "docs/led-map.md", "docs/led-map.json",
                "docs/img/led-map-verify.jpg", "docs/img/arrhythmia-logo.png", "docs/input-map.json", "docs/user/img/synth-page.png",
                "docs/user/img/scales-note-view.png", "docs/user/img/synth-sample-view.png",
@@ -119,13 +131,21 @@ PUBLIC_DEV_DOCS = ("docs/dev/README.md", "docs/dev/hardware.md", "docs/dev/flash
                    "docs/dev/design/o1-fault-handling.md", "docs/dev/loader-scan.md")
 PUBLIC_TESTS = ("tests/fixtures/two-builds.json", "tests/test_web_installer.py", "tests/test_web_installer.mjs",
                 "tests/test_patch_transport.py", "tests/test_export_public.py", "tests/test_build_module.py",
-                "tests/test_sequence_warning.py",
+                "tests/test_sequence_warning.py", "tests/test_cre3_host_policy.py", "tests/test_engine_ui_authoring.py", "tests/test_engine_catalogue.py",
                 "tests/test_capture.py", "tests/test_flash_mock.py", "tests/test_norbackup.py",
                 "tests/test_module_readback.py", "tests/test_web_modules.py", "tests/test_web_modules.mjs",
                 "tests/test_lowercase_host.py", "tests/test_engine_semver.py", "tests/test_engine_export.py",
                 "tests/test_web_loader.py", "tests/test_web_loader.mjs", "tests/test_web_loader_browser.mjs", "tests/test_web_loader_modules.mjs")
 PUBLIC_DSP_SEQUENCE_TOOLS = ("tools/dsp/abi3/seqcheck.py", "tools/dsp/abi3/sequence_warning.py")
-PUBLIC_TOOLS = PUBLIC_DSP_SEQUENCE_TOOLS + ("tools/cre3_check.py", "tools/abi3_usb_policy.json", "tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
+# DSP emulator harness, patches and runners (GPL-3.0 directory): the owner ordered the emulator harness published on
+# 2026-11-13, superseding the 2026-10-19 keep-private decision for these files only; the rest of tools/dsp/ stays
+# excluded and denied.
+PUBLIC_DSP_EMULATOR = ("tools/dsp/emulator/LICENSE", "tools/dsp/emulator/README.md",
+                       "tools/dsp/emulator/access-hook.patch", "tools/dsp/emulator/peripherals-open.patch",
+                       "tools/dsp/emulator/harness.cpp", "tools/dsp/emulator/CMakeLists.txt",
+                       "tools/dsp/emulator/runners/abi3.py", "tools/dsp/emulator/runners/rig.py",
+                       "tools/dsp/emulator/runners/measure.py")
+PUBLIC_TOOLS = PUBLIC_DSP_SEQUENCE_TOOLS + PUBLIC_DSP_EMULATOR + ("tools/engine_catalogue.py", "tools/engine_kind_registry.json", "tools/cre3_check.py", "tools/abi3_usb_policy.json", "tools/build_lightshow.py", "tools/build_module.py", "tools/capture.py", "tools/capture_align.py",
                 "tools/crpatch.py", "tools/crbc.py", "tools/engine_file.py", "tools/rel030_release.py", "tools/dspload.py", "tools/dspmeter.py", "tools/dspmeter/CMakeLists.txt",
                 "tools/dspmeter/dspasm.cpp", "tools/dspmeter/NOTICE.md", "tools/export_public.py", "tools/farblob.py", "tools/flash.py", "tools/inputlog.py",
                 "tools/ledmap.py", "tools/ledscan.py", "tools/levelmeter.py", "tools/levelview.py", "tools/module.py",
@@ -202,9 +222,9 @@ PUBLIC_DSPVOICE207LIVE = ("tools/dspvoice207live/build.py", "tools/dspvoice207li
                          "tests/test_dspvoice207live_source.py")
 PUBLIC_REL030_REBUILD = ("tools/rel030release/README.md", "tools/rel030release/source-manifest.json",
                         "tools/rel030release/test_release.py", "tools/rel030release/update_manifest.py")
-PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "release/v0.3.0.json", "release/v0.3.1.json", "web/index.html", "web/modules.html", "web/loader.html", "web/module-assets.json")
+PUBLIC_RELEASE = ("release/devkit-tm-6013.json", "release/v0.1.0.json", "release/v0.1.1.json", "release/v0.2.0.json", "release/v0.2.1.json", "release/v0.2.2.json", "release/v0.3.0.json", "release/v0.3.1.json", "release/v0.3.2.json", "web/index.html", "web/modules.html", "web/loader.html", "web/module-assets.json", "web/engines/index.json", ".github/workflows/community-engine-check.yml")
 ALLOW = (("LICENSE", "RELEASE-NOTES-0.1.0.md", "RELEASE-NOTES-0.1.1.md", "RELEASE-NOTES-0.2.0.md", "RELEASE-NOTES-0.2.1.md",
-          "RELEASE-NOTES-0.2.2.md", "RELEASE-NOTES-0.3.0.md", "RELEASE-NOTES-0.3.1.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
+          "RELEASE-NOTES-0.2.2.md", "RELEASE-NOTES-0.3.0.md", "RELEASE-NOTES-0.3.1.md", "RELEASE-NOTES-0.3.2.md") + PUBLIC_TOOLS + PUBLIC_SRC + PUBLIC_RELEASE
          + PUBLIC_DOCS + PUBLIC_DEV_DOCS + PUBLIC_TESTS + PUBLIC_DSPVOICE + PUBLIC_DSPVOICE206 + PUBLIC_DSPVOICE207 + PUBLIC_DSPVOICE207RC
          + PUBLIC_DSPVOICE207REL + PUBLIC_DSPVOICE207M4 + PUBLIC_DSPVOICE207LIVE + PUBLIC_REL030_REBUILD)
 # Allow-listed files published under another name (source path -> published path). The public README is
@@ -350,7 +370,7 @@ assert not opt_in_violations(ALLOW), opt_in_violations(ALLOW)
 
 def excluded(path, rules):
     for rule in rules:
-        if rule == "tools/dsp/" and path in PUBLIC_DSP_SEQUENCE_TOOLS:
+        if rule == "tools/dsp/" and (path in PUBLIC_DSP_SEQUENCE_TOOLS or path in PUBLIC_DSP_EMULATOR):
             continue
         if path == rule or (rule.endswith("/") and path.startswith(rule)):
             return True
@@ -653,7 +673,14 @@ def provenance_findings(path, data, allow=ALLOW, exclude=EXCLUDE, passed=()):
                         + rb")(?![A-Za-z0-9_-])")
         for m in rx.finditer(data):
             add("private-path", m.group().decode())
+    public_checkout = b"df4cb1c069e1874edd31" + b"b4311f1884172cec0e10"
     for m in GIT_OBJECT.finditer(data):
+        # This exact public upstream action pin is not a source-project commit.
+        line = data[data.rfind(b"\n", 0, m.start())+1:data.find(b"\n", m.end()) if b"\n" in data[m.end():] else len(data)]
+        if (path == ".github/workflows/community-engine-check.yml"
+                and m.group() == public_checkout
+                and re.fullmatch(rb"[ \t]*uses: actions/checkout@" + public_checkout + rb" # v6\.0\.3[ \t]*", line)):
+            continue
         # A 20-byte crpatch hex piece can have the width of a git object.
         # It remains subject to byte-origin and all other provenance checks.
         if JSONHEX.search(data[max(0, m.start()-16):m.start()]):
@@ -756,6 +783,66 @@ def reviewed_engine_match(path, data, start, length):
             and hashlib.sha256(data[first:first + size]).hexdigest() == digest)
 
 
+def catalogue_engine(data, asset):
+    """Bind the currently reviewed FM asset to the committed catalogue."""
+    import engine_catalogue
+    try:
+        rows = engine_catalogue.validate_catalogue(json.loads(data))
+        if len(rows) != 1 or rows[0]["file"] != "fm.dse" or rows[0]["kind"] != 1:
+            raise ValueError("exactly the reviewed FM catalogue entry is required (a catalogue of several engines "
+                             "takes one --engine per entry)")
+        engine_catalogue.check_asset(rows[0], asset)
+        return rows[0]
+    except (ValueError, KeyError, TypeError) as error:
+        raise Refused(f"{WEB_ENGINE}: {error}") from None
+
+
+def pinned_file(flag, source, expected):
+    """The bytes of an explicitly named regular file that must have the expected SHA-256."""
+    source = Path(source)
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise Refused(f"{flag}: the expected SHA-256 must be 64 lower-case hex digits")
+    if source.is_symlink() or not source.is_file():
+        raise Refused(f"{flag}: {source} is not a regular file")
+    data = source.read_bytes()
+    got = hashlib.sha256(data).hexdigest()
+    if got != expected:
+        raise Refused(f"{flag}: {source} is {got}, not the pinned {expected}")
+    return data
+
+
+def catalogue_engines(data, placed):
+    """Bind every pinned engine to its row of the committed catalogue; the catalogue lists exactly these files."""
+    import engine_catalogue
+    try:
+        rows = engine_catalogue.validate_catalogue(json.loads(data))
+        listed = sorted(row["file"] for row in rows)
+        if listed != sorted(placed):
+            raise ValueError(f"the catalogue lists {listed}, the pinned engines are {sorted(placed)}")
+        for row in rows:
+            engine_catalogue.check_asset(row, placed[row["file"]])
+        return rows
+    except (ValueError, KeyError, TypeError) as error:
+        raise Refused(f"{WEB_CATALOGUE}: {error}") from None
+
+
+def page_module_assets(text):
+    """The loader page's MODULE_ASSETS rows by file name (the identities the page verifies before a write)."""
+    m = re.search(r"const MODULE_ASSETS = (\[.*?\]);", text, re.S)
+    try:
+        rows = json.loads(m.group(1)) if m else None
+        if not isinstance(rows, list):
+            raise ValueError("no MODULE_ASSETS list")
+        out = {}
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("file"), str) or row["file"] in out:
+                raise ValueError("MODULE_ASSETS rows must name distinct files")
+            out[row["file"]] = row
+        return out
+    except (ValueError, TypeError) as error:
+        raise Refused(f"{WEB_PAGE}: {error}") from None
+
+
 def page_engine(text, data):
     """Validate the explicit own-engine asset against the frozen loader page."""
     match = re.search(r"/\*\s*published-engines:\s*(.*?)\*/", text, re.S)
@@ -842,8 +929,10 @@ def curated_source(path, data):
 
 def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloader_paths=None, allow=ALLOW,
            allow_emails=(), dry_run=False, log=print, exclude=EXCLUDE, publish_as=None, web_modules=None,
-           fm_engine=None):
+           fm_engine=None, engines=None, modules=None):
     repo = Path(git(repo, "rev-parse", "--show-toplevel").strip())
+    if engines and fm_engine is not None:
+        raise Refused("--engine and --fm-engine are exclusive")
     t = check_target(repo, target)
     # #13: resolve --ref ONCE to a full commit id; policy, tree and provenance all read that commit (a branch or HEAD
     # moving during the export cannot pair one commit's deny policy with another commit's files)
@@ -886,15 +975,39 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
             findings.append((path, rule, detail))
         files.append((path, mode, data))
     page = next((d for p, _, d in files if published(p, publish_as) == WEB_PAGE), None)
-    if web_modules is not None:
+    pinned_modules = {}
+    if modules:
+        if page is None:
+            raise Refused(f"--module: {WEB_PAGE} is not exported")
+        listed, rows = page_modules(page.decode("utf-8")), page_module_assets(page.decode("utf-8"))
+        for name, source, expected in modules:
+            if name in pinned_modules:
+                raise Refused(f"--module {name}: given twice")
+            if name not in listed:
+                raise Refused(f"--module {name}: not in the page's PUBLISHED list")
+            data = pinned_file(f"--module {name}", source, expected)
+            row = rows.get(name)
+            if not row or row.get("sha256") != expected or row.get("size") != len(data):
+                raise Refused(f"--module {name}: the page's MODULE_ASSETS row is not the pinned file")
+            pinned_modules[name] = data
+        if web_modules is None and sorted(pinned_modules) != sorted(listed):
+            raise Refused(f"--module without --web-modules must pin every PUBLISHED module: {sorted(listed)}")
+    if web_modules is not None or pinned_modules:
         if page is None:
             raise Refused(f"--web-modules: {WEB_PAGE} is not exported")
         for name in page_modules(page.decode("utf-8")):
-            src, dest = Path(web_modules) / name, f"{WEB_MODULES}/{name}"
-            if src.is_symlink() or not src.is_file():
+            dest = f"{WEB_MODULES}/{name}"
+            src = Path(web_modules) / name if web_modules is not None else None
+            if name in pinned_modules:
+                data = pinned_modules[name]
+                if src is not None and (src.is_symlink() or src.is_file()) and (
+                        src.is_symlink() or src.read_bytes() != data):
+                    findings.append((dest, "pin", f"{src} is not the pinned --module file"))
+            elif src is None or src.is_symlink() or not src.is_file():
                 findings.append((dest, "path", f"{src} is missing (the page lists it)"))
                 continue
-            data = src.read_bytes()
+            else:
+                data = src.read_bytes()
             try:
                 build_module.check(data)
             except ValueError as e:
@@ -911,12 +1024,33 @@ def export(repo, target, ref="HEAD", deny_file=None, firmware_dirs=None, bootloa
         if source.is_symlink() or not source.is_file():
             raise Refused(f"--fm-engine: {source} is not a regular file")
         data = source.read_bytes()
-        page_engine(page.decode("utf-8"), data)
+        catalogue = next((body for name, _, body in files if name == "web/engines/index.json"), None)
+        if catalogue is not None:
+            catalogue_engine(catalogue, data)
+        else:
+            page_engine(page.decode("utf-8"), data)  # historical loader pages
         for rule, detail in check_file(WEB_ENGINE, data, cfg, index, allow_emails, allow, exclude):
             findings.append((WEB_ENGINE, rule, detail))
         files.append((WEB_ENGINE, "100644", data))
+    elif engines:
+        if page is None:
+            raise Refused(f"--engine: {WEB_PAGE} is not exported")
+        placed = {}
+        for name, source, expected in engines:
+            if not isinstance(name, str) or not ENGINE_NAME.fullmatch(name) or name in placed:
+                raise Refused(f"--engine {name!r}: a distinct lower-case 8.3 .dse name")
+            placed[name] = pinned_file(f"--engine {name}", source, expected)
+        catalogue = next((body for path, _, body in files if published(path, publish_as) == WEB_CATALOGUE), None)
+        if catalogue is None:
+            raise Refused(f"--engine: {WEB_CATALOGUE} is not exported")
+        catalogue_engines(catalogue, placed)
+        for name, data in sorted(placed.items()):
+            dest = f"{WEB_ENGINES}/{name}"
+            for rule, detail in check_file(dest, data, cfg, index, allow_emails, allow, exclude):
+                findings.append((dest, rule, detail))
+            files.append((dest, "100644", data))
     elif page is not None:
-        log(f"note: {WEB_PAGE} is exported without --fm-engine: {WEB_ENGINE} stays absent")
+        log(f"note: {WEB_PAGE} is exported without --fm-engine or --engine: {WEB_ENGINES}/ holds no engine file")
     dests = {}
     for path, _, _ in files:
         dests.setdefault(published(path, publish_as), []).append(path)
@@ -951,10 +1085,14 @@ def cli(argv=None):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--web-modules")
     ap.add_argument("--fm-engine", help="the explicitly pinned own-source fm.dse asset for the loader page")
+    ap.add_argument("--engine", nargs=3, action="append", metavar=("NAME", "FILE", "SHA256"),
+                    help="a catalogue engine file placed as web/engines/NAME, pinned by SHA-256")
+    ap.add_argument("--module", nargs=3, action="append", metavar=("NAME", "FILE", "SHA256"),
+                    help="a PUBLISHED module placed as web/modules/NAME, pinned by SHA-256")
     a = ap.parse_args(argv)
     try:
         export(a.repo, a.outdir, a.ref, a.deny_file, a.firmware_dir, a.bootloader, ALLOW, a.allow_email, a.dry_run,
-               web_modules=a.web_modules, fm_engine=a.fm_engine)
+               web_modules=a.web_modules, fm_engine=a.fm_engine, engines=a.engine, modules=a.module)
     except Refused as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1

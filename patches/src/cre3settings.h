@@ -56,7 +56,7 @@ static void c3ec_values(const struct cre3_facts *f,const uint8_t *p,uint8_t *v)
                 if(saved<(k==3?2u:r[4]))value=saved;
             }
             c3ec_put24(v+at,c3ec_u24(v+at)|(value<<r[2]));
-        } else if(k==4) {
+        } else if(k==4 && src>=17) {
             uint32_t at=6+src-17;
             if(raw&&raw[at]<=127)value=raw[at];
             v[at]=(uint8_t)value;
@@ -81,7 +81,7 @@ static uint32_t c3ec_prepare(const struct cre3_facts *f,const uint8_t *p,
     if(!writable || !key || shape==2 || record>=f->h[26])return 0;
     const uint8_t *r=f->controls+8*record;
     uint32_t k=r[0]&15;
-    if(k<2||k>4 || value>=(k==4?128u:k==3?2u:r[4]))return 0;
+    if(k<2||k>4 || (k==4 && r[1]<17) || value>=(k==4?128u:k==3?2u:r[4]))return 0;
     struct c3ec_proposal next;
     c3ec_values(f,p,next.current);
     if(!c3ec_enabled(f,record,next.current))return 0;

@@ -4,22 +4,31 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 NODE = shutil.which('node')
+sys.path.insert(0,str(ROOT/'tools'))
+import engine_catalogue
+
 
 
 class LoaderContracts(unittest.TestCase):
     def test_published_engine_metadata(self):
         html = (ROOT / 'web/loader.html').read_text()
-        engines = json.loads(re.search(r'/\* published-engines: (.*?) \*/', html).group(1))
-        self.assertEqual(engines, [{
-            'name': 'fm.dse', 'size': 15346, 'crc32': '0b9611b1',
-            'sha256': '9b79dfe90c4208a8208ffc04f5d5aa80bc3787584524d17a7ec3deaf5629ddae',
-            'version': '2.0.0',
-        }])
-        self.assertIn("fetch('engines/fm.dse'", html)
+        catalogue=json.loads((ROOT/'web/engines/index.json').read_text())
+        rows=engine_catalogue.validate_catalogue(catalogue)
+        self.assertEqual([(r['file'],r['kind'],r['version']) for r in rows],
+                         [('fm.dse',1,'2.1.0'),('formant.dse',6,'1.0.0'),('rings.dse',5,'1.0.0')])
+        entry=rows[0]
+        legacy=re.search(r'/\* published-engines: (.*?) \*/',html)
+        if legacy:
+            pinned=json.loads(legacy.group(1))[0]
+            self.assertEqual((pinned['name'],pinned['size'],pinned['sha256'],pinned['version']),
+                             (entry['file'],entry['size'],entry['sha256'],entry['version']))
+        self.assertIn("fetch('engines/index.json'",html)
+        self.assertIn("fetch('engines/'+entry.file",html)
 
     def test_compatibility_forward(self):
         html = (ROOT / 'web/modules.html').read_text()

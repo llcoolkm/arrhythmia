@@ -371,6 +371,9 @@ static void cd_restart(uint32_t ptr)
  * held back until those checks pass, so a mismatch never completes the bootstrap: a read error or a mismatch closes
  * the file and sends the flash stream after a reset (cd_restart). Returns 1 if the card stream went out complete, 2
  * if cd_restart sent the flash stream, 0 if nothing was sent (the caller sends the flash stream). */
+#if ABI3_QUEUE_TRACE
+__attribute__((noinline))
+#endif
 static uint32_t cd_stream(uint32_t fil, volatile uint8_t *b, const char *path, uint32_t ptr, uint32_t words,
                           uint32_t crc, uint32_t base, uint32_t tries)
 {

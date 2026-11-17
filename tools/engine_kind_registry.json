@@ -1,0 +1,11 @@
+{
+  "format": "engine-kind-registry/1",
+  "assignments": {
+    "1": {"name": "FM", "file": "fm.dse"},
+    "2": {"name": "Reserved", "file": null},
+    "3": {"name": "Subtractive", "file": null},
+    "4": {"name": "Wavetable", "file": null},
+    "5": {"name": "Drum or physical model", "file": "rings.dse"},
+    "6": {"name": "Formant", "file": "formant.dse"}
+  }
+}

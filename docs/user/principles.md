@@ -1,7 +1,7 @@
-# Circus Arrhythmia FM: principles
+# Arrhythmia: principles
 
 * **Bug fixes first.** The primary objective is the correction of bugs in the stock firmware 2.0.1.
-* **Patch only.** Circus Arrhythmia FM does not contain the Novation firmware. You download the official firmware file
+* **Patch only.** Arrhythmia does not contain the Novation firmware. You download the official firmware file
   from Novation. The patcher reads that file and applies the changes on your computer.
 * **Interoperability.** The patch lets the unit operate with corrected and new software. Your own programs (modules)
   can also operate with the unit.

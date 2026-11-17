@@ -413,6 +413,18 @@ static uint32_t ring_free(struct a1 *a)
         a->cons_ok = 0;
         return 0;
     }
+#if ENGINE_PACK && ENGINE_ABI3
+    /* A pack switch reloads the DSP, and every core-0 program start clears shared RAM (P:0x1C60..0x1C67,
+     * X:0x30000..0x37FFF, aliased with the ring and both indices), but nothing resets the ARM's producer cell. A
+     * cell of 15 against the cleared indices reads full forever: nothing is written, the DSP never advances, and
+     * the stock words fill N until no opening barrier fits. Only the ARM writes the DSP's producer word, right after
+     * the cell and under the engine lock held here, so a differing word means the DSP restarted: adopt it. */
+    uint32_t d = SH_READ(0, RING_PROD) >> 8;
+    if (d <= 15 && d != p) {
+        *(volatile uint32_t *)PROD_CELL = d;
+        p = d;
+    }
+#endif
     a->cons = (uint8_t)c;
     a->cons_ok = 1;
     return (c - p - 1) & 15u;
@@ -1660,6 +1672,12 @@ static uint32_t cre3_controls(const struct cre3_facts *f)
 /* Same Main-task query behavior; the Far table owns a precise fn4_t ABI. */
 uint32_t far_q0_telem(uint32_t message,uint32_t len,uint32_t zero,uint32_t zero2)
 {
+#if ABI3_QUEUE_TRACE
+    if (zero==0x51545243u && !zero2) {
+        q0_trace_store(message,len);
+        return 1;
+    }
+#endif
     if (len!=Q0_TELEM_REQUEST_LEN || zero || zero2) return 0;
     q0_telem((const uint8_t *)message,len);
     return 1;
@@ -2279,7 +2297,7 @@ uint32_t hook_nv_col1(uint32_t nv, uint32_t idx, uint32_t note, uint32_t d) { re
  *   hook_sv_press: the Sample view's pad press, the audition note;
  *   hook_step_note: a step set while a Sample-view pad is held, the step's note.
  * Both read C from track t's value cell (element 0xC); the object's cell pointer identifies the track. */
-static volatile uint8_t *ad_c8(uint32_t qb)
+__attribute__((noinline)) static volatile uint8_t *ad_c8(uint32_t qb)
 {
     uint32_t q = ad_qb8();
     return a8() && q && qb == q ? (volatile uint8_t *)obs_el(q, 0xC) : 0;
@@ -2298,6 +2316,14 @@ static volatile uint8_t *ad_c8(uint32_t qb)
 #define SV_COLTAB       0x08062AB0u                 /* the view's colour table (u16 palette values) */
 #define SV_OFF          0u                          /* palette value 0: dark (the stock Note view's unlit pads) */
 
+#if ENGINE_ABI3 && !FAR_PART
+/* Share the bounded metadata walk across the Sample gesture/render hooks. */
+__attribute__((noinline)) static uint32_t sv_engine_pages(void)
+{
+    return engctl_sample_pages();
+}
+#endif
+
 /* The view's block (element 0 of its block cell, the whole byte) and colour buffer, 0 if they do not check out. */
 static volatile uint16_t *sv_col(uint32_t view)
 {
@@ -2310,7 +2336,7 @@ static volatile uint16_t *sv_col(uint32_t view)
 __attribute__((noinline)) static void sv_dark(uint32_t view)
 {
 #if ENGINE_ABI3 && !FAR_PART
-    if (!engctl_sample_pages()) return; /* no custom Sample surface: keep stock colours */
+    (void)view;return; /* One final descriptor painter owns every engine pad. */
 #endif
     volatile uint16_t *col = sv_col(view);
     uint32_t blk = *(volatile uint8_t *)obs_el(rw(view + 0x1C), 0);
@@ -2324,12 +2350,111 @@ static uint32_t sv_t8(uint32_t view)
     return in_sram(view, 0x58) && rw(view) == SV_VT && ad_c8(rw(view + 0x14)) ? view : 0;
 }
 
+#if ENGINE_ABI3 && !FAR_PART
+/* The engine owns this controller's logical page. Selection notifications must
+ * not reinterpret engine sound indices as stock 16-slot Sample pages. */
+static uint32_t abi3_sample_controller(void)
+{
+    uint32_t root=rw(BTN_CELL+4);
+    if(!in_sram(root,4))return 0;
+    uint32_t holder=rw(root);
+    if(!in_sram(holder,0x40))return 0;
+    uint32_t grid=rw(holder+0x3C);
+    return in_sram(grid,0x1BC)?rw(grid+0x19C+4*A1_T):0;
+}
+static uint32_t abi3_sample_page(uint32_t *page)
+{
+    uint32_t controller=abi3_sample_controller();
+    uint32_t cell=in_sram(controller,0x14)?rw(controller+0x10):0;
+    if(!in_sram(cell,0x14))return 0;
+    *page=*(volatile uint8_t *)obs_el(cell,0);
+    return *page<sv_engine_pages();
+}
+uint32_t hook_sv_selected_page(uint32_t controller,uint32_t b,uint32_t c,uint32_t d)
+{
+    if(controller && controller==abi3_sample_controller() && sv_engine_pages())return 0;
+    return ((fn4_t)0x08057AA5u)(controller,b,c,d);
+}
+/* One explicit preview, using spare sv_in bits: bit6 active, bits1..4
+ * physical pad. Bits7/0 remain binding/front flags. No native pending slot or
+ * hold timer participates; the SDK note queue preserves an off even when full. */
+static void abi3_sample_stop(void)
+{
+    SUSPEND_ALL();
+    if(PG->sv_in&0x40u)(void)host_note(A1_T,60,0);
+    PG->sv_in&=0x81u;
+    RESUME_ALL();
+}
+static void abi3_sample_audition(uint32_t pad,uint32_t velocity,uint32_t sound)
+{
+    SUSPEND_ALL();
+    if(PG->sv_in&0x40u)(void)host_note(A1_T,60,0);
+    PG->sv_in&=0x81u;
+    velocity&=127u;
+    /* The queued parameter preserves this press's sound even when another
+     * selection happens before Main drains the queued preview ONSET. */
+    if(host_param(A1_T,0,sound) && host_note(A1_T,60,velocity?velocity:96u))
+        PG->sv_in|=(uint8_t)(0x40u|((pad&15u)<<1));
+    else engctl_feedback(TS_BUSY);
+    RESUME_ALL();
+}
+static void abi3_sample_selected(uint32_t view,uint32_t sound)
+{
+    uint32_t selected=view?rw(view+0x28):0;
+    if(in_sram(selected,0x14) && *(volatile uint8_t *)obs_el(selected,0)!=sound) {
+        *(volatile uint8_t *)OBS_SETP(selected,0)=(uint8_t)sound;
+        NOTIFY(selected);
+    }
+}
+/* Main owns selection reconciliation for publish/project bind and MIDI.
+ * The existing CD3 reserved byte caches one valid7-bit sound. No per-frame
+ * notification or controller-page write is made here. */
+static void abi3_sample_sync(void)
+{
+    if(!abi3_main_context())return;
+    SUSPEND_ALL();
+    struct a1 *a=a1();const struct cre3_facts *f=abi3_resident_facts();
+    struct state *s=region();struct tm *t=tm();uint8_t *cache=abi3_sample_sound_cache();
+    if(!a || !A_ENG(a) || !f || !f->h[46] || !s || !t ||
+       !t->P || !t->store || store_of(t->P)!=t->store || phase(t->P)!=0 ||
+       (s->tok&TOK_CONTENT) || !q0_abi3_user_ready(a))goto done;
+    uint32_t ch=pl_channel(rw(PL_R_CELL),A1_T),g=group(A1_T);
+    if(!ch || !g)goto done;
+    uint32_t live=PL_GET(ch,0),want=live<f->h[46]?live:0;
+    if(!(*cache&128u)) {
+        uint32_t saved=*(volatile uint8_t *)(t->store+SV_BASE_AT+A1_T);
+        /* FF is the stock unset-base sentinel: after the completed project
+         * refresh, the checked live group then supplies the project value. */
+        want=saved<f->h[46]?saved:(saved==255u && live<f->h[46]?live:0);
+    }
+    if((*cache&128u) && (*cache&127u)==want && live==want)goto done;
+    *cache=(uint8_t)(128u|want); /* before synchronous native notifications */
+    if(live!=want)PARAM_SET(g,0,want);
+    if(PL_GET(ch,0)!=want){*cache=0;goto done;}
+    uint32_t root=rw(BTN_CELL+4),holder=in_sram(root,4)?rw(root):0;
+    uint32_t grid=in_sram(holder,0x40)?rw(holder+0x3C):0;
+    uint32_t view=in_sram(grid,0x1BC)?sv_t8(rw(grid+0x14+4*A1_T)):0;
+    abi3_sample_selected(view,want);
+    uint32_t controller=abi3_sample_controller();
+    uint32_t cell=in_sram(controller,0x14)?rw(controller+0x10):0;
+    if(in_sram(cell,0x14))NOTIFY(cell); /* dirty same page; preserve manual page */
+done:
+    RESUME_ALL();
+}
+/* Publication/project bind is deferred to qualified Main if necessary. */
+static void abi3_sample_bind(void)
+{
+    abi3_sample_stop();PG->sv_in=0;*abi3_sample_sound_cache()=0;
+    abi3_sample_sync();
+}
+#endif
+
 /* The view's observer: the stock observer first, then the invalid positions dark again. On a change to block 0 the
  * plain colour of all 32 positions is restored first (an earlier block left them dark). */
 uint32_t hook_sv_obs(uint32_t th, uint32_t obs, uint32_t c, uint32_t d)
 {
 #if ENGINE_ABI3 && !FAR_PART
-    if (!engctl_sample_pages()) return SV_OBS(th,obs,c,d);
+    return SV_OBS(th,obs,c,d); /* selection/dirty lifecycle only; no second palette painter */
 #endif
     uint32_t view = sv_t8(th - 8);
     volatile uint16_t *col = view ? sv_col(view) : 0;
@@ -2361,8 +2486,17 @@ __attribute__((noinline)) static void sv_entry(void)
     volatile struct pg *g = PG;               /* the caller holds a1(), so the region and struct tm are live */
     struct tm *t = TM;
     uint8_t gen = (uint8_t)t->gen;
-    if (((volatile struct state *)REGION)->ui != (0x80010000u | A1_T)) {
+    if (((volatile struct state *)REGION)->ui != (0x80010000u | A1_T)
+#if ENGINE_ABI3 && !FAR_PART
+        || g->open /* the synth overlay owns display/input despite stock ui */
+#endif
+    ) {
+#if ENGINE_ABI3 && !FAR_PART
+        abi3_sample_stop();
+        g->sv_in &= 0x80u; /* retain binding, only leave the view */
+#else
         g->sv_in = 0;
+#endif
         return;
     }
 #if PAGE030
@@ -2386,7 +2520,7 @@ __attribute__((noinline)) static void sv_entry(void)
         return;                               /* not resolvable yet: again at the next pass */
 #endif
 #if ENGINE_ABI3 && !FAR_PART
-    uint32_t pages=engctl_sample_pages();
+    uint32_t pages=sv_engine_pages();
     if (!pages) {
         if (g->sv_in) {
             /* A custom layout may have darkened the last-page arrow. Restore
@@ -2400,6 +2534,14 @@ __attribute__((noinline)) static void sv_entry(void)
     uint32_t pages=SV_PAGES;
 #endif
     uint32_t cur = *(volatile uint8_t *)obs_el(cell, 0), page = cur, o = rw(pg8 + 4), b = in_sram(o, 4) ? rw(o) : 0;
+#if ENGINE_ABI3 && !FAR_PART
+    uint32_t entry = !(g->sv_in&1u) || g->sv_gen!=gen;
+    /* A binding/project change initializes once. Ordinary view reentry keeps
+     * controller+10 authoritative, including a manually selected choice page. */
+    if(g->sv_gen!=gen)abi3_sample_stop();
+    if (!(g->sv_in&0x80u) || g->sv_gen!=gen) page=0;
+    if (page>=pages) page=pages-1u;
+#else
     uint32_t entry = !g->sv_in || g->sv_gen != gen;
     if (entry) {
         uint32_t base = t->store ? *(volatile uint8_t *)(t->store + SV_BASE_AT + A1_T) : 0xFFu, ch;
@@ -2413,7 +2555,20 @@ __attribute__((noinline)) static void sv_entry(void)
     } else if (page >= pages) {
         page = pages - 1u;                 /* Up / Down stop at the last page that holds sounds (stock: eight) */
     }
-    if (cur != page) {
+#endif
+#if ENGINE_ABI3 && !FAR_PART
+    if(entry) {
+        uint32_t ch=pl_channel(rw(PL_R_CELL),A1_T);
+        const struct cre3_facts *f=abi3_resident_facts();
+        uint32_t sound=ch?PL_GET(ch,0):0xFFFFFFFFu;
+        if(f && sound<f->h[46])abi3_sample_selected(view,sound);
+    }
+#endif
+    if (cur != page
+#if ENGINE_ABI3 && !FAR_PART
+        || entry /* same page still needs a fresh engine overlay on entry */
+#endif
+    ) {
         *(volatile uint8_t *)OBS_SETP(cell, 0) = (uint8_t)page;
         NOTIFY(cell);
     }
@@ -2421,7 +2576,11 @@ __attribute__((noinline)) static void sv_entry(void)
         *(volatile uint16_t *)b = *(const volatile uint16_t *)SV_ARROW_OFF;   /* no page below: the Down arrow dark */
     if (entry) {
         sv_dark(view);
+#if ENGINE_ABI3 && !FAR_PART
+        g->sv_in = (uint8_t)((g->sv_in&0x5Eu)|0x81u);
+#else
         g->sv_in = 1;
+#endif
         g->sv_gen = gen;
     }
 #else
@@ -2447,30 +2606,99 @@ __attribute__((noinline)) static void sv_entry(void)
 }
 
 #if ENGINE_ABI3 && !FAR_PART
-static uint32_t abi3_sample_slot(uint32_t page,uint32_t pad,uint32_t *slot)
+/* One sound painter for FM and every declared engine: count, hue and page
+ * origin are data. Choice/toggle fields share its page descriptor, but edit a
+ * bank rather than select or audition a sound. */
+static void sv_sound_paint(struct engctl_lights *ctx,uint32_t page,uint32_t first,
+                           uint32_t count,uint32_t hues,uint32_t selected)
 {
-    const struct cre3_facts *f=abi3_resident_facts();
-    if (!f || pad>=16 || page>=engctl_sample_pages()) return 0;
-    for (uint32_t i=0;i<f->h[26];i++) if ((f->controls[8*i]&15)==1) {
-        struct c3ui_position position;
-        if (c3ui_position(f,i,&position) && 16*page+pad>=position.pad &&
-            16*page+pad<position.pad+position.count) { *slot=16*page+pad-position.pad; return 1; }
+    uint32_t base=page*16u;
+    for(uint32_t pad=0;pad<16;pad++) {
+        uint32_t at=base+pad;
+        if(at<first || at-first>=count)continue;
+        uint32_t on=at-first==selected;
+        engctl_pad_light(ctx,pad,on?hues&15u:hues>>4,on?2u:1u);
     }
-    return 0;
+}
+static void sv_sample_paint(struct state *s,uint32_t page,uint32_t sound,uint8_t *leds)
+{
+    (void)s;
+    const struct cre3_facts *f=engctl_visible_facts();
+    const uint8_t *values=abi3_current_values();
+    if(!f || !values || page>=c3ui_pages(f,1))return;
+    struct engctl_lights ctx={leds,16};
+    for(uint32_t pad=0;pad<16;pad++)engctl_pad_light(&ctx,pad,0,0);
+    for(uint32_t i=0;i<f->h[26];i++) {
+        struct c3ui_position p;
+        if(!c3ui_position(f,i,&p) || p.surface!=1 || !c3ec_enabled(f,i,values))continue;
+        const uint8_t *r=f->controls+8*i;
+        uint32_t kind=r[0]&15u;
+        if(kind==1)sv_sound_paint(&ctx,page,p.pad,p.count,r[6],sound);
+        else if(kind==2 || kind==3) {
+            uint32_t value=c3ui_value(r,values,sound),base=page*16u;
+            for(uint32_t j=0;j<p.count;j++) {
+                uint32_t at=p.pad+j;
+                if(at<base || at>=base+16)continue;
+                uint32_t on=kind==3?value!=0:j==value;
+                engctl_pad_light(&ctx,at-base,on?r[6]&15u:r[6]>>4,on?2u:1u);
+            }
+        }
+    }
+    if(PG->fb){PG->fb--;leds[212]=(PG->fb&4)?BRIGHT:0;leds[213]=leds[214]=0;}
+#if ABI3_QUEUE_TRACE
+    q0_ui_frame(1u,(uint32_t)leds,0);
+#endif
+}
+static uint32_t abi3_sample_owned(struct state *s)
+{
+    uint32_t page;
+    /* abi3_sample_page is page < sv_engine_pages(): one metadata walk per call, no engine pages included */
+    return s && !PG->open && s->ui==(0x80010000u|A1_T) && abi3_sample_page(&page);
+}
+/* hook_frame, owned Sample view, a ready LED frame (UI task, under the suspension). Returns SV_OWNED when the owned
+ * pads must be painted again (pg_sample_frame: stock frame plus the full engine paint), SV_STOCK when only the stock
+ * frame changed (pg_sample_merge: stock frame, the owned pads kept from the last paint), 0 when neither changed.
+ * The stock source is dirty on every ready frame on the unit (7405: stock_encode_entry 93.6/s on the stock track 1
+ * view too), so the paint decision is keyed on the owned page's own inputs only: the page; the sound; the ten
+ * current values; the refused-edit blink (sv_sample_paint counts it down per painted frame, so every blink frame
+ * still paints); the press feedback (edit result, preview state); the resident header CRC. These are every input of
+ * sv_sample_paint. The stock dirty word is consumed here as the native frame clears bit 0 after encoding (hook_frame's
+ * was_on path marks it dirty again when the stock display returns). fake_src[1] keeps the painted inputs, fake_src[2]
+ * the owner tag (hook_frame clears it for every other display, so s->leds' owned pads are the last paint whenever
+ * the tag is set); the native frame and encoder read words 0 and 4 of a flag-0 source only (tempo-starve-01/02). */
+#ifndef SV_OWNED
+#define SV_PAINT_TAG 0x53565054u
+#define SV_STOCK 2u
+#define SV_OWNED 1u
+#endif
+static uint32_t abi3_sample_changed(struct state *s,uint32_t *src)
+{
+    uint32_t stock=__atomic_fetch_and(src,~1u,__ATOMIC_SEQ_CST);
+    const struct cre3_facts *f=abi3_resident_facts();
+    const uint8_t *v=abi3_current_values();
+    uint32_t page=0,channel=pl_channel(rw(PL_R_CELL),A1_T);
+    (void)abi3_sample_page(&page);
+    uint32_t h=2166136261u;
+    h=(h^(page|(uint32_t)PG->fb<<8|(uint32_t)PG->res<<16|(uint32_t)PG->sv_in<<24))*16777619u;
+    h=(h^(channel?PL_GET(channel,0):0xFFFFFFFFu))*16777619u;
+    h=(h^(f?cre3_u32(f->h+60):0u))*16777619u;
+    for(uint32_t i=0;v && i<10;i++)h=(h^v[i])*16777619u;
+    if(s->fake_src[2]==SV_PAINT_TAG && s->fake_src[1]==h)return stock?SV_STOCK:0u;
+    s->fake_src[1]=h;s->fake_src[2]=SV_PAINT_TAG;
+    return SV_OWNED;
 }
 static void abi3_sample_frame(struct state *s,uint8_t *leds)
 {
     if (!s) return;
-    /* hook_encode is a UI task callback. Main owns resident metadata/current;
-     * hold the existing scheduler serialization over the complete binding. */
+    /* The composite frame owner holds scheduler serialization through stock
+     * rendering, this final overlay and presentation. */
     SUSPEND_ALL();
-    if (s->ui!=(0x80010000u|A1_T) || !engctl_sample_pages()) goto done;
-    uint32_t grid=rw(rw(rw(BTN_CELL+4))+0x3C);
-    uint32_t object=rw(grid+0x19C+4*A1_T), cell=in_sram(object,0x14)?rw(object+0x10):0;
-    if (!in_sram(cell,0x14)) goto done;
-    uint32_t page=*(volatile uint8_t *)obs_el(cell,0), channel=pl_channel(rw(PL_R_CELL),A1_T);
+    if (!abi3_sample_owned(s)) goto done;
+    uint32_t page;
+    if(!abi3_sample_page(&page))goto done;
+    uint32_t channel=pl_channel(rw(PL_R_CELL),A1_T);
     uint32_t sound=channel?PL_GET(channel,0):0;
-    engctl_sample_render(s,page,sound,leds);
+    sv_sample_paint(s,page,sound,leds);
  done:
     RESUME_ALL();
 }
@@ -2487,11 +2715,37 @@ uint32_t hook_sv_press(uint32_t obj, uint32_t pad, uint32_t vel, uint32_t d)
     uint16_t bit = (uint16_t)(1u << (pad & 15u));
     if (c) {
 #if ENGINE_ABI3 && !FAR_PART
-        if (engctl_sample_pages()) {
-            uint32_t block=*(volatile uint8_t *)obs_el(rw(obj+0x1C),0), sound=0;
-            uint32_t result=engctl_sample_pad(region(),(pad>>4)+2*block,pad&15,PG->clear,&sound);
-            if (pad>31 || result!=2) { PG->sv_mask|=bit; return d; }
-            pad=sound;
+        if (sv_engine_pages()) {
+            uint32_t page=0,sound=0;
+            uint32_t result=pad<=31 && abi3_sample_page(&page)?
+                engctl_sample_pad(region(),page,pad&15,PG->clear,&sound):1;
+            /* Engine overlay gestures never enter stock pending-slot,
+             * audition or long-press state. Both edges belong to this path. */
+            PG->sv_mask|=bit;
+            if (pad<=31 && result==2) {
+                uint32_t selected=rw(obj+0x28);
+                uint32_t channel=group(A1_T);
+                if(in_sram(selected,0x14) && channel && abi3_stage_control(8,sound)) {
+                    /* Same qualified setter as SDK channel writes. Reserve
+                     * source8 first, then make PL_GET's live byte and the
+                     * native saved-selection observer agree before ONSET. */
+                    PARAM_SET(channel,0,sound);
+                    *(volatile uint8_t *)OBS_SETP(selected,0)=(uint8_t)sound;
+                    NOTIFY(selected);
+                    abi3_sample_audition(pad&15u,vel,sound);
+                } else engctl_feedback(TS_BUSY);
+            } else if(result==3) {
+                /* The bank PARAM was reserved by the successful atomic edit.
+                 * Preview its current sound without selecting a new sound or
+                 * staging that bank a second time. Pressure never enters here. */
+                uint32_t channel=group(A1_T);
+                const struct cre3_facts *facts=abi3_resident_facts();
+                uint32_t selected=channel?PL_GET(channel,0):0xFFFFFFFFu;
+                if(facts && (!facts->h[46] || selected<facts->h[46]))
+                    abi3_sample_audition(pad&15u,vel,facts->h[46]?selected:0u);
+                else engctl_feedback(TS_REFUSED);
+            }
+            return d;
         }
 #else
         uint32_t blk = *(volatile uint8_t *)obs_el(rw(obj + 0x1C), 0), slot = pad + 32u * blk;
@@ -2523,16 +2777,17 @@ uint32_t hook_sv_press(uint32_t obj, uint32_t pad, uint32_t vel, uint32_t d)
  * physical pad), so it can never end an earlier valid audition held on another pad. */
 uint32_t hook_sv_rel(uint32_t obj, uint32_t pad, uint32_t c, uint32_t d)
 {
+#if ENGINE_ABI3 && !FAR_PART
+    if((PG->sv_in&0x40u) && ((PG->sv_in>>1)&15u)==(pad&15u))abi3_sample_stop();
+#endif
     uint16_t bit = (uint16_t)(1u << (pad & 15u));
     if (PG->sv_mask & bit) {
         PG->sv_mask &= (uint16_t)~bit;
         return d;
     }
 #if ENGINE_ABI3 && !FAR_PART
-    if (in_sram(obj,0x58) && ad_c8(rw(obj+0x14)) && engctl_sample_pages()) {
-        uint32_t block=*(volatile uint8_t *)obs_el(rw(obj+0x1C),0), sound;
-        if (abi3_sample_slot((pad>>4)+2*block,pad&15,&sound)) pad=sound;
-        else return d;
+    if (in_sram(obj,0x58) && ad_c8(rw(obj+0x14)) && sv_engine_pages()) {
+        return d;
     }
 #endif
     return SV_REL(obj, pad, c, d);
@@ -2768,8 +3023,22 @@ static void a1_sync(struct a1 *a)
 
 static int32_t setting(uint32_t off)
 {
+#if ENGINE_ABI3 && !FAR_PART
+    /* Engines without an ARM poly switch retain their declared lane capacity;
+     * a stale FM project toggle must not force them into the mono chord lane. */
+    if(off==SR_POLY && !engctl_poly_mask())return 1;
+#endif
     struct tm *t = tm();
-    return syn_rec_get(t ? t->rec[A1_T] : 0, off);
+    int32_t value=syn_rec_get(t ? t->rec[A1_T] : 0, off);
+#if ENGINE_ABI3 && !FAR_PART
+    if(off==SR_NPP) {
+        uint32_t mask=engctl_poly_mask();
+        if(!mask)return 1;
+        if((!t || syn_rec_status(t->rec[A1_T])!=SYN_V1) ||
+           !(mask&(1u<<((uint32_t)value-1))))return (int32_t)engctl_poly_default();
+    }
+#endif
+    return value;
 }
 
 static uint32_t fold(int32_t p)
@@ -2814,6 +3083,9 @@ static uint32_t chord(int32_t note, uint8_t *out, struct a1 *a, uint32_t src)
 static uint32_t chord(int32_t note, uint8_t *out)
 #endif
 {
+#if ENGINE_ABI3 && !FAR_PART
+    if(!engctl_chords()){out[0]=(uint8_t)fold(note);return 1;}
+#endif
     uint32_t n = (uint32_t)setting(SR_NPP), minor = CHORD_SCALE();
     int32_t oct = 12 * setting(SR_OCTAVE);
     int32_t t[4] = {0, 0, 0, 0};
@@ -3766,6 +4038,9 @@ uint32_t hook_a1_tick(uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3)
     pg_fm_tick();                             /* the FM view's coalesced macro write (synthpage.c) */
 #endif
     if (a && !Q0->busy) {
+#if ENGINE_ABI3 && !FAR_PART
+        abi3_sample_sync();
+#endif
 #if !ENGINE_ABI3
         ad_boot_default();
 #endif

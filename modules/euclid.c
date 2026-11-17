@@ -1,4 +1,4 @@
-/* Euclid revision 9.
+/* Euclid revision 10.
  * euclid.mod: four Euclidean rows of up to 32 steps, ABI 3. Press Play to run.
  * Plays like a four-track drum machine: rows 1..4 default to tracks 1..4.
  * Stock firmware owns Play/Stop; this module never uses them as controls.
@@ -179,7 +179,9 @@ static uint32_t timer_host(void) {
         (label==7388&&
          h[2]==0x0806cb83u&&h[4]==0x0806cc4bu&&h[5]==0x0806cc53u&&h[6]==0x0806cd01u&&h[7]==0x0806cd3du)||
         (label==7391&&
-         h[2]==0x0806c30du&&h[4]==0x0806c38fu&&h[5]==0x0806c397u&&h[6]==0x0806c401u&&h[7]==0x0806c413u))&&
+         h[2]==0x0806c30du&&h[4]==0x0806c38fu&&h[5]==0x0806c397u&&h[6]==0x0806c401u&&h[7]==0x0806c413u)||
+        (label==7400&&
+         h[2]==0x0806ca19u&&h[4]==0x0806ca9bu&&h[5]==0x0806caa3u&&h[6]==0x0806cb0du&&h[7]==0x0806cb1fu))&&
 #endif
         flash_fingerprint(0x08024068u,12)==0x5315a080u&&
         flash_fingerprint(0x08066bfcu,16)==0x2d5b1d35u;

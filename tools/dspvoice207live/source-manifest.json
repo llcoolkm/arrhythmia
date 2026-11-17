@@ -44,7 +44,7 @@
   "tools/dspvoice207rel/build.py": "e3865d55e6ef1cb4bebb708449cfa108a15ac1f662f929079ef8ac9a19460155",
   "tools/dspvoice207rel/instrument.asm": "fe97cd65149abf3e3d1bf6ef9ddc790e4bc096c6bf072af5d4262e7bde4db9f8",
   "tools/dspvoice207rel/source-manifest.json": "4b00b0a683af92186e35afc0a4059497a70eeb031b884a59db903fce72138d82",
-  "tools/engine_file.py": "084c722a01e022bc6880c2a91763207b395473ba17d756081f1d6b79f7721b3c",
+  "tools/engine_file.py": "5194b704a795c4aa9231ce2f6dd04b3ee004e49f84bcc08c1a68df3ef79b79e7",
   "tools/syx.py": "8473d9df33c9dab1fffceca34303d4f4f7f6120e72505d07c2dc609eb6e1475c"
  },
  "format": "arrhythmia-dsp207live-own-source/1",

@@ -2,7 +2,7 @@
   "arm_end": 134702580,
   "arm_sha256": "a1f5ed53d3d23c250736eede1c8fa27a13d320783d599b758bd9627db0b7c2ac",
   "arm_size": 419316,
-  "component_manifest_sha256": "eed0b1976011114892608f016f63d948ea9ce30182b79da6ddbd79d2242832b8",
+  "component_manifest_sha256": "361b5a162eaa5209b7d97076c4740e9bea42203b65dcf03806526d843fdef5d2",
   "core0_sha256": "21ac14ffea93a6c8775153a3b1bae4ffe006d6717e5009e238d4bdb8706f167a",
   "core1_sha256": "b3f9e8481e11e634c9aead897b00c7ed3d80c5926434e4456614953ab4e8d948",
   "far": [
@@ -16,7 +16,7 @@
   "files": {
     "tests/test_dspvoice207m4_release.py": "58ab781cdc26e0360906c8f0bf60d462b56d07996a27b68c448a50adfb5c244e",
     "tools/dspvoice207m4/RELEASE.md": "39efaf505f58bd8a630a4a183b8ec512448e32ab13a234d665a141038e7bec2f",
-    "tools/dspvoice207m4/release.py": "d2f5221a7d72a305180a2bd8fb278e41c6a4158cfbca6a4d8c56b622d6f4bab1"
+    "tools/dspvoice207m4/release.py": "f09f641df0e50fc5b491a0a9f3315eca2b5cbfe296bf9b63bf42e224172cf534"
   },
   "format": "arrhythmia-dsp207m4-public-release/1",
   "image_crc": 1851410499,

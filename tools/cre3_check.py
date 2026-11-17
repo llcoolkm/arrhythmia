@@ -1,5 +1,47 @@
 # SPDX-License-Identifier: MIT
-"""Static file and platform checks for a CRE3 engine over USB."""
+"""Static file and platform checks for a CRE3 engine over USB.
+
+Format minor
+------------
+The format minor (+6, u16) versions the file layout. The queue ABI minor (+20) is a separate fact.
+Minor 0 is the legacy layout: +27 is 0 and the file has no engine config declarations.
+Minor 1 is the stable layout of firmware 0.3.2: every header byte below has a defined meaning.
+A checker refuses a minor it does not define (2 and above) at check 1. A reserved byte or bit that
+is not 0 refuses the file at every minor. A minor-0 file stays valid at minor 1 by changing only +6
+and the header CRC.
+
+Header bytes 0 to 63 (little-endian fields; "same" means the minor-0 rule applies at minor 1):
+
+| Bytes | Field | Minor 0 | Minor 1 |
+|---|---|---|---|
+| 0-3 | magic | the bytes CRE3 (check 1) | same |
+| 4-5 | H, header size | 64 + 8T + 8C to 4096, a multiple of 4 (check 1) | same |
+| 6-7 | format minor | 0 (check 1) | 1 (check 1); 2 and above refused |
+| 8-11 | n, body words | 389 to 8192; file size H + 3n (checks 1, 10) | same |
+| 12-15 | body CRC | zlib CRC-32 of the 3n body bytes (check 10) | same |
+| 16-19 | platform id | a platform the firmware composes; 1 (check 4) | same |
+| 20-23 | queue ABI | 0x300 + ABI minor; 0x300 on platform 1 (checks 3, 5) | same |
+| 24 | engine class | 1 to 255, 0 refused; host policy 1 to 127 (check 16) | same |
+| 25 | T, table descriptors | 0 to 15, 0 below ABI minor 2 (check 12) | same |
+| 26 | C, control records | 0 to 16 (check 17) | same |
+| 27 | engine config | 0 only (check 16) | 0 legacy, 0x80 explicit, 0x81 explicit with chords and FM class 1 only (check 16) |
+| 28-31 | engine version | any value, information only | same |
+| 32-35 | engine capabilities | bit 0 CORE required; bits defined at the ABI minor; bits 24 to 31 zero (check 5) | same |
+| 36-39 | host needs | bits defined at the ABI minor; bits 24 to 31 zero (checks 5, 6) | same |
+| 40-43 | wanted sources | bits 0 to 21 defined at the ABI minor; bits 22 to 31 zero (check 5) | same |
+| 44 | lanes | 1 to 4, or 5 to 8 with LANES8 (check 7) | same |
+| 45 | K | 4 to 16 (check 7) | same |
+| 46 | sound slots | 0 to 32, or 128 at ABI minor 1 (check 7) | same |
+| 47 | flags | bit 0 pitch form, only with NOTEPITCH; bits 1 to 7 zero (check 8) | same |
+| 48-51 | release tail | any value; 0 the firmware default | same |
+| 52-55 | declared cycles | 1 to E (check 13) | same |
+| 56-59 | memory claims | a subset of the granted windows (checks 9, 12) | same |
+| 60-63 | header CRC | zlib CRC-32 of bytes 0 to H - 1, this field as zero (check 2) | same |
+
+Minor 1 adds the meaning of +27 bit 7 and bit 0: kind 4 records on surface 0 (config macros 9 to 11)
+and bytes 5 and 6 of the kind 6 record (FM polyphony). Bytes 64 to H - 1 (descriptors, control records,
+metadata) keep their minor-0 grammar; check 17 rejects a declaration in a file with +27 = 0.
+"""
 from pathlib import Path
 import json
 import re
@@ -9,6 +51,7 @@ import zlib
 MAGIC = b'CRE3'
 WINDOW_SIZES = {0: 144, 1: 3072, 2: 3072, 3: 176, 4: 96, 5: 192}
 FILE_CHECKS = (1, 2, 5, 7, 8, 10, 11, 12, 15, 16, 17)
+FORMAT_MINORS = (0, 1)               # the format minors (+6) this checker defines
 
 
 def need(condition, message):
@@ -39,9 +82,10 @@ def macro0_projection(value):
     return raw, ((raw - 4) * 127 + 60) // 120
 
 
-def validate_controls(records, wanted, sound_slots):
+def validate_controls(records, wanted, sound_slots, ui_capabilities=0, engine_class=1):
     need(len(records) <= 16, 'check 17: control count')
     masks, continuous, macros, sounds, keys = {}, set(), set(), [], []
+    macro_knobs=set()
     decoded, positions = [], {}
     for i, raw in enumerate(records):
         need(len(raw) == 8, 'check 17: record length')
@@ -56,7 +100,9 @@ def validate_controls(records, wanted, sound_slots):
             macros.add(source)
             continue
         if kind == 6:
-            need(surface == 0 and any(raw[1:5]) and raw[5:] == bytes(3), 'check 17: identity')
+            need(surface == 0 and any(raw[1:5]) and flags == 0 and default & ~15 == 0
+                 and (1 <= colour <= 4 and default & (1 << (colour-1)) if default else colour == 0)
+                 and (ui_capabilities != 0 and engine_class == 1 or default == colour == 0), 'check 17: identity/poly')
             keys.append(i)
             continue
         need(wanted & (1 << source), 'check 17: record source not wanted')
@@ -80,13 +126,17 @@ def validate_controls(records, wanted, sound_slots):
             mask = ((1 << width) - 1) << offset
             need(not masks.get(source, 0) & mask, 'check 17: overlapping bank masks')
             masks[source] = masks.get(source, 0) | mask
+        elif surface == 0 and 9 <= source <= 11:
+            need(ui_capabilities & 128 and source not in macro_knobs and offset == width == count == 0
+                 and default <= 127 and colour <= 7, 'check 17: macro declaration')
+            macro_knobs.add(source)
         else:
             need(surface == 2 and 17 <= source <= 20 and source not in continuous and offset == width == count == 0
                  and default <= 127 and colour <= 7, 'check 17: continuous')
             positions[i] = {'knob': len(continuous) + 1, 'surface': 2}
             continuous.add(source)
     need(len(sounds) == bool(sound_slots) and len(keys) <= 1, 'check 17: sounds/identity count')
-    need(not any(k in (2, 3, 4) for k, *_ in decoded) or len(keys) == 1, 'check 17: settings key required')
+    need(not any(k in (2, 3) or k == 4 and surf == 2 for k, surf, *_ in decoded) or len(keys) == 1, 'check 17: settings key required')
     for source in (16, 21):
         need(not wanted & (1 << source) or source in masks, 'check 17: bank has no fields')
     for source in range(17, 21):
@@ -168,8 +218,9 @@ def parse(data):
     version, caps, needs, wanted = struct.unpack_from('<4I', data, 28)
     lanes, k, slots, flags = data[44:48]
     release, cycles, claims, header_crc = struct.unpack_from('<4I', data, 48)
-    need(magic == MAGIC and fmt == 0 and 64 + 8*tables + 8*count <= h <= 4096 and h % 4 == 0
-         and len(data) == h + 3*n, 'check 1: magic/format/header/EOF')
+    need(magic == MAGIC, 'check 1: magic')
+    need(fmt in FORMAT_MINORS, f'check 1: format minor {fmt} is not defined; this checker reads minors 0 and 1')
+    need(64 + 8*tables + 8*count <= h <= 4096 and h % 4 == 0 and len(data) == h + 3*n, 'check 1: header/EOF')
     header = bytearray(data[:h]); header[60:64] = bytes(4)
     need(zlib.crc32(header) == header_crc, 'check 2: header CRC')
     # ABI support is platform check 3, but the file grammar is the ABI-3 family.
@@ -197,9 +248,10 @@ def parse(data):
         descriptors.append({'id':tid,'window':window,'flags':tf,'offset':offset,'length':length})
     s = source_entries(wanted)
     need(s + lanes <= 24, 'check 15: press size')
-    need(reserved == 0 and cls != 0, 'check 16: reserved/class')
+    need(reserved in (0,128,129) and cls != 0 and (reserved != 129 or cls == 1), 'check 16: UI capabilities/class')
+    need(fmt >= 1 or reserved == 0, 'check 16: engine config declarations (+27 not 0) need format minor 1')
     records = [data[64+8*tables+8*i:72+8*tables+8*i] for i in range(count)]
-    layout = validate_controls(records, wanted, slots)
+    layout = validate_controls(records, wanted, slots, reserved, cls)
     metadata, warnings = parse_metadata(data[64+8*tables+8*count:h], count, wanted, slots, minor)
     labelled = {bytes.fromhex(r['data'])[0] for r in metadata if r['tag'] == 0x12}
     warnings += [f'control record {i}: missing optional label' for i in range(count) if i not in labelled]
@@ -211,7 +263,7 @@ def parse(data):
     if cycles > 0xFFFFFF:
         warnings.append('declared cycle budget exceeds the platform meter range (24-bit); load eligible, runtime unready')
     return dict(magic='CRE3', header_size=h, format_minor=fmt, words=n, body_crc=crc, platform=platform, abi=abi,
-                engine_class=cls, version=version, capabilities=caps, needs=needs, wanted_sources=wanted, lanes=lanes,
+                engine_class=cls, ui_capabilities=reserved, version=version, capabilities=caps, needs=needs, wanted_sources=wanted, lanes=lanes,
                 k=k, sound_slots=slots, flags=flags, release_tail=release, declared_cycles=cycles, memory_claims=claims,
                 header_crc=header_crc, descriptors=descriptors, controls=[r.hex() for r in records], layout=layout,
                 source_entries=s, press_entries=s+lanes, metadata=metadata, warnings=warnings, body=body)
@@ -230,6 +282,11 @@ def policy():
     need(isinstance(version, str) and re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', version),
          'invalid release version')
     integer(row.get('minimum_app_build'), 6000, 9999, 'minimum application build')
+    integer(row.get('cre2_refused_from_app_build',row['minimum_app_build']),6000,row['minimum_app_build'],'CRE2 refusal application build')
+    legacy_version=row.get('cre2_refusal_release',version)
+    need(isinstance(legacy_version,str) and re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)',legacy_version),
+         'invalid CRE2 refusal release')
+    if 'ui_minimum_app_build' in row:integer(row['ui_minimum_app_build'],row['minimum_app_build'],9999,'UI minimum application build')
     integer(row.get('cycle_limit'), 1, 0xFFFFFF, 'cycle limit')
     return row
 
@@ -241,8 +298,13 @@ def check(blob):
     info = parse(blob)
     need(info['abi'] == row['queue_abi'], 'check 3: queue ABI')
     need(info['platform'] == row['platform_id'], 'check 4: platform id')
+    # Platform class policy is shared with firmware 0.3.2. Generic inspection remains available.
+    need(1 <= info['engine_class'] <= 127,
+         'check 16: engine classes 128 to 255 are experimental and are not supported by the platform 1 host policy')
     need(not info['needs'] & ~row['offered_capabilities'], 'check 6: host needs')
     need(not info['memory_claims'] & ~row['memory_grants'], 'check 9: memory grants')
+    need(info['engine_class'] == 1 or info['ui_capabilities'] != 0,
+         'check 16: non-FM engines require explicit engine config declarations; use engine_file.py ui3')
     need(zlib.crc32(info['body'][:1152]) == row['shim_crc32'], 'check 10: shim set')
     need(1 <= info['declared_cycles'] <= row['cycle_limit'], 'check 13: declared cycles')
     return dict(info, kind=info['engine_class'], build=info['version'], base=info['platform'], crc=info['body_crc'],

@@ -1,14 +1,15 @@
-# Circus Arrhythmia FM: the track 8 FM synth
+# Arrhythmia: the track 8 FM synth
 
-Applies to Circus Arrhythmia FM 0.3.1, firmware build 7388, with the FM engine 2.0.0. Test status and known
-limitations: see the [release notes](../../RELEASE-NOTES-0.3.1.md).
+Applies to Arrhythmia 0.3.2, firmware build 7400, with the FM engine 2.1.0. Test status and known
+limitations: see the [release notes](../../RELEASE-NOTES-0.3.2.md).
 
 * Track 8 plays either its samples or an engine. The pack chooses ([Engines on track 8](#engines-on-track-8)).
   Tracks 1 to 7 are sample tracks.
 * The FM engine is designed as a 4-operator FM synth with 4 voices. A note that fades out after its release occupies a voice.
 * Note sources: pads (track 8 selected), sequencer, MIDI on the channel of track 8 (default 8), modules.
 * The synth output passes through the mixer channel of track 8: level, pan, sends and FX apply.
-* The sections after Engines describe track 8 with the FM engine.
+* The sections after Engines describe track 8 with the FM engine. The formant and Rings engines are in
+  [engines.md](engines.md).
 
 ## Engines on track 8
 
@@ -16,7 +17,12 @@ An engine is a file on the microSD card. Each pack selects the engine of track 8
 when the pack loads: at power-on and at a pack change. The firmware contains no engine. Without an engine, track 8
 plays the samples of the pack.
 
-**Upgrading from 0.3.0:** firmware 0.3.1 refuses `fm.dse` 1.0.0. Install `fm.dse` 2.0.0. Until then, every pack that
+**Upgrading from 0.3.1:** update the firmware first, then replace `fm.dse` 2.0.0 with 2.1.0. The loader and
+`tools/module.py` of 0.3.2 refuse to install any engine file on firmware below build 7400. `fm.dse` 2.0.0 still loads
+on 0.3.2. Engine files that declare their own config page need firmware 0.3.2.
+Firmware 0.3.1 refuses them and plays samples.
+
+**Upgrading from 0.3.0:** firmware 0.3.1 and later refuse `fm.dse` 1.0.0. Install `fm.dse` 2.1.0. Until then, every pack that
 selects FM plays samples. Pack selections stay valid.
 
 **Upgrading from 0.2.2:** the firmware no longer contains the FM synth. Until you add and select `fm.dse`, track 8
@@ -29,6 +35,7 @@ Get the FM engine file `fm.dse` from the release page: <https://github.com/llcoo
 | `engines/fm.dse` | The FM engine file. |
 | `Rhythm/NN_<Name>/engine.cfg` | The pack's selection: one line, `fm.dse` or `none`. |
 | `engines/default.cfg` | The selection for packs without `engine.cfg` and for the factory pack. Same format. |
+| `engines/<name>.dse` | Another engine file, for example the engines of the 0.3.2 release: `formant.dse` and `rings.dse` ([engines.md](engines.md)). |
 
 Use lowercase for Arrhythmia's own paths and selection text. Engine names and `none` accept any case; existing
 uppercase names on FAT cards remain compatible. Keep the stock pack folder convention `Rhythm/NN_<Name>`.
@@ -53,8 +60,9 @@ by the loader.
 engine keeps pack selections intact; packs still naming the removed file play samples on their next load.
 Changing the default can affect every pack without its own selection, as well as the factory pack.
 
-The FM engine has its own version, **2.0.0**, independent of firmware **0.3.1**. In the reference scenes in the
-emulator, its output is word for word the output of 1.0.0. The loader shows engine names and versions read from the
+The FM engine has its own version, **2.1.0**, independent of firmware **0.3.2**. FM 2.1.0 was built to play 6 dB
+louder than 2.0.0. The measured unit level of the released file is in the
+[release notes](../../RELEASE-NOTES-0.3.2.md#engine-files). The loader shows engine names and versions read from the
 card. A different checksum does not prove that a file is older. Before a load, the firmware applies the checks of engine
 ABI 3 ([checks](engines-dev.md#checks)). A version number alone does not establish compatibility. The interface is
 written in [engines for developers](engines-dev.md). Engines from other authors load if they pass the checks.
@@ -115,8 +123,9 @@ A pack with its own `engine.cfg` ignores `default.cfg`. The factory pack has no 
 
 * Track 8 is a sample track as tracks 1 to 7: the Sample view with its eight pages, the stock macros and the stock
   Note view.
-* Shift + Track 8 opens the scale page only ([The synth page](#the-synth-page)). Up, Down and the macros of the page
-  have no function. The chord and arp pages are not available.
+* Shift + Track 8 opens the synth page with two pages: page 1 scales, page 2 arpeggiator
+  ([The synth page](#the-synth-page)). Up and Down change the page. The macros of the page have no function. The
+  chord page is not available.
 
 ### Engines from other authors
 
@@ -147,6 +156,10 @@ With the FM engine.
 * At low FM depth, the families sound almost the same. Increase macro 6.
 * Sound per step: hold a sound pad and tap a step, or the reverse. A recorded sound pad press also stores the sound.
 * CC 8 values 32 to 127 select Unity, serial.
+
+With another engine, the Sample view shows the pads that the engine file declares. Formant has its voice and vowel
+pads on page 1 and 16 sounds on page 2. Rings has its model and exciter pads on page 1, no sounds and no page 2
+([engines.md](engines.md)).
 
 <a id="attack-and-decay"></a>
 
@@ -187,22 +200,26 @@ The ranges are design values. They are not measured on the unit.
 
 ## Output level
 
-* The synth output is decreased by a fixed **4 dB**, before the level, pan, sends and FX of track 8.
-* No setting changes this value.
+* The engine file sets the level of its output, before the level, pan, sends and FX of track 8.
+* No setting on the unit changes this level. The measured unit levels are in the
+  [release notes](../../RELEASE-NOTES-0.3.2.md#engine-files).
 * Set the balance with the mixer level of track 8. A higher level increases the risk of crackle on loud chords.
 
 ## The synth page
 
-Open the synth page with **Shift + Track 8**. Without the FM engine on track 8, only the scale page opens
+Open the synth page with **Shift + Track 8**. It is also called the config page. The pages depend on the engine on
+track 8. Without an engine, the page has scales and the arpeggiator only
 ([Track 8 without an engine](#track-8-without-an-engine)).
 
 ![Pages 1 and 2 of the synth page and its macros 1 to 4](img/synth-page.png)
 
-| Page | Pads |
-|---|---|
-| 1 chords | notes per press, chord type, In key, minor or major, voicing, poly, octave; row 1 pad 8 is dark and has no function |
-| 2 scale | row 1, pads 1 to 8: scales on or off for track 1 to 8; row 2: scale (eight scales); rows 3 and 4: key, C to B ([scales.md](scales.md)) |
-| 3 arp | on or off, mode, latch, rate, octaves, gate ([The arpeggiator](#the-arpeggiator)) |
+| Page | With the FM engine | With another engine | Without an engine |
+|---|---|---|---|
+| 1 | chords: notes per press, chord type, In key, voicing, poly, octave; pad 8 of rows 1 and 2 is dark and has no function | the engine page: the pads and knobs that the engine declares ([Another engine on the synth page](#another-engine-on-the-synth-page)) | scale |
+| 2 | scale: row 1, pads 1 to 8: scales on or off for track 1 to 8; row 2: scale (eight scales); rows 3 and 4: key, C to B ([scales.md](scales.md)) | scale, the same | arp |
+| 3 | arp: on or off, mode, latch, rate, octaves, gate ([The arpeggiator](#the-arpeggiator)) | arp, the same | none |
+
+* The scale controls are on the scale page only. Page 1 of the FM engine has no scale controls.
 
 * **Down** shows the next page. **Up** shows the previous page. The Up or Down light is on when there is a page in
   that direction.
@@ -234,7 +251,7 @@ Lights while the page is open:
 * **Clear + macro** sets that macro to the value in the table. Hold Clear and turn the knob.
 * Macros 1 to 4 act on page 1 only. On pages 2 and 3 the knobs have no function, their lights are dark and
   Clear + macro does nothing.
-* Macros 5 to 8 have no function on the page.
+* With the FM engine, macros 5 to 8 have no function on the page.
 * The light of macro 1 (tune) has its centre at 64.
 * The project saves the values.
 * **Save** closes the page and starts the save, as from any other view. A knob turn immediately before the save is saved.
@@ -242,10 +259,31 @@ Lights while the page is open:
 * The page does not open while a module runs. Shift + Sample Rec on the page closes the page and opens the module
   picker.
 
+### Another engine on the synth page
+
+With an engine other than FM, page 1 is the engine page. The engine file declares its pads and knobs. The
+formant and Rings pages are in [engines.md](engines.md).
+
+| Knob | Function |
+|---|---|
+| 1 to 4 | the controls of the engine |
+| 5 | none; dark |
+| 6 to 8 | the macros that the engine declares |
+
+* A knob that the engine does not declare is dark and has no function. Knob 5 is always dark here: there is no
+  tune on the engine page, pitch comes from the pads, the scale and MIDI notes.
+* The pads are the choices and switches of the engine. Unused pads are dark.
+* Chords, notes per press and poly are FM controls. Another engine plays one voice per note, up to its own voice
+  count.
+* Clear + knob resets the knob to the default that the engine declares, where it has one. Clear + knob 5 does
+  nothing, the knob is dark.
+* The project saves the values.
+
 ## The arpeggiator
 
-Open the synth page with **Shift + Track 8**, then use **Up** or **Down** to reach page 3. Only page 3 turns the arp
-on or off. The synth page opens on the last page used.
+Open the synth page with **Shift + Track 8**, then use **Up** or **Down** to reach the arp page: page 3 with an
+engine on track 8, page 2 without an engine. Only the arp page turns the arp on or off. The synth page opens on the
+last page used.
 
 ![Page 3 of the synth page: on or off, modes, latch, rates, octaves and gates](img/synth-page-arp.png)
 
@@ -303,7 +341,7 @@ on or off. The synth page opens on the last page used.
 
 * Chords: the pressed note is the root. In key uses the project scale and key, shared with tracks 1 to 7
   ([scales.md](scales.md)).
-* Scales on for track 8 (page 2, row 1, pad 8): the Note view plays the project scale, as on tracks 1 to 7. MIDI in
+* Scales on for track 8 (scale page, row 1, pad 8): the Note view plays the project scale, as on tracks 1 to 7. MIDI in
   and recorded notes do not change.
 * Design voice order (not measured on the unit) when all 4 voices are busy: free voice, voice released
   longest ago, voice held longest.
@@ -396,7 +434,8 @@ The project saves the synth settings, the selected sound, the sounds per step an
 
 ## Known issues
 
-Details: [0.3.1 known limitations](../../RELEASE-NOTES-0.3.1.md#known-limitations),
+Details: [0.3.2 known limitations](../../RELEASE-NOTES-0.3.2.md#known-limitations),
+[0.3.1 known limitations](../../RELEASE-NOTES-0.3.1.md#known-limitations),
 [0.3.0 known limitations](../../RELEASE-NOTES-0.3.0.md#known-limitations),
 [0.2.2 known issues](../../RELEASE-NOTES-0.2.2.md#known-issues),
 [0.2.1 known issues](../../RELEASE-NOTES-0.2.1.md#known-issues) and

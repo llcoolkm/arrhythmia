@@ -151,7 +151,9 @@ static inline uint32_t syn_patch_status(const volatile uint8_t *p)
 }
 
 /* Decoded value of one record field (byte offset SR_*); rec may be 0 (= unset). */
-#if TRIM_LEDS                                   /* trim C3: one out-of-line copy for every reader */
+#if ABI3_PRODUCTION_RC && !INTERNAL_TEST_TWIN
+__attribute__((always_inline)) static inline int32_t syn_rec_get(const volatile uint8_t *rec, uint32_t off)
+#elif TRIM_LEDS                                 /* trim C3: one out-of-line copy for every reader */
 __attribute__((noinline)) static int32_t syn_rec_get(const volatile uint8_t *rec, uint32_t off)
 #else
 static inline int32_t syn_rec_get(const volatile uint8_t *rec, uint32_t off)
@@ -262,7 +264,11 @@ static inline int32_t syn_fm_lim(uint32_t off, uint32_t which)
 }
 
 /* Decoded FM field (SF_*); p may be 0 (= unset). One out-of-line copy for the page and the note path. */
+#if ABI3_PRODUCTION_RC && !INTERNAL_TEST_TWIN
+__attribute__((always_inline)) static inline int32_t syn_fm_get(const volatile uint8_t *p, uint32_t off)
+#else
 __attribute__((noinline)) static int32_t syn_fm_get(const volatile uint8_t *p, uint32_t off)
+#endif
 {
     int32_t def = syn_fm_lim(off, 1);
     if (!p || syn_fm_status(p) != SYN_V1)

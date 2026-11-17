@@ -7,7 +7,7 @@ const {ML,LL,CRE3USB}=new Function(part('MLCORE')+'\n'+part('LLCORE')+'\nreturn 
 const releasePolicy=JSON.parse(fs.readFileSync(new URL('../tools/abi3_usb_policy.json',import.meta.url),'utf8'));
 assert.equal(CRE3USB.policy.minimum_app_build,releasePolicy.minimum_app_build);
 assert.equal(CRE3USB.policy.release_version,releasePolicy.release_version);
-const legacyBuild=releasePolicy.minimum_app_build-1;
+const legacyBuild=releasePolicy.cre2_refused_from_app_build-1;
 const asset={size:14906,crc:0x2EB146FE,build:0x80010000,version:'1.0.0',kind:1,abi:0x207,base:0xFE80B6B5};
 const engine={type:2,compatible:1,file:'fm.dse',...asset};
 function packet(sub,n,index=0,b=new Uint8Array(96),o={}) {
@@ -98,7 +98,7 @@ assert.equal(LL.enc.engineDelete()[7],0x13);assert.ok(ML.allowed(LL.enc.engineDe
 assert.equal(ML.allowed(Uint8Array.from([...ML.PRE,0x10,0x10,0xF7])),false);
 assert.ok(!Object.keys(LL.enc).some(k=>/load/i.test(k)));
 assert.doesNotMatch(html,/Load now|Track 8 plays|0x10, 0x10/);
-assert.match(html,/<title>Circus Arrhythmia FM: loader<\/title>/);
+assert.match(html,/<title>Arrhythmia: loader<\/title>/);
 assert.match(html,/<p class="sub">Track 8 instrument<\/p>/);
 assert.doesNotMatch(html,/loaded with pack|Empty pads start nothing/);
 assert.throws(()=>LL.checkEngine(new Uint8Array(35)),/header/);
@@ -106,8 +106,9 @@ const fake=new Uint8Array(35),d=new DataView(fake.buffer);d.setUint32(0,0x324552
 assert.throws(()=>LL.checkEngine(fake, legacyBuild),/incompatible/);
 d.setUint32(12,0x207,true);d.setUint32(16,0xFE80B6B5,true);d.setUint32(20,1,true);
 assert.throws(()=>LL.checkEngine(fake, legacyBuild),/body CRC/);
-const upgrade = `FM 1.0.0 (CRE2) does not run on firmware ${releasePolicy.release_version}. Install fm.dse 2.0.0.`;
+const upgrade = `FM 1.0.0 (CRE2) does not run on firmware ${releasePolicy.release_version}. Install fm.dse 2.1.0.`;
 assert.throws(()=>LL.checkEngine(fake), {message: upgrade});
+for(const app of [releasePolicy.cre2_refused_from_app_build,releasePolicy.minimum_app_build-1,releasePolicy.minimum_app_build])assert.throws(()=>LL.checkEngine(fake,app),{message:`FM 1.0.0 (CRE2) does not run on firmware ${app>=releasePolicy.minimum_app_build?releasePolicy.release_version:releasePolicy.cre2_refusal_release}. Install fm.dse 2.1.0.`});
 await assert.rejects(LL.put({run(){throw Error('must validate first');}},fake), {message: upgrade});
 // Check status reads only cmd 10 00, even when the previous write outcome was unknown.
 const sent=[],link=new ML.Link(m=>{sent.push([...m]);link.feed(Uint8Array.from([...ML.PRE,0x10,0,1,3,1,1,0,...ML.p7(0,3),...ML.p7(0,3),...ML.p7(0,5),0,0xF7]));});

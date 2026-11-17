@@ -58,6 +58,19 @@ class EngineExport(unittest.TestCase):
             with self.subTest(page=page), self.assertRaises(ep.Refused):
                 ep.page_engine(page, data)
 
+    def test_catalogue_asset_binding(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_engine_catalogue import blob, entry
+        data = blob(kind=1)
+        row = entry(data, name='FM', file='fm.dse', kind=1)
+        catalogue = dict(format='engine-catalogue/1', engines=[row])
+        self.assertEqual(ep.catalogue_engine(json.dumps(catalogue).encode(), data), row)
+        for wrong in (dict(row, sha256='0'*64), dict(row, file='other.dse'), dict(row, kind=7)):
+            with self.assertRaises(ep.Refused):
+                ep.catalogue_engine(json.dumps(dict(catalogue, engines=[wrong])).encode(), data)
+        with self.assertRaises(ep.Refused):
+            ep.catalogue_engine(json.dumps(dict(catalogue, engines=[])).encode(), data)
+
     def test_coincidence_exception_is_not_general(self):
         data = bytes(14906)
         self.assertFalse(ep.reviewed_engine_match(ep.WEB_ENGINE, data, 0x287f, 39))

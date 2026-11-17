@@ -1,0 +1,38 @@
+{
+  "format": "engine-catalogue/1",
+  "engines": [
+    {
+      "name": "FM",
+      "file": "fm.dse",
+      "sha256": "e5f074d5b69fc7a27d2b9340acda7dd975849220bbc367cdb2c2125d553da489",
+      "size": 15329,
+      "kind": 1,
+      "version": "2.1.0",
+      "author": "km",
+      "licence": "MIT",
+      "status": "official"
+    },
+    {
+      "name": "Formant",
+      "file": "formant.dse",
+      "sha256": "3d4c45bf4018309154d4d2fc72d80615b136c419ad2840c0635464f42017beab",
+      "size": 13037,
+      "kind": 6,
+      "version": "1.0.0",
+      "author": "km",
+      "licence": "MIT",
+      "status": "official"
+    },
+    {
+      "name": "Rings",
+      "file": "rings.dse",
+      "sha256": "703e91205a2d056c24a0c683ac12f4a2f4f93d1bb9ba086634e7ba002baeb31f",
+      "size": 14979,
+      "kind": 5,
+      "version": "1.0.0",
+      "author": "km",
+      "licence": "MIT",
+      "status": "official"
+    }
+  ]
+}

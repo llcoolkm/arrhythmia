@@ -358,6 +358,9 @@ static uint32_t crc_add(uint32_t c, const volatile uint8_t *p, uint32_t n);
  * size = 32 + 3 x words, the body CRC-32 at +8, this ARM's queue ABI, the base contract id, kind 1..15, +28..+31
  * zero; the loader's own checks, carddsp.c cd_hdr / cd_check). ABI3 also accepts the static CRE3 file grammar.
  * This stores bytes only: the loader still owns composition, qualification and runtime READY. */
+#if ABI3_QUEUE_TRACE
+__attribute__((noinline))
+#endif
 static uint32_t cw_cre2(uint32_t size)
 {
     const volatile uint32_t *h = (const volatile uint32_t *)MOD_BASE;

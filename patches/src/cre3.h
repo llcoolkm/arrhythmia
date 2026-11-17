@@ -36,7 +36,7 @@ static uint32_t cre3_sources(uint32_t wanted)
     }
     return n;
 }
-/* Format/queue minor 0 only. Later minors need their own capability owner. */
+/* Format minors 0 and 1; queue ABI minor 0. Later minors need their own capability owner. */
 #if ABI3_FAR_COLD && !FAR_PART
 static uint32_t cre3_controls(const struct cre3_facts *f);
 #else
@@ -44,7 +44,7 @@ static uint32_t cre3_controls(const struct cre3_facts *f)
 {
     const uint8_t *h=f->h;
     uint32_t wanted=cre3_u32(h+40), masks[2]={0,0}, knobs=0, macros=0;
-    uint32_t sounds=0, keys=0, editable=0, choice=0;
+    uint32_t sounds=0, keys=0, editable=0, choice=0, macro_knobs=0;
     for (uint32_t i=0;i<h[26];i++) {
         const uint8_t *r=f->controls+8*i;
         uint32_t k=r[0]&15, s=r[0]>>4, src=r[1], off=r[2], width=r[3], count=r[4];
@@ -56,7 +56,9 @@ static uint32_t cre3_controls(const struct cre3_facts *f)
             macros|=1u<<src; continue;
         }
         if (k==6) {
-            if (s || !cre3_u32(r+1) || r[5] || r[6] || r[7] || keys++) return 17;
+            if (s || !cre3_u32(r+1) || r[7] || keys++ || (r[5]&~15u)
+                || (r[5] ? (!r[6] || r[6]>4 || !(r[5]&(1u<<(r[6]-1)))) : r[6])
+                || ((!h[27] || h[24]!=1) && (r[5] || r[6]))) return 17;
             continue;
         }
         if (src>21 || !(wanted&(1u<<src)) || r[7]&128 || (r[6]&15)>7 || (r[6]>>4)>7) return 17;
@@ -66,6 +68,10 @@ static uint32_t cre3_controls(const struct cre3_facts *f)
         if (k==1) {
             if (s!=1 || src!=8 || off || width || !count || count!=h[46] || r[5]>=count) return 17;
             sounds++; continue;
+        }
+        if (k==4 && !s && src>=9 && src<=11) {
+            if (!(h[27]&128) || (macro_knobs&(1u<<src)) || off || width || count || r[5]>127 || r[6]>7) return 17;
+            macro_knobs|=1u<<src; continue;
         }
         editable=1;
         if (k==4) {
@@ -104,7 +110,7 @@ static uint32_t cre3_controls(const struct cre3_facts *f)
 static uint32_t cre3_header(const uint8_t *h,uint32_t size,const struct cre3_platform *p)
 {
     uint32_t H=h[4]|(uint32_t)h[5]<<8, n=cre3_u32(h+8), C=h[26];
-    if (cre3_u32(h)!=0x33455243u || h[6] || h[7]
+    if (cre3_u32(h)!=0x33455243u || h[6]>1 || h[7]
         || H<64+8u*(h[25]+C) || H>4096 || H%4) return 1;
     if (n<389 || n>8192) return 10;
     if (size!=H+3*n) return 1;
@@ -123,7 +129,9 @@ static uint32_t cre3_header(const uint8_t *h,uint32_t size,const struct cre3_pla
 #endif
     if (h[25]) return 12;
     if (cre3_sources(wanted)+h[44]>24) return 15;
-    if (!h[24] || h[27]) return 16;
+    if (!h[24] || h[24]>127 || (!h[27] && h[24]!=1)
+            || (h[27] && h[27]!=128 && h[27]!=129) || (h[27]==129 && h[24]!=1)
+            || (h[27] && !h[6])) return 16;
     return 0;
 }
 static uint32_t cre3_vector(const uint8_t *b,uint32_t n)

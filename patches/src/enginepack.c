@@ -298,6 +298,9 @@ static void ep_load(struct eo *e, uint32_t engine)
 }
 
 /* 4D: the candidate's queue header within EP_READY_MS (the queue reads under its own rules), watchdog fed. */
+#if ABI3_QUEUE_TRACE
+__attribute__((noinline))
+#endif
 static uint32_t ep_ready(void)
 {
     uint32_t t0 = TICK();
@@ -570,10 +573,9 @@ static uint32_t ep_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     struct eo *e = eo();
     struct state *s = region();
     struct a1 *a8p = a1();
-    if (!e || !s || !a8p)
-        return STOCK_PACK_ACCESS(a, b, c, d);
+    if (!e || !s || !a8p) { q0_trace(50,a); return STOCK_PACK_ACCESS(a,b,c,d); }
     if (e->phase != EP_IDLE) {                /* a nested pack load: refused, the outer transaction untouched */
-        e->busy++;
+        e->busy++; q0_trace(51,a);
         return 1;
     }
     uint32_t target = a & 0xFFu;
@@ -586,12 +588,12 @@ static uint32_t ep_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
     RESUME_ALL();
     if (!free) {                              /* BUSY: refused before the stock check, nothing changed (D3) */
         e->busy++;
-        e->verdict = EV_BUSY;
+        e->verdict = EV_BUSY; q0_trace(52,a);
         return 1;
     }
     wd_mark(1);
     e->phase = EP_SELECT;
-    e->att++;
+    e->att++; q0_trace(53,target);
     e->c_pack = (uint8_t)target;
     e->tf = 0;
     e->loads = 0;
@@ -750,6 +752,9 @@ static void ep_done(void)
         if (!a->eng != !(e->fl & EF_WASENG))  /* pub before 4A against pub now */
             ep_keyboard(a->eng);
     }
+#if ENGINE_ABI3
+    abi3_sample_bind();
+#endif
     e->phase = EP_IDLE;
     wd_mark(0);
     ep_record(e);
@@ -838,7 +843,11 @@ static uint32_t pk_guard(const struct state *s)
         return PA_NOTREADY;
     if (o1_faulted() || e->r_fault)
         return PA_FAULT;
-    if (s->ld_phase == LD_JOB)
+    if (s->ld_phase == LD_JOB
+#if CARD_INVENTORY
+        || LIST_ACTIVE == 1
+#endif
+       )
         return PA_CARD;
     if (s->mod_frame || s->mode == 3 || s->mode == MODE_PICK)
         return PA_MODULE;

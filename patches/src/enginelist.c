@@ -313,7 +313,11 @@ static void el_cmd(struct state *s, const uint8_t *m, uint32_t len)
     uint8_t reply[208];
     SUSPEND_ALL();
     if (sub == 0x11 && (EL->state != 1 || EL->nonce != nonce)) {
-        if (EL->state == 1 || s->tok || (s->ld_phase != LD_IDLE && s->ld_phase != LD_DONE) || fs_state() != 1)
+        if (
+#if REMOTE_PACK_LOAD
+            (uint32_t)PK->state - PK_QUEUED < 2u ||
+#endif
+            EL->state == 1 || s->tok || (s->ld_phase != LD_IDLE && s->ld_phase != LD_DONE) || fs_state() != 1)
             answer = 1;
         else {
             volatile uint32_t *p = (volatile uint32_t *)EL;

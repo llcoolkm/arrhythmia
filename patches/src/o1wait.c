@@ -449,6 +449,9 @@ static void ep_done(void);
 uint32_t hook_pack_access(uint32_t a, uint32_t b, uint32_t c, uint32_t d)
 {
     if (o1_faulted()) {
+#if ABI3_QUEUE_TRACE
+        q0_trace(54,a);
+#endif
         o1_refuse();
         return 1;                             /* the pack load fails before any DSP traffic */
     }
@@ -562,6 +565,7 @@ void hook_encode(void *frame, uint32_t *src)
 #if PG_NAV
     pg_shift_light(region(), src);            /* synthpage.c: Track 8 lit while Shift is held (issue #29) */
 #endif
+    q0_ui_frame(3,src[4],region() && src==region()->fake_src);
     STOCK_ENCODE(frame, src);
 }
 
